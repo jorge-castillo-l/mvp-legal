@@ -1,0 +1,24 @@
+# PROYECTO: ASISTENTE LEGAL IA (EXTENSION FIRST)
+
+## Contexto Global (2026)
+Este proyecto es una **Extensión de Navegador** para abogados basada en Chromium (Manifest V3).
+- **Core Product:** La experiencia principal vive en el Sidepanel de la extensión.
+- **Web Dashboard:** (`/app/dashboard`) es SOLO un panel administrativo satélite (Billing, Historial, Settings). NO es el espacio de trabajo.
+- **Backend:** Supabase (Auth, Database, Edge Functions).
+
+## Reglas de Desarrollo
+1. **Arquitectura Híbrida:** - El Auth debe funcionar mediante **Cookies Particionadas** o Tokens seguros que persistan entre la Extensión (`chrome-extension://`) y la Web (`https://...`).
+   - Priorizar el uso de `chrome.storage.local` para cache en la extensión.
+
+2. **UI/UX (Shadcn/UI v2+):**
+   - Mantener estética "Legal/Sobria" (Slate/Gray).
+   - Los componentes deben ser ligeros para no ralentizar el navegador.
+
+3. **Tech Stack Objetivo:**
+   - Framework: Next.js 16 (App Router)
+   - Estilos: Tailwind CSS 4+ (Variables nativas)
+   - IA: Gemini 2.0/3.0 via Vercel AI SDK o Direct Fetch.
+
+## Restricciones
+- NO crear páginas complejas en el Dashboard si esa función puede ir en el Sidepanel.
+- NO usar librerías pesadas que inflen el bundle de la extensión.
