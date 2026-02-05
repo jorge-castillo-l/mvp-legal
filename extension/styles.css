@@ -82,11 +82,55 @@ h2 {
   background-color: #020617;
 }
 
+.btn-primary:disabled {
+  background-color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background-color: white;
+  color: var(--primary-color);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+
+.btn-secondary:hover {
+  background-color: var(--bg-color);
+  border-color: var(--accent-color);
+}
+
 .output-area {
   margin-top: 10px;
-  font-family: monospace;
   font-size: 12px;
   color: var(--secondary-color);
+  line-height: 1.5;
+}
+
+.output-area p {
+  margin: 8px 0;
+}
+
+.output-area strong {
+  color: var(--primary-color);
+}
+
+#auth-section p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+#unauthenticated-content .card p {
+  color: var(--secondary-color);
+  line-height: 1.5;
+  margin-bottom: 16px;
 }
 
 footer {

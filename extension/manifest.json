@@ -3,8 +3,8 @@
   "name": "Legal Bot",
   "version": "1.0",
   "description": "Asistente Legal IA para el Poder Judicial",
-  "permissions": ["sidePanel", "activeTab", "scripting", "cookies"],
-  "host_permissions": ["*://*.pjud.cl/*", "http://localhost:3000/*"],
+  "permissions": ["sidePanel", "activeTab", "scripting", "cookies", "storage"],
+  "host_permissions": ["*://*.pjud.cl/*", "http://localhost:3000/*", "https://jszpfokzybhpngmqdezd.supabase.co/*"],
   "background": {
     "service_worker": "service-worker.js"
   },

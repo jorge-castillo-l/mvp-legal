@@ -13,21 +13,50 @@
       <p class="status">Listo para analizar</p>
     </header>
     
-    <main>
-      <div class="card">
-        <h2>Acciones Rápidas</h2>
-        <button id="analyze-btn" class="btn-primary">
-          Analizar Causa
-        </button>
+    <!-- Sección de Autenticación -->
+    <div id="auth-section" class="card" style="display: none;">
+      <h2>Autenticación</h2>
+      <div id="auth-status">
+        <p>Verificando sesión...</p>
       </div>
-      
-      <div id="output" class="output-area"></div>
+      <button id="login-btn" class="btn-secondary" style="display: none;">
+        Iniciar Sesión en Dashboard
+      </button>
+      <button id="logout-btn" class="btn-secondary" style="display: none;">
+        Cerrar Sesión
+      </button>
+    </div>
+
+    <main>
+      <!-- Usuario autenticado -->
+      <div id="authenticated-content" style="display: none;">
+        <div class="card">
+          <h2>Acciones Rápidas</h2>
+          <button id="analyze-btn" class="btn-primary">
+            Analizar Causa
+          </button>
+        </div>
+        
+        <div id="output" class="output-area"></div>
+      </div>
+
+      <!-- Usuario no autenticado -->
+      <div id="unauthenticated-content" style="display: none;">
+        <div class="card">
+          <h2>Bienvenido</h2>
+          <p>Por favor, inicia sesión en el Dashboard para usar la extensión.</p>
+          <button id="open-dashboard-btn" class="btn-primary">
+            Abrir Dashboard
+          </button>
+        </div>
+      </div>
     </main>
 
     <footer>
       <small>MVP Legal v1.0</small>
     </footer>
   </div>
+  <script src="lib/supabase.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
