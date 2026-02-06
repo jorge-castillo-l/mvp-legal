@@ -1,10 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Legal Bot",
-  "version": "1.0",
-  "description": "Asistente Legal IA para el Poder Judicial",
-  "permissions": ["sidePanel", "activeTab", "scripting", "cookies", "storage"],
-  "host_permissions": ["*://*.pjud.cl/*", "http://localhost:3000/*", "https://jszpfokzybhpngmqdezd.supabase.co/*"],
+  "version": "1.1",
+  "description": "Asistente Legal IA para el Poder Judicial - Scraper Resiliente",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "cookies",
+    "storage",
+    "webRequest",
+    "downloads"
+  ],
+  "host_permissions": [
+    "*://*.pjud.cl/*",
+    "http://localhost:3000/*",
+    "https://jszpfokzybhpngmqdezd.supabase.co/*"
+  ],
   "background": {
     "service_worker": "service-worker.js"
   },
@@ -17,8 +29,24 @@
   "content_scripts": [
     {
       "matches": ["*://*.pjud.cl/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
+      "js": [
+        "scraper/remote-config.js",
+        "scraper/network-interceptor.js",
+        "scraper/dom-analyzer.js",
+        "scraper/human-throttle.js",
+        "scraper/causa-context.js",
+        "scraper/pdf-validator.js",
+        "scraper/strategy-engine.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["scraper/page-interceptor.js"],
+      "matches": ["*://*.pjud.cl/*"]
     }
   ]
 }

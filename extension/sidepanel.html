@@ -9,51 +9,99 @@
 <body>
   <div class="container">
     <header>
-      <h1>Legal Bot Active</h1>
-      <p class="status">Listo para analizar</p>
+      <h1>Legal Bot</h1>
+      <p class="status" id="header-status">Esperando conexión...</p>
     </header>
     
     <!-- Sección de Autenticación -->
     <div id="auth-section" class="card" style="display: none;">
       <h2>Autenticación</h2>
-      <div id="auth-status">
-        <p>Verificando sesión...</p>
-      </div>
-      <button id="login-btn" class="btn-secondary" style="display: none;">
-        Iniciar Sesión en Dashboard
-      </button>
-      <button id="logout-btn" class="btn-secondary" style="display: none;">
-        Cerrar Sesión
-      </button>
+      <div id="auth-status"><p>Verificando sesión...</p></div>
+      <button id="login-btn" class="btn-secondary" style="display: none;">Iniciar Sesión en Dashboard</button>
+      <button id="logout-btn" class="btn-secondary" style="display: none;">Cerrar Sesión</button>
     </div>
 
     <main>
-      <!-- Usuario autenticado -->
+      <!-- ══════ USUARIO AUTENTICADO ══════ -->
       <div id="authenticated-content" style="display: none;">
-        <div class="card">
-          <h2>Acciones Rápidas</h2>
-          <button id="analyze-btn" class="btn-primary">
-            Analizar Causa
-          </button>
-        </div>
         
-        <div id="output" class="output-area"></div>
+        <!-- ══════ DETECCIÓN DE CAUSA (4.07) ══════ -->
+        <div id="causa-section" class="card" style="display: none;">
+          <h2>Causa Detectada</h2>
+          <div id="causa-info" class="causa-info">
+            <p class="causa-rol" id="causa-rol">--</p>
+            <p class="causa-detail" id="causa-tribunal">--</p>
+            <p class="causa-detail" id="causa-caratula">--</p>
+          </div>
+          <!-- Preview de documentos -->
+          <div id="doc-preview" class="doc-preview" style="display: none;">
+            <p class="preview-title" id="doc-count">0 documentos encontrados</p>
+            <div id="doc-types" class="doc-types"></div>
+          </div>
+          <button id="confirm-causa-btn" class="btn-primary btn-confirm" style="display: none;">
+            Confirmar Causa
+          </button>
+          <p id="causa-hint" class="hint">Navegue a una causa en pjud.cl para detectarla</p>
+        </div>
+
+        <!-- ══════ BOTÓN SINCRONIZAR ══════ -->
+        <div id="sync-section" class="card" style="display: none;">
+          <h2>Sincronización</h2>
+          <button id="sync-btn" class="btn-primary btn-sync" disabled>
+            <span class="btn-icon">⚡</span>
+            Sincronizar
+          </button>
+          <p class="hint" id="sync-hint">Confirme la causa antes de sincronizar</p>
+        </div>
+
+        <!-- ══════ PROGRESO ══════ -->
+        <div id="sync-progress" class="card" style="display: none;">
+          <h2>Progreso</h2>
+          <div class="progress-container">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+          <div id="progress-status" class="progress-status">Iniciando...</div>
+          <div id="progress-details" class="progress-details"></div>
+        </div>
+
+        <!-- ══════ RESULTADOS ══════ -->
+        <div id="sync-results" class="card" style="display: none;">
+          <h2>Resultados</h2>
+          <div id="results-content"></div>
+        </div>
+
+        <!-- ══════ UPLOAD MANUAL (Layer 3) ══════ -->
+        <div id="manual-upload-section" class="card" style="display: none;">
+          <h2>Subida Manual</h2>
+          <p class="hint">Arrastre PDFs aquí o haga clic para seleccionar</p>
+          <div id="drop-zone" class="drop-zone">
+            <span class="drop-icon">📄</span>
+            <span class="drop-text">Soltar PDF aquí</span>
+            <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
+          </div>
+          <div id="upload-status" class="progress-status" style="display: none;"></div>
+        </div>
+
+        <!-- ══════ DIAGNÓSTICO ══════ -->
+        <div class="card">
+          <h2>Diagnóstico</h2>
+          <button id="analyze-btn" class="btn-secondary">Analizar Página</button>
+          <div id="analysis-output" class="output-area"></div>
+        </div>
       </div>
 
-      <!-- Usuario no autenticado -->
+      <!-- ══════ USUARIO NO AUTENTICADO ══════ -->
       <div id="unauthenticated-content" style="display: none;">
         <div class="card">
           <h2>Bienvenido</h2>
           <p>Por favor, inicia sesión en el Dashboard para usar la extensión.</p>
-          <button id="open-dashboard-btn" class="btn-primary">
-            Abrir Dashboard
-          </button>
+          <button id="open-dashboard-btn" class="btn-primary">Abrir Dashboard</button>
         </div>
       </div>
     </main>
 
     <footer>
-      <small>MVP Legal v1.0</small>
+      <small>MVP Legal v1.1 - Scraper Resiliente</small>
     </footer>
   </div>
   <script src="lib/supabase.js"></script>
