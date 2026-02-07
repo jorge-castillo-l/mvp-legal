@@ -31,9 +31,9 @@ Crea la tabla `profiles` con el modelo binario FREE/PRO:
 - ✅ Funciones helper para verificar límites
 - ✅ Índices optimizados para The Reaper y anti-multicuentas
 
-**Límites por Plan**:
-- **FREE**: 1 causa, 10 chats, 1 deep thinking, borrado a los 3 días
-- **PRO**: 500 causas, chat ilimitado, 100 deep thinking
+**Límites por Plan (Actualización Feb 2026)**:
+- **FREE** ("Prueba Profesional" - 7 días): 1 causa, 20 chats (lifetime), 3 deep thinking (lifetime), borrado a los 7 días. Ghost card tras expiración.
+- **PRO** ($50.00/mes): 500 causas, chat con Fair Use (soft cap 3,000/mes con throttle 30s), 100 deep thinking/mes. Contadores mensuales auto-reset.
 
 ### 20260204120001_create_case_files_bucket.sql
 **Tarea**: 2.01 - Bucket de Expedientes
@@ -41,10 +41,11 @@ Crea la tabla `profiles` con el modelo binario FREE/PRO:
 Crea el bucket `case-files` y configura políticas RLS para archivos PDF:
 
 - ✅ Bucket privado (solo usuarios autenticados)
-- ✅ Límite: 50 MB por archivo
+- ✅ Sin límite de tamaño duro (sistema de tiers: standard ≤50MB, large ≤500MB, tomo ≤5GB)
 - ✅ Solo PDFs permitidos
 - ✅ Políticas RLS: usuarios solo acceden a sus archivos
 - ✅ Metadata para The Reaper (plan_type, owner)
+- ✅ Resumable uploads (TUS protocol) para archivos >50MB
 
 ## 🚀 Flujo de Trabajo: Cursor → Supabase
 
@@ -156,7 +157,7 @@ select public.check_user_limits(
 );
 
 -- Debería retornar algo como:
--- {"allowed": true, "current_count": 0, "remaining": 10, "plan": "free"}
+-- {"allowed": true, "current_count": 0, "remaining": 20, "limit": 20, "plan": "free"}
 ```
 
 ## Estructura de la Tabla Profiles
@@ -170,7 +171,10 @@ select public.check_user_limits(
 | `deep_thinking_count` | int | Contador de Deep Thinking |
 | `case_count` | int | Contador de causas subidas |
 | `device_fingerprint` | text | Hash para evitar multicuentas |
-| `last_active_date` | timestamptz | Última actividad (para The Reaper) |
+| `monthly_chat_count` | int | Contador mensual de chats (Fair Use PRO) |
+| `monthly_deep_thinking_count` | int | Contador mensual de Deep Thinking |
+| `monthly_reset_date` | timestamptz | Fecha de reset mensual de contadores |
+| `last_active_date` | timestamptz | Última actividad (para The Reaper, 7 días) |
 | `created_at` | timestamptz | Fecha de creación |
 | `updated_at` | timestamptz | Última actualización |
 

@@ -15,7 +15,8 @@
  * Seguridad:
  *   - Requiere JWT válido en header Authorization
  *   - Valida tipo de archivo (solo PDF)
- *   - Limita tamaño (50MB max)
+ *   - Limita tamaño (50MB max para esta ruta estándar)
+ *   - Archivos >50MB usan TUS protocol (resumable-upload.js)
  *   - Archivos se guardan bajo el path del user_id (RLS)
  * ============================================================
  */

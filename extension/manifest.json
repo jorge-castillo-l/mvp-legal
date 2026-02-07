@@ -30,6 +30,7 @@
     {
       "matches": ["*://*.pjud.cl/*"],
       "js": [
+        "lib/resumable-upload.js",
         "scraper/remote-config.js",
         "scraper/network-interceptor.js",
         "scraper/dom-analyzer.js",

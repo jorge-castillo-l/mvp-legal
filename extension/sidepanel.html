@@ -54,6 +54,11 @@
           <p class="hint" id="sync-hint">Confirme la causa antes de sincronizar</p>
         </div>
 
+        <!-- ══════ ADVERTENCIAS DE ARCHIVOS GRANDES ══════ -->
+        <div id="size-warnings" class="card" style="display: none;">
+          <div id="size-warnings-content"></div>
+        </div>
+
         <!-- ══════ PROGRESO ══════ -->
         <div id="sync-progress" class="card" style="display: none;">
           <h2>Progreso</h2>
@@ -61,7 +66,19 @@
             <div id="progress-bar" class="progress-bar"></div>
           </div>
           <div id="progress-status" class="progress-status">Iniciando...</div>
+          <!-- Progreso de upload resumable (archivos grandes) -->
+          <div id="resumable-progress" style="display: none;">
+            <div class="progress-container" style="margin-top: 8px;">
+              <div id="resumable-bar" class="progress-bar progress-info" style="width: 0%;"></div>
+            </div>
+            <div id="resumable-status" class="progress-status" style="font-size: 12px;"></div>
+          </div>
           <div id="progress-details" class="progress-details"></div>
+        </div>
+
+        <!-- ══════ RESUMEN DE BATCH ══════ -->
+        <div id="batch-summary" class="card" style="display: none;">
+          <div id="batch-summary-content"></div>
         </div>
 
         <!-- ══════ RESULTADOS ══════ -->

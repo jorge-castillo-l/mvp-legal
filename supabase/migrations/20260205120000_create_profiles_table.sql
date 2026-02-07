@@ -3,6 +3,17 @@
 -- ============================================================================
 -- Tabla de perfiles de usuarios con modelo binario FREE/PRO
 -- Incluye control de multicuentas mediante device_fingerprint
+-- 
+-- ACTUALIZACIÓN Feb 2026 - Rediseño Estratégico de Planes:
+--   FREE ("Prueba Profesional" - 7 días):
+--     1 causa, 20 chats, 3 deep thinking, 3 docs editor IA
+--     Borrado automático a los 7 días (The Reaper)
+--     Ghost card: se conserva metadata de causa tras borrado
+--   PRO ($50.00/mes):
+--     500 causas, chat con Fair Use (soft cap 3,000/mes),
+--     100 deep thinking/mes, editor ilimitado
+--     Fair Use: al superar 3,000 chats/mes se aplica throttle
+--     (1 query cada 30s) en vez de bloqueo
 -- ============================================================================
 
 -- 1. CREAR TABLA PROFILES
@@ -16,14 +27,20 @@ create table if not exists public.profiles (
   -- Plan y límites
   plan_type text default 'free' not null check (plan_type in ('free', 'pro')),
   
-  -- Contadores (Modelo Binario)
-  -- FREE: 10 chats, 1 deep thinking
-  -- PRO: Ilimitado chats, 100 deep thinking
+  -- Contadores de uso (lifetime para FREE, mensual+lifetime para PRO)
+  -- FREE: 20 chats (lifetime), 3 deep thinking (lifetime)
+  -- PRO: Fair Use soft cap 3,000 chats/mes, 100 deep thinking/mes
   chat_count int default 0 not null check (chat_count >= 0),
   deep_thinking_count int default 0 not null check (deep_thinking_count >= 0),
   
+  -- Contadores mensuales (para Fair Use de PRO y reset mensual de DT)
+  -- Se resetean automáticamente al cambiar de mes
+  monthly_chat_count int default 0 not null check (monthly_chat_count >= 0),
+  monthly_deep_thinking_count int default 0 not null check (monthly_deep_thinking_count >= 0),
+  monthly_reset_date timestamp with time zone default date_trunc('month', timezone('utc'::text, now())) not null,
+  
   -- Control de casos subidos
-  -- FREE: 1 causa máximo (borrado a los 3 días)
+  -- FREE: 1 causa máximo (borrado a los 7 días)
   -- PRO: 500 causas
   case_count int default 0 not null check (case_count >= 0),
   
@@ -41,12 +58,15 @@ create table if not exists public.profiles (
 
 -- Comentarios para documentación
 comment on table public.profiles is 'Perfiles de usuarios con control de planes FREE/PRO y límites de uso';
-comment on column public.profiles.plan_type is 'Tipo de plan: free (1 causa, 10 chats, 1 deep thinking, borrado 3 días) o pro ($29.90, 500 causas, chat ilimitado, 100 deep thinking)';
-comment on column public.profiles.chat_count is 'Contador de chats realizados. Límite: 10 para FREE, ilimitado para PRO';
-comment on column public.profiles.deep_thinking_count is 'Contador de Deep Thinking. Límite: 1 para FREE, 100 para PRO';
+comment on column public.profiles.plan_type is 'Tipo de plan: free (1 causa, 20 chats, 3 deep thinking, 7 días) o pro ($50.00/mes, 500 causas, chat fair use 3000/mes, 100 deep thinking/mes)';
+comment on column public.profiles.chat_count is 'Contador lifetime de chats. FREE: límite 20 (lifetime). PRO: acumulativo (solo referencia)';
+comment on column public.profiles.deep_thinking_count is 'Contador lifetime de Deep Thinking. FREE: límite 3 (lifetime). PRO: acumulativo (solo referencia)';
+comment on column public.profiles.monthly_chat_count is 'Contador mensual de chats para Fair Use PRO. Soft cap: 3,000/mes. Se resetea automáticamente al cambiar de mes';
+comment on column public.profiles.monthly_deep_thinking_count is 'Contador mensual de Deep Thinking. PRO: límite 100/mes. Se resetea automáticamente al cambiar de mes';
+comment on column public.profiles.monthly_reset_date is 'Primer día del mes actual. Cuando cambia, se resetean los contadores mensuales';
 comment on column public.profiles.case_count is 'Contador de causas subidas. Límite: 1 para FREE, 500 para PRO';
 comment on column public.profiles.device_fingerprint is 'Hash único del dispositivo para evitar multicuentas FREE. Debe ser único por usuario FREE';
-comment on column public.profiles.last_active_date is 'Última actividad. Usado por The Reaper para borrar cuentas FREE inactivas después de 3 días';
+comment on column public.profiles.last_active_date is 'Última actividad. Usado por The Reaper para borrar cuentas FREE inactivas después de 7 días';
 
 
 -- 2. ÍNDICES PARA OPTIMIZACIÓN
@@ -56,7 +76,7 @@ comment on column public.profiles.last_active_date is 'Última actividad. Usado 
 create index if not exists profiles_email_idx on public.profiles(email);
 
 -- Índice para el script "The Reaper" (Tarea 23)
--- Busca usuarios FREE con más de 3 días de inactividad
+-- Busca usuarios FREE con más de 7 días de inactividad
 create index if not exists profiles_reaper_idx 
   on public.profiles(plan_type, last_active_date) 
   where plan_type = 'free';
@@ -157,8 +177,41 @@ create trigger profiles_updated_at
   execute function public.handle_updated_at();
 
 
--- 6. FUNCIÓN HELPER: VERIFICAR LÍMITES DE PLAN
+-- 6. FUNCIÓN HELPER: RESETEAR CONTADORES MENSUALES
 -- ============================================================================
+-- Se ejecuta dentro de check_user_limits para garantizar que los contadores
+-- mensuales se reseteen automáticamente al cambiar de mes.
+
+create or replace function public.maybe_reset_monthly_counters(
+  user_id uuid
+)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  current_month_start timestamp with time zone;
+begin
+  current_month_start := date_trunc('month', timezone('utc'::text, now()));
+  
+  update public.profiles
+  set
+    monthly_chat_count = 0,
+    monthly_deep_thinking_count = 0,
+    monthly_reset_date = current_month_start
+  where id = user_id
+    and monthly_reset_date < current_month_start;
+end;
+$$;
+
+comment on function public.maybe_reset_monthly_counters is 'Resetea contadores mensuales si el mes cambió. Idempotente: solo resetea una vez por mes';
+
+
+-- 7. FUNCIÓN HELPER: VERIFICAR LÍMITES DE PLAN
+-- ============================================================================
+-- ACTUALIZACIÓN Feb 2026:
+--   FREE: 20 chats (lifetime), 3 deep thinking (lifetime), 1 causa
+--   PRO: Fair Use 3,000 chats/mes (soft cap con throttle), 100 DT/mes, 500 causas
 
 create or replace function public.check_user_limits(
   user_id uuid,
@@ -172,7 +225,10 @@ declare
   user_profile record;
   result jsonb;
 begin
-  -- Obtener perfil del usuario
+  -- Resetear contadores mensuales si corresponde
+  perform public.maybe_reset_monthly_counters(user_id);
+
+  -- Obtener perfil del usuario (con contadores ya reseteados si aplica)
   select * into user_profile
   from public.profiles
   where id = user_id;
@@ -188,56 +244,87 @@ begin
   -- Verificar según tipo de acción y plan
   case action_type
     when 'chat' then
-      if user_profile.plan_type = 'free' and user_profile.chat_count >= 10 then
+      -- FREE: 20 chats lifetime (hard block)
+      if user_profile.plan_type = 'free' and user_profile.chat_count >= 20 then
         return jsonb_build_object(
           'allowed', false,
-          'error', 'FREE plan limit reached: 10 chats maximum',
+          'error', 'FREE plan limit reached: 20 chats maximum. Upgrade to Pro for unlimited access.',
           'current_count', user_profile.chat_count,
-          'limit', 10,
-          'plan', 'free'
+          'limit', 20,
+          'plan', 'free',
+          'upgrade_required', true
         );
+      -- PRO: Fair Use soft cap 3,000/mes (throttle, NOT block)
+      elsif user_profile.plan_type = 'pro' and user_profile.monthly_chat_count >= 3000 then
+        return jsonb_build_object(
+          'allowed', true,
+          'message', 'PRO plan: Fair Use soft cap reached. Throttle applied.',
+          'current_count', user_profile.chat_count,
+          'monthly_count', user_profile.monthly_chat_count,
+          'plan', 'pro',
+          'fair_use_throttle', true,
+          'throttle_ms', 30000
+        );
+      -- PRO: Normal (below soft cap)
       elsif user_profile.plan_type = 'pro' then
         return jsonb_build_object(
           'allowed', true,
-          'message', 'PRO plan: unlimited chats',
+          'message', 'PRO plan: chat allowed',
           'current_count', user_profile.chat_count,
-          'plan', 'pro'
+          'monthly_count', user_profile.monthly_chat_count,
+          'monthly_remaining', 3000 - user_profile.monthly_chat_count,
+          'plan', 'pro',
+          'fair_use_throttle', false
         );
+      -- FREE: Below limit
       else
         return jsonb_build_object(
           'allowed', true,
           'current_count', user_profile.chat_count,
-          'remaining', 10 - user_profile.chat_count,
+          'remaining', 20 - user_profile.chat_count,
+          'limit', 20,
           'plan', 'free'
         );
       end if;
 
     when 'deep_thinking' then
-      if user_profile.plan_type = 'free' and user_profile.deep_thinking_count >= 1 then
+      -- FREE: 3 deep thinking lifetime (hard block)
+      if user_profile.plan_type = 'free' and user_profile.deep_thinking_count >= 3 then
         return jsonb_build_object(
           'allowed', false,
-          'error', 'FREE plan limit reached: 1 Deep Thinking maximum',
+          'error', 'FREE plan limit reached: 3 Deep Thinking maximum. Upgrade to Pro for 100/month.',
           'current_count', user_profile.deep_thinking_count,
-          'limit', 1,
-          'plan', 'free'
+          'limit', 3,
+          'plan', 'free',
+          'upgrade_required', true
         );
-      elsif user_profile.plan_type = 'pro' and user_profile.deep_thinking_count >= 100 then
+      -- PRO: 100 deep thinking por MES (hard block mensual)
+      elsif user_profile.plan_type = 'pro' and user_profile.monthly_deep_thinking_count >= 100 then
         return jsonb_build_object(
           'allowed', false,
-          'error', 'PRO plan limit reached: 100 Deep Thinking maximum',
+          'error', 'PRO plan monthly limit reached: 100 Deep Thinking per month. Resets next month.',
           'current_count', user_profile.deep_thinking_count,
+          'monthly_count', user_profile.monthly_deep_thinking_count,
           'limit', 100,
           'plan', 'pro'
         );
+      -- PRO: Below monthly limit
+      elsif user_profile.plan_type = 'pro' then
+        return jsonb_build_object(
+          'allowed', true,
+          'current_count', user_profile.deep_thinking_count,
+          'monthly_count', user_profile.monthly_deep_thinking_count,
+          'remaining', 100 - user_profile.monthly_deep_thinking_count,
+          'plan', 'pro'
+        );
+      -- FREE: Below limit
       else
         return jsonb_build_object(
           'allowed', true,
           'current_count', user_profile.deep_thinking_count,
-          'remaining', case 
-            when user_profile.plan_type = 'free' then 1 - user_profile.deep_thinking_count
-            else 100 - user_profile.deep_thinking_count
-          end,
-          'plan', user_profile.plan_type
+          'remaining', 3 - user_profile.deep_thinking_count,
+          'limit', 3,
+          'plan', 'free'
         );
       end if;
 
@@ -245,10 +332,11 @@ begin
       if user_profile.plan_type = 'free' and user_profile.case_count >= 1 then
         return jsonb_build_object(
           'allowed', false,
-          'error', 'FREE plan limit reached: 1 case maximum',
+          'error', 'FREE plan limit reached: 1 case maximum. Upgrade to Pro for 500 cases.',
           'current_count', user_profile.case_count,
           'limit', 1,
-          'plan', 'free'
+          'plan', 'free',
+          'upgrade_required', true
         );
       elsif user_profile.plan_type = 'pro' and user_profile.case_count >= 500 then
         return jsonb_build_object(
@@ -279,10 +367,10 @@ begin
 end;
 $$;
 
-comment on function public.check_user_limits is 'Verifica si un usuario puede realizar una acción según su plan y contadores actuales';
+comment on function public.check_user_limits is 'Verifica si un usuario puede realizar una acción según su plan y contadores actuales. Incluye Fair Use para PRO (soft cap 3,000 chats/mes con throttle)';
 
 
--- 7. FUNCIÓN: INCREMENTAR CONTADORES
+-- 8. FUNCIÓN: INCREMENTAR CONTADORES
 -- ============================================================================
 
 create or replace function public.increment_counter(
@@ -296,7 +384,7 @@ as $$
 declare
   limits_check jsonb;
 begin
-  -- Primero verificar límites
+  -- Primero verificar límites (esto también resetea contadores mensuales si necesario)
   limits_check := public.check_user_limits(user_id, counter_type);
 
   if (limits_check->>'allowed')::boolean = false then
@@ -309,6 +397,7 @@ begin
       update public.profiles
       set 
         chat_count = chat_count + 1,
+        monthly_chat_count = monthly_chat_count + 1,
         last_active_date = timezone('utc'::text, now())
       where id = user_id;
 
@@ -316,6 +405,7 @@ begin
       update public.profiles
       set 
         deep_thinking_count = deep_thinking_count + 1,
+        monthly_deep_thinking_count = monthly_deep_thinking_count + 1,
         last_active_date = timezone('utc'::text, now())
       where id = user_id;
 
@@ -334,7 +424,7 @@ begin
 end;
 $$;
 
-comment on function public.increment_counter is 'Incrementa un contador de uso y actualiza last_active_date. Valida límites antes de incrementar';
+comment on function public.increment_counter is 'Incrementa contadores lifetime y mensuales. Valida límites antes de incrementar. Fair Use: permite pero marca throttle para PRO >3,000 chats/mes';
 
 
 -- ============================================================================

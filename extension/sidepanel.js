@@ -282,7 +282,16 @@ function handleScraperEvent(event, data) {
       showNotification(`PDF capturado: ${formatSize(data?.size)}`, 'success');
       break;
     case 'pdf_uploaded':
-      showNotification(`Subido: ${data?.filename} (${data?.type || ''})`, 'success');
+      handlePdfUploaded(data);
+      break;
+    case 'upload_progress':
+      handleUploadProgress(data);
+      break;
+    case 'upload_error':
+      handleUploadError(data);
+      break;
+    case 'batch_summary':
+      displayBatchSummary(data);
       break;
     case 'content_updated':
       if (data?.causa) displayDetectedCausa(data.causa);
@@ -299,7 +308,7 @@ function handleStatusUpdate(data) {
     'layer1': 30, 'layer1_success': 40, 'layer1_empty': 35,
     'layer2': 45, 'layer2_scoped': 48, 'layer2_table': 50,
     'layer2_found': 55, 'layer2_downloading': 65,
-    'validating': 70, 'filtered': 75,
+    'validating': 70, 'filtered': 75, 'needs_confirmation': 76,
     'uploading': 80, 'complete': 100,
     'all_rejected': 100, 'fallback': 100, 'wrong_page': 100, 'error': 100,
   };
@@ -343,12 +352,18 @@ function showSyncResults(results) {
   const duration = results.duration ? `${(results.duration / 1000).toFixed(1)}s` : 'N/A';
 
   if (results.totalUploaded > 0) {
+    const bs = results.batchSummary;
+    const uploadInfo = bs?.resumableCount > 0
+      ? `Estándar: ${(bs.tierCounts?.standard || 0)} | Resumible: ${bs.resumableCount}`
+      : '';
+
     content.innerHTML = `
       <div class="result-summary result-success">
         <p><strong>${results.totalUploaded}</strong> documento(s) sincronizado(s)</p>
-        <p class="result-detail">ROL: ${results.rol || 'N/A'}</p>
+        <p class="result-detail">ROL: ${results.rol || 'N/A'}${bs ? ` | ${bs.totalSizeFormatted}` : ''}</p>
         <p class="result-detail">Capturados: ${results.totalFound} | Validados: ${results.totalValidated} | Rechazados: ${results.totalRejected || 0}</p>
         <p class="result-detail">Red: ${results.layer1Count || 0} | DOM: ${results.layer2Count || 0} | Duración: ${duration}</p>
+        ${uploadInfo ? `<p class="result-detail">${uploadInfo}</p>` : ''}
       </div>
     `;
 
@@ -534,4 +549,131 @@ function formatSize(bytes) {
 function truncate(str, max) {
   if (!str) return '';
   return str.length > max ? str.substring(0, max) + '...' : str;
+}
+
+// ══════════════════════════════════════════════════════════
+// ARCHIVOS GRANDES: Batch Summary y Size Warnings
+// ══════════════════════════════════════════════════════════
+
+/**
+ * Muestra el resumen del batch tras la validación.
+ * Incluye warnings para archivos que necesitan upload resumable.
+ */
+function displayBatchSummary(summary) {
+  if (!summary) return;
+
+  const warningsEl = document.getElementById('size-warnings');
+  const warningsContent = document.getElementById('size-warnings-content');
+  const summaryEl = document.getElementById('batch-summary');
+  const summaryContent = document.getElementById('batch-summary-content');
+
+  // ── Warnings de archivos grandes ──
+  if (summary.resumableCount > 0 || summary.needsConfirmation) {
+    warningsEl.style.display = 'block';
+    let warningsHtml = '';
+
+    // Warning general para archivos resumable
+    if (summary.resumableCount > 0 && !summary.needsConfirmation) {
+      warningsHtml += `
+        <div class="warning-banner warning-info">
+          <p><strong>📦 ${summary.resumableCount} archivo(s) grande(s) detectado(s)</strong></p>
+          <p class="result-detail">Se subirán con upload resumible. 
+          Tiempo estimado: ~${summary.estimatedTotalUploadFormatted || 'calculando...'}.</p>
+          <p class="result-detail">La subida puede pausarse y reanudarse si se interrumpe.</p>
+        </div>
+      `;
+    }
+
+    // Confirmación requerida para archivos excepcionales (>5GB)
+    if (summary.needsConfirmation && summary.confirmationFiles?.length > 0) {
+      for (const file of summary.confirmationFiles) {
+        const msg = file.message;
+        warningsHtml += `
+          <div class="warning-banner warning-confirm">
+            <p><strong>⚠️ ${msg?.title || 'Archivo excepcionalmente grande'}</strong></p>
+            <p class="result-detail">${msg?.message || `Archivo de ${file.size}`}</p>
+          </div>
+        `;
+      }
+    }
+
+    warningsContent.innerHTML = warningsHtml;
+  } else {
+    warningsEl.style.display = 'none';
+  }
+
+  // ── Resumen compacto del batch ──
+  if (summary.totalApproved > 0) {
+    summaryEl.style.display = 'block';
+
+    const tierLines = [];
+    if (summary.tierCounts.standard > 0) tierLines.push(`${summary.tierCounts.standard} estándar`);
+    if (summary.tierCounts.large > 0) tierLines.push(`${summary.tierCounts.large} grande(s)`);
+    if (summary.tierCounts.tomo > 0) tierLines.push(`${summary.tierCounts.tomo} tomo(s)`);
+    if (summary.tierCounts.mega > 0) tierLines.push(`${summary.tierCounts.mega} excepcional(es)`);
+
+    summaryContent.innerHTML = `
+      <p class="result-detail">
+        <strong>${summary.totalApproved}</strong> aprobado(s) (${tierLines.join(', ')}) · 
+        ${summary.totalSizeFormatted} total · 
+        ~${summary.estimatedTotalUploadFormatted}
+        ${summary.totalRejected > 0 ? ` · ${summary.totalRejected} rechazado(s)` : ''}
+      </p>
+    `;
+  } else {
+    summaryEl.style.display = 'none';
+  }
+}
+
+/**
+ * Maneja el progreso de uploads resumables (archivos >50MB).
+ * Muestra una barra de progreso secundaria con porcentaje y tamaño.
+ */
+function handleUploadProgress(data) {
+  if (!data) return;
+
+  const resumableProgress = document.getElementById('resumable-progress');
+  const resumableBar = document.getElementById('resumable-bar');
+  const resumableStatus = document.getElementById('resumable-status');
+
+  if (resumableProgress && resumableBar && resumableStatus) {
+    resumableProgress.style.display = 'block';
+    resumableBar.style.width = `${data.percent}%`;
+
+    const tierLabel = data.tier === 'tomo' ? '📚 Tomo' : data.tier === 'mega' ? '⚠️ Archivo grande' : '📄';
+    resumableStatus.textContent = `${tierLabel} ${data.filename}: ${data.formatted} (${data.percent}%)`;
+  }
+
+  // También mostrar como notificación cada 25%
+  if (data.percent % 25 === 0 && data.percent > 0) {
+    showNotification(`Upload resumible: ${data.percent}% - ${data.formatted}`, 'info');
+  }
+}
+
+/**
+ * Maneja el evento de PDF subido exitosamente.
+ * Incluye info de estrategia de upload usada.
+ */
+function handlePdfUploaded(data) {
+  if (!data) return;
+  const strategy = data.uploadStrategy === 'resumable' ? ' (resumible)' : '';
+  const progress = data.total ? ` [${data.index}/${data.total}]` : '';
+  showNotification(`Subido${progress}: ${data.filename}${strategy}`, 'success');
+
+  // Ocultar progreso resumable al completar cada archivo
+  if (data.uploadStrategy === 'resumable') {
+    const resumableProgress = document.getElementById('resumable-progress');
+    if (resumableProgress) {
+      setTimeout(() => { resumableProgress.style.display = 'none'; }, 1000);
+    }
+  }
+}
+
+/**
+ * Maneja errores de upload con info del tier.
+ */
+function handleUploadError(data) {
+  if (!data) return;
+  const tierInfo = data.tier ? ` (${data.tier})` : '';
+  showNotification(`Error de upload${tierInfo}: ${data.error}`, 'error');
 }

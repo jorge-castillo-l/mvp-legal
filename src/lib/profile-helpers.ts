@@ -2,11 +2,16 @@
  * Profile Helper Functions
  * Tarea 1.04: SQL Perfiles & RLS
  * 
+ * ACTUALIZACIÓN Feb 2026 — Rediseño de Planes:
+ *   FREE ("Prueba Profesional" - 7 días): 1 causa, 20 chats, 3 DT
+ *   PRO ($50.00/mes): 500 causas, chat fair use 3,000/mes, 100 DT/mes
+ * 
  * Funciones de utilidad para trabajar con perfiles de usuario,
  * verificar límites y manejar contadores.
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { PLAN_LIMITS } from './database.types'
 import type { ActionType, Profile } from './database.types'
 
 /**
@@ -36,7 +41,11 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 }
 
 /**
- * Verifica si el usuario puede realizar una acción según su plan
+ * Verifica si el usuario puede realizar una acción según su plan.
+ * 
+ * Para PRO chat: si fair_use_throttle es true, el middleware (4.04)
+ * debe aplicar un delay de throttle_ms antes de procesar la request.
+ * El usuario NO se bloquea, solo se ralentiza.
  */
 export async function checkUserLimits(
   userId: string,
@@ -46,9 +55,14 @@ export async function checkUserLimits(
   error?: string
   message?: string
   current_count: number
+  monthly_count?: number
+  monthly_remaining?: number
   limit?: number
   remaining?: number
   plan: 'free' | 'pro'
+  upgrade_required?: boolean
+  fair_use_throttle?: boolean
+  throttle_ms?: number
 }> {
   const supabase = await createClient()
   
@@ -71,8 +85,11 @@ export async function checkUserLimits(
 }
 
 /**
- * Incrementa un contador de uso
- * Lanza error si el usuario alcanzó su límite
+ * Incrementa un contador de uso.
+ * Lanza error si el usuario alcanzó su límite.
+ * 
+ * Nota: Para PRO chat, increment_counter siempre funciona
+ * (Fair Use no bloquea). El throttle se aplica en el middleware.
  */
 export async function incrementCounter(
   userId: string,
@@ -157,7 +174,7 @@ export async function updateLastActive(
 
 /**
  * Verifica si un device fingerprint ya existe en usuarios FREE
- * Para prevenir multicuentas
+ * Para prevenir multicuentas (incluye cuentas expiradas por The Reaper)
  */
 export async function checkFingerprintExists(
   fingerprint: string
@@ -183,18 +200,26 @@ export async function checkFingerprintExists(
 }
 
 /**
- * Obtiene estadísticas del perfil del usuario
- * Útil para mostrar en el Dashboard
+ * Obtiene estadísticas del perfil del usuario.
+ * Útil para mostrar en el Dashboard y en el Sidepanel de la Extensión.
+ * 
+ * Incluye lógica de Fair Use para usuarios PRO y
+ * notificaciones de expiración para FREE.
  */
 export async function getProfileStats(userId: string): Promise<{
   plan: 'free' | 'pro'
+  price: string
   chats: {
     used: number
     limit: number | 'unlimited'
     remaining: number | 'unlimited'
+    monthlyUsed?: number
+    fairUseStatus?: 'normal' | 'warning' | 'throttled'
+    fairUseSoftCap?: number
   }
   deepThinking: {
     used: number
+    monthlyUsed?: number
     limit: number
     remaining: number
   }
@@ -205,6 +230,12 @@ export async function getProfileStats(userId: string): Promise<{
   }
   accountAge: number // días
   expiresIn?: number // días (solo para FREE)
+  /** Notificación que el UI debe mostrar según el estado del trial */
+  trialNotification?: {
+    type: 'info' | 'warning' | 'urgent' | 'expired'
+    message: string
+    daysLeft: number
+  }
 } | null> {
   const profile = await getCurrentProfile()
   
@@ -220,38 +251,107 @@ export async function getProfileStats(userId: string): Promise<{
     (Date.now() - new Date(profile.last_active_date).getTime()) / (1000 * 60 * 60 * 24)
   )
 
-  const stats = {
-    plan: profile.plan_type,
-    chats: {
-      used: profile.chat_count,
-      limit: profile.plan_type === 'free' ? 10 : ('unlimited' as const),
-      remaining: profile.plan_type === 'free' ? Math.max(0, 10 - profile.chat_count) : ('unlimited' as const),
-    },
-    deepThinking: {
-      used: profile.deep_thinking_count,
-      limit: profile.plan_type === 'free' ? 1 : 100,
-      remaining: profile.plan_type === 'free' 
-        ? Math.max(0, 1 - profile.deep_thinking_count)
-        : Math.max(0, 100 - profile.deep_thinking_count),
-    },
-    cases: {
-      used: profile.case_count,
-      limit: profile.plan_type === 'free' ? 1 : 500,
-      remaining: profile.plan_type === 'free'
-        ? Math.max(0, 1 - profile.case_count)
-        : Math.max(0, 500 - profile.case_count),
-    },
-    accountAge,
-  }
-
-  // Para usuarios FREE, calcular días restantes antes del borrado
+  // ═══════════════════════════════════════════
+  // Stats para usuarios FREE
+  // ═══════════════════════════════════════════
   if (profile.plan_type === 'free') {
-    const expiresIn = Math.max(0, 3 - daysSinceActive)
+    const expiresIn = Math.max(0, PLAN_LIMITS.free.retention_days - daysSinceActive)
+
+    // Generar notificación de trial según los días restantes
+    let trialNotification: {
+      type: 'info' | 'warning' | 'urgent' | 'expired'
+      message: string
+      daysLeft: number
+    } | undefined
+
+    if (expiresIn <= 0) {
+      trialNotification = {
+        type: 'expired',
+        message: 'Tu prueba ha expirado. Tus documentos fueron eliminados. Actualiza a Pro para re-sincronizar tu causa desde PJud en segundos.',
+        daysLeft: 0,
+      }
+    } else if (expiresIn <= 1) {
+      trialNotification = {
+        type: 'urgent',
+        message: `Última oportunidad: tu causa se elimina en menos de 24 horas.`,
+        daysLeft: expiresIn,
+      }
+    } else if (expiresIn <= 2) {
+      trialNotification = {
+        type: 'warning',
+        message: `Tu causa expira en ${expiresIn} día(s). Actualiza a Pro para mantener tus datos.`,
+        daysLeft: expiresIn,
+      }
+    } else if (profile.chat_count >= PLAN_LIMITS.free.chats) {
+      trialNotification = {
+        type: 'warning',
+        message: `Has agotado tus consultas gratuitas. Tu causa sigue aquí por ${expiresIn} días más.`,
+        daysLeft: expiresIn,
+      }
+    }
+
     return {
-      ...stats,
+      plan: 'free',
+      price: 'Gratis',
+      chats: {
+        used: profile.chat_count,
+        limit: PLAN_LIMITS.free.chats,
+        remaining: Math.max(0, PLAN_LIMITS.free.chats - profile.chat_count),
+      },
+      deepThinking: {
+        used: profile.deep_thinking_count,
+        limit: PLAN_LIMITS.free.deep_thinking,
+        remaining: Math.max(0, PLAN_LIMITS.free.deep_thinking - profile.deep_thinking_count),
+      },
+      cases: {
+        used: profile.case_count,
+        limit: PLAN_LIMITS.free.cases,
+        remaining: Math.max(0, PLAN_LIMITS.free.cases - profile.case_count),
+      },
+      accountAge,
       expiresIn,
+      trialNotification,
     }
   }
 
-  return stats
+  // ═══════════════════════════════════════════
+  // Stats para usuarios PRO
+  // ═══════════════════════════════════════════
+  const monthlyChatCount = profile.monthly_chat_count
+  const monthlyDTCount = profile.monthly_deep_thinking_count
+  const softCap = PLAN_LIMITS.pro.fair_use.chat_soft_cap_monthly
+
+  // Determinar estado de Fair Use
+  let fairUseStatus: 'normal' | 'warning' | 'throttled' = 'normal'
+  if (monthlyChatCount >= softCap) {
+    fairUseStatus = 'throttled'
+  } else if (monthlyChatCount >= softCap * 0.8) {
+    // Warning al 80% del soft cap (2,400 chats)
+    fairUseStatus = 'warning'
+  }
+
+  return {
+    plan: 'pro',
+    price: '$50.00/mes',
+    chats: {
+      used: profile.chat_count,
+      limit: 'unlimited' as const,
+      remaining: 'unlimited' as const,
+      monthlyUsed: monthlyChatCount,
+      fairUseStatus,
+      fairUseSoftCap: softCap,
+    },
+    deepThinking: {
+      used: profile.deep_thinking_count,
+      monthlyUsed: monthlyDTCount,
+      limit: PLAN_LIMITS.pro.deep_thinking,
+      remaining: Math.max(0, PLAN_LIMITS.pro.deep_thinking - monthlyDTCount),
+    },
+    cases: {
+      used: profile.case_count,
+      limit: PLAN_LIMITS.pro.cases,
+      remaining: Math.max(0, PLAN_LIMITS.pro.cases - profile.case_count),
+    },
+    accountAge,
+  }
 }

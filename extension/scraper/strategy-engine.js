@@ -233,6 +233,7 @@ class StrategyEngine {
         results.validated = validation.approved;
         results.rejected = validation.rejected;
         results.totalValidated = validation.approved.length;
+        results.batchSummary = validation.batchSummary;
 
         if (validation.rejected.length > 0) {
           this._emit('status', {
@@ -241,11 +242,35 @@ class StrategyEngine {
           });
         }
 
+        // Emitir batchSummary para que el Sync UI muestre advertencias
+        if (validation.batchSummary) {
+          this._emit('batch_summary', validation.batchSummary);
+        }
+
+        // Emitir warnings de archivos grandes que requieren confirmación
+        if (validation.batchSummary?.needsConfirmation) {
+          this._emit('status', {
+            phase: 'needs_confirmation',
+            message: 'Hay archivos excepcionalmente grandes que requieren confirmación.',
+            confirmationFiles: validation.batchSummary.confirmationFiles,
+          });
+          // En esta versión, asumimos que el abogado ya confirmó la causa
+          // y procede con el upload. El Sidepanel mostrará la advertencia.
+        }
+
         // ──── FASE 4: UPLOAD (solo PDFs validados) ────
         if (validation.approved.length > 0) {
+          const standardCount = validation.standardUploads?.length || 0;
+          const resumableCount = validation.resumableUploads?.length || 0;
+
+          const uploadMethod = resumableCount > 0
+            ? `${standardCount} estándar + ${resumableCount} resumible(s)`
+            : `${standardCount} estándar`;
+
           this._emit('status', {
             phase: 'uploading',
-            message: `Subiendo ${validation.approved.length} documento(s) validado(s)...`,
+            message: `Subiendo ${validation.approved.length} documento(s) validado(s) (${uploadMethod})...`,
+            estimatedTime: validation.batchSummary?.estimatedTotalUploadFormatted,
           });
 
           const uploaded = await this._uploadValidated(validation.approved);
@@ -258,6 +283,7 @@ class StrategyEngine {
             totalValidated: results.totalValidated,
             totalUploaded: uploaded,
             totalRejected: validation.rejected.length,
+            batchSummary: validation.batchSummary,
           });
         } else {
           results.needsManual = true;
@@ -453,78 +479,213 @@ class StrategyEngine {
   // ════════════════════════════════════════════════════════
   // UPLOAD: Subir PDFs capturados al servidor
   // ════════════════════════════════════════════════════════
+  //
+  // v2.0: Ruteo inteligente basado en sizeTier (4.09):
+  //   - standard (≤50MB): API Route /api/upload (FormData)
+  //   - resumable (>50MB): Supabase TUS protocol directo
+  //
 
   async _uploadValidated(validatedPdfs) {
     let uploadedCount = 0;
 
-    for (const pdf of validatedPdfs) {
+    for (let i = 0; i < validatedPdfs.length; i++) {
+      const pdf = validatedPdfs[i];
       if (!pdf?.blobUrl) continue;
 
       try {
-        // Obtener el blob desde la URL
         const response = await fetch(pdf.blobUrl);
         const blob = await response.blob();
 
-        // Construir nombre descriptivo con ROL
         const timestamp = Date.now();
         const rolPart = pdf.rol ? pdf.rol.replace(/[^a-zA-Z0-9-]/g, '_') : 'doc';
         const typePart = pdf.documentType || 'doc';
         const filename = `${rolPart}_${typePart}_${timestamp}.pdf`;
 
-        // Preparar FormData con metadata completa (4.09 ROL tagging)
-        const formData = new FormData();
-        formData.append('file', blob, filename);
-        formData.append('source_url', pdf.url || '');
-        formData.append('source', pdf.source || 'scraper');
-        formData.append('rol', pdf.rol || '');
-        formData.append('tribunal', pdf.tribunal || '');
-        formData.append('caratula', pdf.caratula || '');
-        formData.append('document_type', pdf.documentType || 'otro');
-        formData.append('confidence', String(pdf.confidence || 0));
-        formData.append('captured_at', pdf.capturedAt || new Date().toISOString());
-
-        // Obtener token de autenticación
         const session = await supabase.getSession();
         if (!session?.access_token) {
           throw new Error('No hay sesión activa. Inicie sesión primero.');
         }
 
-        // Subir al servidor via API
-        const uploadResponse = await fetch('http://localhost:3000/api/upload', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: formData,
-        });
+        // Determinar estrategia de upload según sizeTier
+        const uploadStrategy = pdf._sizeTier?.uploadStrategy || 'standard';
 
-        if (!uploadResponse.ok) {
-          const errorData = await uploadResponse.json().catch(() => ({}));
-          throw new Error(errorData.error || `Upload HTTP ${uploadResponse.status}`);
+        let result;
+        if (uploadStrategy === 'resumable') {
+          result = await this._uploadResumable(blob, filename, pdf, session);
+        } else {
+          result = await this._uploadStandard(blob, filename, pdf, session);
         }
 
-        const result = await uploadResponse.json();
         uploadedCount++;
 
         // Registrar hash para deduplicación futura
         if (pdf._hash && this.pdfValidator) {
-          const session2 = await supabase.getSession();
           await this.pdfValidator.registerUploadedHash(
-            pdf._hash, session2?.user?.id, pdf.rol
+            pdf._hash, session?.user?.id, pdf.rol
           );
         }
 
         this._emit('pdf_uploaded', {
-          filename, size: blob.size, path: result.path,
-          rol: pdf.rol, type: pdf.documentType,
+          filename,
+          size: blob.size,
+          path: result.path,
+          rol: pdf.rol,
+          type: pdf.documentType,
+          uploadStrategy,
+          index: i + 1,
+          total: validatedPdfs.length,
         });
       } catch (error) {
-        console.error('[StrategyEngine] Error subiendo PDF:', error);
-        this._emit('upload_error', { error: error.message, pdf: pdf.url });
+        console.error(`[StrategyEngine] Error subiendo PDF (${pdf._sizeTier?.tier || 'unknown'}):`, error);
+        this._emit('upload_error', {
+          error: error.message,
+          pdf: pdf.url,
+          tier: pdf._sizeTier?.tier,
+        });
       }
     }
 
     return uploadedCount;
+  }
+
+  /**
+   * Upload estándar via API Route (archivos ≤50MB).
+   * Flujo original: Extension → /api/upload → Supabase Storage
+   */
+  async _uploadStandard(blob, filename, pdf, session) {
+    const formData = new FormData();
+    formData.append('file', blob, filename);
+    formData.append('source_url', pdf.url || '');
+    formData.append('source', pdf.source || 'scraper');
+    formData.append('rol', pdf.rol || '');
+    formData.append('tribunal', pdf.tribunal || '');
+    formData.append('caratula', pdf.caratula || '');
+    formData.append('document_type', pdf.documentType || 'otro');
+    formData.append('confidence', String(pdf.confidence || 0));
+    formData.append('captured_at', pdf.capturedAt || new Date().toISOString());
+
+    const uploadResponse = await fetch('http://localhost:3000/api/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: formData,
+    });
+
+    if (!uploadResponse.ok) {
+      const errorData = await uploadResponse.json().catch(() => ({}));
+      throw new Error(errorData.error || `Upload HTTP ${uploadResponse.status}`);
+    }
+
+    return await uploadResponse.json();
+  }
+
+  /**
+   * Upload resumable via TUS protocol (archivos >50MB).
+   * Flujo: Extension → Supabase Storage TUS endpoint directo.
+   * Usa chunks de 6MB con retry automático y progreso en tiempo real.
+   */
+  async _uploadResumable(blob, filename, pdf, session) {
+    // Construir path en storage: userId/YYYY-MM/uniqueId_filename
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const objectPath = `${session.user?.id || 'anonymous'}/${yearMonth}/${uniqueId}_${filename}`;
+
+    return new Promise((resolve, reject) => {
+      const upload = new ResumableUpload({
+        supabaseUrl: supabase.url,
+        accessToken: session.access_token,
+        bucketName: 'case-files',
+        objectPath: objectPath,
+        file: blob,
+        metadata: {
+          source: pdf.source || 'scraper',
+          rol: pdf.rol || '',
+          tribunal: pdf.tribunal || '',
+          caratula: pdf.caratula || '',
+          documentType: pdf.documentType || 'otro',
+          capturedAt: pdf.capturedAt || new Date().toISOString(),
+        },
+        onProgress: (bytesUploaded, bytesTotal) => {
+          const percent = Math.round((bytesUploaded / bytesTotal) * 100);
+          this._emit('upload_progress', {
+            filename,
+            bytesUploaded,
+            bytesTotal,
+            percent,
+            rol: pdf.rol,
+            tier: pdf._sizeTier?.tier,
+            formatted: `${this._formatSize(bytesUploaded)} / ${this._formatSize(bytesTotal)}`,
+          });
+        },
+        onSuccess: async (result) => {
+          // Para archivos grandes: confirmar hash completo server-side
+          if (pdf._hash?.startsWith('p:')) {
+            try {
+              await this._confirmHashServerSide(result.path, pdf._hash, pdf.rol, session);
+            } catch (e) {
+              console.warn('[StrategyEngine] Hash confirm fallido (no crítico):', e.message);
+            }
+          }
+          resolve({ path: result.path, success: true });
+        },
+        onError: (error) => {
+          reject(error);
+        },
+      });
+
+      // Guardar referencia para poder abortar si necesario
+      this._currentResumableUpload = upload;
+      upload.start();
+    });
+  }
+
+  /**
+   * Confirma el hash SHA-256 completo de un archivo subido.
+   * Se llama después de un upload resumable exitoso cuando
+   * el validador calculó un hash parcial (prefijo "p:").
+   * El servidor descarga el archivo, calcula el hash real
+   * y retorna el hash completo para registrar en la BD.
+   */
+  async _confirmHashServerSide(storagePath, partialHash, rol, session) {
+    const response = await fetch('http://localhost:3000/api/upload/confirm-hash', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ storagePath, partialHash, rol }),
+    });
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+    if (data.hash && this.pdfValidator) {
+      // Reemplazar hash parcial por hash completo en la BD
+      await this.pdfValidator.registerUploadedHash(
+        data.hash, session?.user?.id, rol
+      );
+      console.log(`[StrategyEngine] Hash parcial reemplazado: ${partialHash.substring(0, 14)}... → ${data.hash.substring(0, 14)}...`);
+    }
+  }
+
+  /**
+   * Abortar un upload resumable en curso
+   */
+  abortResumableUpload() {
+    if (this._currentResumableUpload) {
+      this._currentResumableUpload.abort();
+      this._currentResumableUpload = null;
+    }
+  }
+
+  _formatSize(bytes) {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
   }
 
   // ════════════════════════════════════════════════════════

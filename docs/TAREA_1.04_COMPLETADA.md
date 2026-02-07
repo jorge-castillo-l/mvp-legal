@@ -99,15 +99,16 @@ create table public.profiles (
 );
 ```
 
-### Límites por Plan
+### Límites por Plan (Actualización Feb 2026)
 
-| Recurso | FREE | PRO |
+| Recurso | FREE ("Prueba Profesional") | PRO |
 |---------|------|-----|
 | **Causas** | 1 | 500 |
-| **Chats** | 10 | Ilimitado |
-| **Deep Thinking** | 1 | 100 |
-| **Retención** | 3 días | ∞ |
-| **Precio** | Gratis | $29.90/mes |
+| **Chats** | 20 (lifetime) | Fair Use (soft cap 3,000/mes) |
+| **Deep Thinking** | 3 (lifetime) | 100/mes |
+| **Retención** | 7 días | ∞ |
+| **Ghost Card** | Sí (metadata conservada) | N/A |
+| **Precio** | Gratis | $50.00/mes |
 
 ---
 
@@ -202,8 +203,13 @@ import { checkUserLimits } from '@/lib/profile-helpers'
 const limits = await checkUserLimits(user.id, 'chat')
 
 if (!limits.allowed) {
-  alert(limits.error) // "FREE plan limit reached: 10 chats maximum"
+  alert(limits.error) // "FREE plan limit reached: 20 chats maximum. Upgrade to Pro."
   return
+}
+
+// Para PRO: verificar Fair Use throttle
+if (limits.fair_use_throttle) {
+  await new Promise(r => setTimeout(r, limits.throttle_ms)) // 30s delay
 }
 
 // Proceder con la acción
@@ -261,13 +267,15 @@ if (stats.expiresIn !== undefined) {
                          ↓
 3. Se crea perfil FREE → public.profiles con plan_type='free'
                          ↓
-4. Usuario puede usar app → 10 chats, 1 deep thinking, 1 causa
+4. Usuario puede usar app → 20 chats, 3 deep thinking, 1 causa (7 días)
                          ↓
-5. Si alcanza límite → Middleware bloquea (Tarea 4.04)
+5. Si alcanza límite o expira → Middleware bloquea (Tarea 4.04)
                          ↓
-6. Usuario upgradesea → Stripe webhook actualiza plan_type='pro'
+6. Ghost card muestra causa expirada → Incentiva upgrade
                          ↓
-7. Usuario PRO → Sin límites (excepto 100 deep thinking)
+7. Usuario paga $50/mes → Stripe webhook actualiza plan_type='pro'
+                         ↓
+8. Usuario PRO → Chat Fair Use (3,000/mes soft cap), 100 DT/mes
 ```
 
 ---

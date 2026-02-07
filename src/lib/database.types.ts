@@ -1,6 +1,10 @@
 /**
  * Database Types - Auto-generados para Supabase
  * Tarea 1.04: SQL Perfiles & RLS
+ * 
+ * ACTUALIZACIÓN Feb 2026:
+ *   FREE ("Prueba Profesional" - 7 días): 1 causa, 20 chats, 3 DT
+ *   PRO ($50.00/mes): 500 causas, chat fair use 3,000/mes, 100 DT/mes
  */
 
 export type Json =
@@ -21,6 +25,9 @@ export interface Database {
           plan_type: 'free' | 'pro'
           chat_count: number
           deep_thinking_count: number
+          monthly_chat_count: number
+          monthly_deep_thinking_count: number
+          monthly_reset_date: string
           case_count: number
           device_fingerprint: string | null
           last_active_date: string
@@ -33,6 +40,9 @@ export interface Database {
           plan_type?: 'free' | 'pro'
           chat_count?: number
           deep_thinking_count?: number
+          monthly_chat_count?: number
+          monthly_deep_thinking_count?: number
+          monthly_reset_date?: string
           case_count?: number
           device_fingerprint?: string | null
           last_active_date?: string
@@ -45,6 +55,9 @@ export interface Database {
           plan_type?: 'free' | 'pro'
           chat_count?: number
           deep_thinking_count?: number
+          monthly_chat_count?: number
+          monthly_deep_thinking_count?: number
+          monthly_reset_date?: string
           case_count?: number
           device_fingerprint?: string | null
           last_active_date?: string
@@ -75,9 +88,14 @@ export interface Database {
           error?: string
           message?: string
           current_count: number
+          monthly_count?: number
+          monthly_remaining?: number
           limit?: number
           remaining?: number
           plan: 'free' | 'pro'
+          upgrade_required?: boolean
+          fair_use_throttle?: boolean
+          throttle_ms?: number
         }
       }
       increment_counter: {
@@ -86,6 +104,12 @@ export interface Database {
           counter_type: 'chat' | 'deep_thinking' | 'case'
         }
         Returns: boolean
+      }
+      maybe_reset_monthly_counters: {
+        Args: {
+          user_id: string
+        }
+        Returns: void
       }
     }
     Enums: {
@@ -104,20 +128,43 @@ export type Enums<T extends keyof Database['public']['Enums']> = Database['publi
 // Specific Types
 export type Profile = Tables<'profiles'>
 
-// Plan Limits Constants
+/**
+ * Plan Limits Constants
+ * 
+ * ACTUALIZACIÓN Feb 2026 — Rediseño "Prueba Profesional" + Fair Use:
+ * 
+ * FREE ("Prueba Profesional" - 7 días):
+ *   - 1 causa, 20 chats (lifetime), 3 deep thinking (lifetime)
+ *   - 7 días de retención, luego The Reaper borra datos
+ *   - Ghost card: se conserva metadata de causa (ROL, tribunal, carátula)
+ *   - Device fingerprint impide re-crear cuenta free
+ * 
+ * PRO ($50.00/mes):
+ *   - 500 causas, chat con Fair Use (soft cap 3,000/mes)
+ *   - 100 deep thinking por mes, editor ilimitado
+ *   - Fair Use: al superar 3,000 chats/mes se aplica throttle
+ *     de 30s entre queries (no se bloquea, se ralentiza)
+ *   - Retención permanente de datos
+ */
 export const PLAN_LIMITS = {
   free: {
     cases: 1,
-    chats: 10,
-    deep_thinking: 1,
-    retention_days: 3
+    chats: 20,
+    deep_thinking: 3,
+    retention_days: 7,
+    price_usd: 0,
   },
   pro: {
     cases: 500,
     chats: Infinity,
-    deep_thinking: 100,
-    retention_days: Infinity
-  }
+    deep_thinking: 100,  // por mes
+    retention_days: Infinity,
+    price_usd: 50,
+    fair_use: {
+      chat_soft_cap_monthly: 3_000,
+      throttle_ms: 30_000,  // 30 segundos entre queries al superar soft cap
+    },
+  },
 } as const
 
 export type PlanType = 'free' | 'pro'

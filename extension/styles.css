@@ -438,6 +438,46 @@ h2 {
   margin-bottom: 16px;
 }
 
+/* ══════ WARNINGS: ARCHIVOS GRANDES (v2.0) ══════ */
+
+.warning-banner {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.warning-banner p {
+  margin: 2px 0;
+}
+
+.warning-info {
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1e40af;
+}
+
+.warning-confirm {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+}
+
+#resumable-progress .progress-container {
+  height: 6px;
+}
+
+#resumable-status {
+  color: var(--muted-color);
+  margin-top: 4px;
+}
+
+#batch-summary-content {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 /* ══════ FOOTER ══════ */
 
 footer {
