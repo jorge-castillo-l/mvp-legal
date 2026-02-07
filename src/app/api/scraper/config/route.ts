@@ -14,7 +14,8 @@
  * ============================================================
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 
 // Configuración del scraper - EN PRODUCCIÓN: mover a Supabase/DB
 // Por ahora, se mantiene aquí para facilitar actualizaciones rápidas
@@ -122,27 +123,22 @@ const SCRAPER_CONFIG = {
   },
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const corsHeaders = getCorsHeaders(request, {
+    methods: 'GET, OPTIONS',
+    credentials: false,
+  })
+
   return NextResponse.json(SCRAPER_CONFIG, {
     status: 200,
     headers: {
-      // Permitir acceso desde la extensión
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      ...corsHeaders,
       // Cache en el navegador por 30 minutos, revalidar después
       'Cache-Control': 'public, max-age=1800, stale-while-revalidate=3600',
     },
   })
 }
 
-export async function OPTIONS() {
-  return NextResponse.json({}, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  })
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsOptions(request)
 }

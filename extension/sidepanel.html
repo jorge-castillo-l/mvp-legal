@@ -15,7 +15,6 @@
     
     <!-- Sección de Autenticación -->
     <div id="auth-section" class="card" style="display: none;">
-      <h2>Autenticación</h2>
       <div id="auth-status"><p>Verificando sesión...</p></div>
       <button id="login-btn" class="btn-secondary" style="display: none;">Iniciar Sesión en Dashboard</button>
       <button id="logout-btn" class="btn-secondary" style="display: none;">Cerrar Sesión</button>
@@ -24,87 +23,139 @@
     <main>
       <!-- ══════ USUARIO AUTENTICADO ══════ -->
       <div id="authenticated-content" style="display: none;">
-        
-        <!-- ══════ DETECCIÓN DE CAUSA (4.07) ══════ -->
-        <div id="causa-section" class="card" style="display: none;">
-          <h2>Causa Detectada</h2>
-          <div id="causa-info" class="causa-info">
-            <p class="causa-rol" id="causa-rol">--</p>
-            <p class="causa-detail" id="causa-tribunal">--</p>
-            <p class="causa-detail" id="causa-caratula">--</p>
-          </div>
-          <!-- Preview de documentos -->
-          <div id="doc-preview" class="doc-preview" style="display: none;">
-            <p class="preview-title" id="doc-count">0 documentos encontrados</p>
-            <div id="doc-types" class="doc-types"></div>
-          </div>
-          <button id="confirm-causa-btn" class="btn-primary btn-confirm" style="display: none;">
-            Confirmar Causa
-          </button>
-          <p id="causa-hint" class="hint">Navegue a una causa en pjud.cl para detectarla</p>
-        </div>
 
-        <!-- ══════ BOTÓN SINCRONIZAR ══════ -->
-        <div id="sync-section" class="card" style="display: none;">
-          <h2>Sincronización</h2>
-          <button id="sync-btn" class="btn-primary btn-sync" disabled>
-            <span class="btn-icon">⚡</span>
-            Sincronizar
-          </button>
-          <p class="hint" id="sync-hint">Confirme la causa antes de sincronizar</p>
-        </div>
+        <!-- ══════ NAVEGACIÓN POR TABS ══════ -->
+        <nav class="tabs" id="main-tabs">
+          <button class="tab active" data-tab="sync">Sincronizar</button>
+          <button class="tab" data-tab="cases">Mis Causas</button>
+        </nav>
 
-        <!-- ══════ ADVERTENCIAS DE ARCHIVOS GRANDES ══════ -->
-        <div id="size-warnings" class="card" style="display: none;">
-          <div id="size-warnings-content"></div>
-        </div>
+        <!-- ══════════════════════════════════════ -->
+        <!-- TAB: SINCRONIZAR                       -->
+        <!-- ══════════════════════════════════════ -->
+        <div id="tab-sync" class="tab-content active">
 
-        <!-- ══════ PROGRESO ══════ -->
-        <div id="sync-progress" class="card" style="display: none;">
-          <h2>Progreso</h2>
-          <div class="progress-container">
-            <div id="progress-bar" class="progress-bar"></div>
-          </div>
-          <div id="progress-status" class="progress-status">Iniciando...</div>
-          <!-- Progreso de upload resumable (archivos grandes) -->
-          <div id="resumable-progress" style="display: none;">
-            <div class="progress-container" style="margin-top: 8px;">
-              <div id="resumable-bar" class="progress-bar progress-info" style="width: 0%;"></div>
+          <!-- Detección de Causa (4.07) -->
+          <div id="causa-section" class="card">
+            <h2>Causa Detectada</h2>
+            <div id="causa-info" class="causa-info">
+              <p class="causa-rol" id="causa-rol">--</p>
+              <p class="causa-detail" id="causa-tribunal">--</p>
+              <p class="causa-detail" id="causa-caratula">--</p>
             </div>
-            <div id="resumable-status" class="progress-status" style="font-size: 12px;"></div>
+            <div id="doc-preview" class="doc-preview" style="display: none;">
+              <p class="preview-title" id="doc-count">0 documentos encontrados</p>
+              <div id="doc-types" class="doc-types"></div>
+            </div>
+            <button id="confirm-causa-btn" class="btn-primary btn-confirm" style="display: none;">
+              Confirmar Causa
+            </button>
+            <p id="causa-hint" class="hint">Navegue a una causa en pjud.cl para detectarla</p>
           </div>
-          <div id="progress-details" class="progress-details"></div>
-        </div>
 
-        <!-- ══════ RESUMEN DE BATCH ══════ -->
-        <div id="batch-summary" class="card" style="display: none;">
-          <div id="batch-summary-content"></div>
-        </div>
-
-        <!-- ══════ RESULTADOS ══════ -->
-        <div id="sync-results" class="card" style="display: none;">
-          <h2>Resultados</h2>
-          <div id="results-content"></div>
-        </div>
-
-        <!-- ══════ UPLOAD MANUAL (Layer 3) ══════ -->
-        <div id="manual-upload-section" class="card" style="display: none;">
-          <h2>Subida Manual</h2>
-          <p class="hint">Arrastre PDFs aquí o haga clic para seleccionar</p>
-          <div id="drop-zone" class="drop-zone">
-            <span class="drop-icon">📄</span>
-            <span class="drop-text">Soltar PDF aquí</span>
-            <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
+          <!-- Botón Sincronizar -->
+          <div id="sync-section" class="card">
+            <button id="sync-btn" class="btn-primary btn-sync" disabled>
+              <span class="btn-icon">⚡</span>
+              Sincronizar
+            </button>
+            <p class="hint" id="sync-hint">Confirme la causa antes de sincronizar</p>
           </div>
-          <div id="upload-status" class="progress-status" style="display: none;"></div>
+
+          <!-- Advertencias de Archivos Grandes -->
+          <div id="size-warnings" class="card" style="display: none;">
+            <div id="size-warnings-content"></div>
+          </div>
+
+          <!-- Progreso -->
+          <div id="sync-progress" class="card" style="display: none;">
+            <h2>Progreso</h2>
+            <div class="progress-container">
+              <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <div id="progress-status" class="progress-status">Iniciando...</div>
+            <div id="resumable-progress" style="display: none;">
+              <div class="progress-container" style="margin-top: 8px;">
+                <div id="resumable-bar" class="progress-bar progress-info" style="width: 0%;"></div>
+              </div>
+              <div id="resumable-status" class="progress-status" style="font-size: 12px;"></div>
+            </div>
+            <div id="progress-details" class="progress-details"></div>
+          </div>
+
+          <!-- Resumen de Batch -->
+          <div id="batch-summary" class="card" style="display: none;">
+            <div id="batch-summary-content"></div>
+          </div>
+
+          <!-- Resultados -->
+          <div id="sync-results" class="card" style="display: none;">
+            <h2>Resultados</h2>
+            <div id="results-content"></div>
+          </div>
+
+          <!-- Upload Manual (Layer 3) -->
+          <div id="manual-upload-section" class="card" style="display: none;">
+            <h2>Subida Manual</h2>
+            <p class="hint">Arrastre PDFs aquí o haga clic para seleccionar</p>
+            <div id="drop-zone" class="drop-zone">
+              <span class="drop-icon">📄</span>
+              <span class="drop-text">Soltar PDF aquí</span>
+              <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
+            </div>
+            <div id="upload-status" class="progress-status" style="display: none;"></div>
+          </div>
+
+          <!-- Diagnóstico -->
+          <div class="card">
+            <h2>Diagnóstico</h2>
+            <button id="analyze-btn" class="btn-secondary">Analizar Página</button>
+            <div id="analysis-output" class="output-area"></div>
+          </div>
         </div>
 
-        <!-- ══════ DIAGNÓSTICO ══════ -->
-        <div class="card">
-          <h2>Diagnóstico</h2>
-          <button id="analyze-btn" class="btn-secondary">Analizar Página</button>
-          <div id="analysis-output" class="output-area"></div>
+        <!-- ══════════════════════════════════════ -->
+        <!-- TAB: MIS CAUSAS                        -->
+        <!-- ══════════════════════════════════════ -->
+        <div id="tab-cases" class="tab-content">
+
+          <!-- Lista de Causas -->
+          <div id="cases-list"></div>
+
+          <!-- Estado Vacío -->
+          <div id="cases-empty" class="empty-state" style="display: none;">
+            <div class="empty-icon">📋</div>
+            <p class="empty-title">Sin causas sincronizadas</p>
+            <p class="empty-subtitle">Navegue a una causa en pjud.cl y presione "Sincronizar" para empezar.</p>
+            <button class="btn-secondary" id="go-to-sync-btn">Ir a Sincronizar</button>
+          </div>
+
+          <!-- Skeleton Loader -->
+          <div id="cases-skeleton" style="display: none;">
+            <div class="case-card skeleton-card">
+              <div class="skeleton-line skeleton-title"></div>
+              <div class="skeleton-line skeleton-subtitle"></div>
+              <div class="skeleton-line skeleton-meta"></div>
+            </div>
+            <div class="case-card skeleton-card">
+              <div class="skeleton-line skeleton-title"></div>
+              <div class="skeleton-line skeleton-subtitle"></div>
+              <div class="skeleton-line skeleton-meta"></div>
+            </div>
+            <div class="case-card skeleton-card">
+              <div class="skeleton-line skeleton-title"></div>
+              <div class="skeleton-line skeleton-subtitle"></div>
+              <div class="skeleton-line skeleton-meta"></div>
+            </div>
+          </div>
+
+          <!-- Error -->
+          <div id="cases-error" class="card" style="display: none;">
+            <p class="error-text" id="cases-error-msg"></p>
+            <button class="btn-secondary" id="cases-retry-btn">Reintentar</button>
+          </div>
         </div>
+
       </div>
 
       <!-- ══════ USUARIO NO AUTENTICADO ══════ -->
@@ -118,9 +169,10 @@
     </main>
 
     <footer>
-      <small>MVP Legal v1.1 - Scraper Resiliente</small>
+      <small>MVP Legal v1.2</small>
     </footer>
   </div>
+  <script src="lib/config.js"></script>
   <script src="lib/supabase.js"></script>
   <script src="sidepanel.js"></script>
 </body>

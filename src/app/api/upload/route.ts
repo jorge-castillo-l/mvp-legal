@@ -2,40 +2,54 @@
  * ============================================================
  * API ROUTE: /api/upload
  * ============================================================
- * Recibe PDFs desde la extensión de Chrome y los sube a
- * Supabase Storage (bucket 'case-files').
- * 
- * Corresponde a la Tarea 4.03 del Kanban:
- * "Direct Upload API - Next.js route to receive PDF blobs
- *  from Chrome Extension and stream to Supabase Storage"
- * 
- * Flujo:
- *   Extension captura PDF → POST /api/upload → Supabase Storage
- * 
- * Seguridad:
- *   - Requiere JWT válido en header Authorization
- *   - Valida tipo de archivo (solo PDF)
- *   - Limita tamaño (50MB max para esta ruta estándar)
- *   - Archivos >50MB usan TUS protocol (resumable-upload.js)
- *   - Archivos se guardan bajo el path del user_id (RLS)
+ * Pipeline full-stack: Scraper → API → Storage + DB
+ *
+ * Flujo secuencial:
+ *   1. Auth: Verificar JWT
+ *   2. Validar: Tipo, tamaño, campos requeridos
+ *   3. Dedup: Verificar hash en document_hashes → si existe, skip
+ *   4. Upsert Case: Crear/actualizar causa en tabla cases
+ *   5. Upload Storage: Subir PDF al bucket case-files
+ *   6. Insert Document: Registrar en tabla documents
+ *   7. Insert Hash: Registrar en tabla document_hashes
+ *   8. Update Count: Incrementar document_count en case
+ *
+ * Contrato FormData (campos que envía la extensión):
+ *   - file          (File)   REQUERIDO
+ *   - case_rol      (string) REQUERIDO para scraper, opcional para manual
+ *   - tribunal      (string) opcional
+ *   - caratula      (string) opcional
+ *   - materia       (string) opcional
+ *   - document_type (string) 'resolucion'|'escrito'|'actuacion'|'notificacion'|'otro'
+ *   - file_hash     (string) SHA-256 del archivo
+ *   - source        (string) 'scraper'|'manual_upload'
+ *   - source_url    (string) URL original del PDF
+ *   - captured_at   (string) ISO timestamp de captura
  * ============================================================
  */
 
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+import { createHash } from 'crypto'
+import type { CaseInsert, DocumentInsert, DocumentHashInsert } from '@/types/supabase'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 const ALLOWED_TYPES = ['application/pdf', 'application/octet-stream']
 const BUCKET_NAME = 'case-files'
 
 export async function POST(request: NextRequest) {
+  const corsHeaders = getCorsHeaders(request, { methods: 'POST, OPTIONS' })
+
   try {
-    // === 1. Verificar autenticación ===
+    // ══════════════════════════════════════════════════════
+    // PASO 1: AUTENTICACIÓN
+    // ══════════════════════════════════════════════════════
     const authHeader = request.headers.get('Authorization')
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'Token de autenticación requerido' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       )
     }
 
@@ -45,74 +59,159 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json(
         { error: 'Sesión inválida o expirada' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       )
     }
 
-    // === 2. Extraer archivo del FormData ===
+    // ══════════════════════════════════════════════════════
+    // PASO 2: EXTRAER Y VALIDAR FORMDATA
+    // ══════════════════════════════════════════════════════
     const formData = await request.formData()
     const file = formData.get('file') as File | null
 
     if (!file) {
       return NextResponse.json(
         { error: 'No se proporcionó archivo' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       )
     }
 
-    // === 3. Validaciones ===
-    // Tipo de archivo
     if (!ALLOWED_TYPES.includes(file.type) && !file.name.endsWith('.pdf')) {
       return NextResponse.json(
         { error: 'Solo se aceptan archivos PDF' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       )
     }
 
-    // Tamaño
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: `Archivo demasiado grande. Máximo: ${MAX_FILE_SIZE / (1024 * 1024)}MB` },
-        { status: 400 }
+        { error: `Archivo demasiado grande. Máximo: ${MAX_FILE_SIZE / (1024 * 1024)}MB. Use upload resumable para archivos mayores.` },
+        { status: 400, headers: corsHeaders }
       )
     }
 
     if (file.size === 0) {
       return NextResponse.json(
         { error: 'El archivo está vacío' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       )
     }
 
-    // === 4. Preparar metadata (incluye ROL tagging de Tarea 4.09) ===
-    const sourceUrl = formData.get('source_url') as string || ''
-    const source = formData.get('source') as string || 'unknown'
-    const rol = formData.get('rol') as string || ''
-    const tribunal = formData.get('tribunal') as string || ''
-    const caratula = formData.get('caratula') as string || ''
-    const documentType = formData.get('document_type') as string || 'otro'
-    const confidence = formData.get('confidence') as string || '0'
-    const capturedAt = formData.get('captured_at') as string || new Date().toISOString()
+    // Extraer metadata del FormData
+    const caseRol = (formData.get('case_rol') as string || '').trim()
+    const tribunal = (formData.get('tribunal') as string || '').trim() || null
+    const caratula = (formData.get('caratula') as string || '').trim() || null
+    const materia = (formData.get('materia') as string || '').trim() || null
+    const documentType = (formData.get('document_type') as string || 'otro').trim()
+    const fileHashFromClient = (formData.get('file_hash') as string || '').trim()
+    const source = (formData.get('source') as string || 'unknown').trim()
+    const sourceUrl = (formData.get('source_url') as string || '').trim() || null
+    const capturedAt = (formData.get('captured_at') as string || '').trim() || null
 
-    // Generar path único: user_id/YYYY-MM/filename
+    // ══════════════════════════════════════════════════════
+    // PASO 3: CALCULAR HASH Y VERIFICAR DUPLICADOS
+    // ══════════════════════════════════════════════════════
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    // Hash server-side (fuente de verdad, el del cliente puede ser parcial)
+    const serverHash = createHash('sha256').update(buffer).digest('hex')
+    // Usar hash del cliente si es completo (sin prefijo 'p:'), sino el del servidor
+    const fileHash = (fileHashFromClient && !fileHashFromClient.startsWith('p:'))
+      ? fileHashFromClient
+      : serverHash
+
+    // Verificar duplicado en document_hashes
+    const { data: existingHash } = await supabase
+      .from('document_hashes')
+      .select('id, filename')
+      .eq('user_id', user.id)
+      .eq('hash', fileHash)
+      .maybeSingle()
+
+    if (existingHash) {
+      return NextResponse.json(
+        {
+          success: false,
+          duplicate: true,
+          message: `Documento duplicado. Ya existe como "${existingHash.filename || 'documento previo'}".`,
+          existing_hash_id: existingHash.id,
+        },
+        { status: 200, headers: corsHeaders }
+      )
+    }
+
+    // ══════════════════════════════════════════════════════
+    // PASO 4: UPSERT CASE (Crear o actualizar causa)
+    // ══════════════════════════════════════════════════════
+    let caseId: string | null = null
+
+    if (caseRol) {
+      // Buscar si la causa ya existe para este usuario
+      const { data: existingCase } = await supabase
+        .from('cases')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('rol', caseRol)
+        .maybeSingle()
+
+      if (existingCase) {
+        caseId = existingCase.id
+        // Actualizar metadata si viene nueva info (no sobreescribir con vacío)
+        const updateData: Record<string, string | null> = {
+          last_synced_at: new Date().toISOString(),
+        }
+        if (tribunal) updateData.tribunal = tribunal
+        if (caratula) updateData.caratula = caratula
+        if (materia) updateData.materia = materia
+
+        await supabase
+          .from('cases')
+          .update(updateData)
+          .eq('id', caseId)
+      } else {
+        // Crear nueva causa
+        const newCase: CaseInsert = {
+          user_id: user.id,
+          rol: caseRol,
+          tribunal,
+          caratula,
+          materia,
+          last_synced_at: new Date().toISOString(),
+        }
+
+        const { data: createdCase, error: caseError } = await supabase
+          .from('cases')
+          .insert(newCase)
+          .select('id')
+          .single()
+
+        if (caseError) {
+          console.error('Error creando caso:', caseError)
+          return NextResponse.json(
+            { error: `Error al registrar causa: ${caseError.message}` },
+            { status: 500, headers: corsHeaders }
+          )
+        }
+        caseId = createdCase.id
+      }
+    }
+
+    // ══════════════════════════════════════════════════════
+    // PASO 5: SUBIR A SUPABASE STORAGE
+    // ══════════════════════════════════════════════════════
     const now = new Date()
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
     const storagePath = `${user.id}/${yearMonth}/${uniqueId}_${sanitizedName}`
 
-    // === 5. Convertir File a Buffer para upload ===
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-
-    // === 6. Subir a Supabase Storage ===
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(storagePath, buffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',
         upsert: false,
-        // Metadata personalizada
         duplex: 'half',
       })
 
@@ -120,56 +219,111 @@ export async function POST(request: NextRequest) {
       console.error('Error subiendo a Supabase Storage:', uploadError)
       return NextResponse.json(
         { error: `Error al guardar archivo: ${uploadError.message}` },
-        { status: 500 }
+        { status: 500, headers: corsHeaders }
       )
     }
 
-    // === 7. Respuesta exitosa ===
+    // ══════════════════════════════════════════════════════
+    // PASO 6: REGISTRAR DOCUMENTO EN DB
+    // ══════════════════════════════════════════════════════
+    let documentId: string | null = null
+
+    if (caseId) {
+      const newDocument: DocumentInsert = {
+        case_id: caseId,
+        user_id: user.id,
+        filename: sanitizedName,
+        original_filename: file.name,
+        storage_path: uploadData.path,
+        document_type: documentType,
+        file_size: file.size,
+        file_hash: fileHash,
+        source,
+        source_url: sourceUrl,
+        captured_at: capturedAt,
+      }
+
+      const { data: createdDoc, error: docError } = await supabase
+        .from('documents')
+        .insert(newDocument)
+        .select('id')
+        .single()
+
+      if (docError) {
+        console.error('Error registrando documento:', docError)
+        // No fallamos aquí — el archivo ya está en Storage.
+        // Lo logueamos para investigar, pero respondemos con warning.
+      } else {
+        documentId = createdDoc.id
+      }
+
+      // Actualizar document_count en la causa
+      // (usamos RPC o query directa)
+      await supabase.rpc('increment_counter', {
+        user_id: user.id,
+        counter_type: 'case',
+      }).catch(() => {
+        // No crítico si falla el counter
+      })
+    }
+
+    // ══════════════════════════════════════════════════════
+    // PASO 7: REGISTRAR HASH PARA DEDUPLICACIÓN
+    // ══════════════════════════════════════════════════════
+    const newHash: DocumentHashInsert = {
+      user_id: user.id,
+      rol: caseRol || 'sin_rol',
+      hash: fileHash,
+      filename: sanitizedName,
+      document_type: documentType,
+    }
+
+    const { error: hashError } = await supabase
+      .from('document_hashes')
+      .insert(newHash)
+
+    if (hashError) {
+      // Si es constraint violation (duplicado por race condition), no es error
+      if (!hashError.message.includes('unique') && !hashError.message.includes('duplicate')) {
+        console.error('Error registrando hash:', hashError)
+      }
+    }
+
+    // ══════════════════════════════════════════════════════
+    // PASO 8: RESPUESTA EXITOSA
+    // ══════════════════════════════════════════════════════
     return NextResponse.json(
       {
         success: true,
+        duplicate: false,
         path: uploadData.path,
         filename: sanitizedName,
         size: file.size,
+        hash: fileHash,
+        case_id: caseId,
+        document_id: documentId,
+        case_rol: caseRol || null,
         metadata: {
-          source,
-          sourceUrl,
-          rol,
           tribunal,
           caratula,
+          materia,
           documentType,
-          confidence: parseFloat(confidence),
+          source,
           capturedAt,
           uploadedAt: now.toISOString(),
         },
       },
-      {
-        status: 200,
-        headers: {
-          'Access-Control-Allow-Origin': 'chrome-extension://*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Allow-Credentials': 'true',
-        },
-      }
+      { status: 200, headers: corsHeaders }
     )
   } catch (error) {
     console.error('Error en /api/upload:', error)
     return NextResponse.json(
       { error: 'Error interno del servidor' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     )
   }
 }
 
-export async function OPTIONS() {
-  return NextResponse.json({}, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': 'chrome-extension://*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Credentials': 'true',
-    },
-  })
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsOptions(request)
 }

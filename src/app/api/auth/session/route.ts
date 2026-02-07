@@ -1,7 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const corsHeaders = getCorsHeaders(request, { methods: 'GET, OPTIONS' })
+
   try {
     const supabase = await createClient()
     
@@ -13,7 +16,7 @@ export async function GET() {
     if (error || !user) {
       return NextResponse.json(
         { user: null, session: null },
-        { status: 200 }
+        { status: 200, headers: corsHeaders }
       )
     }
 
@@ -40,36 +43,17 @@ export async function GET() {
             }
           : null,
       },
-      {
-        status: 200,
-        headers: {
-          'Access-Control-Allow-Origin': 'chrome-extension://*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-          'Access-Control-Allow-Credentials': 'true',
-        },
-      }
+      { status: 200, headers: corsHeaders }
     )
   } catch (error) {
     console.error('Error en /api/auth/session:', error)
     return NextResponse.json(
       { error: 'Error interno del servidor' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     )
   }
 }
 
-export async function OPTIONS() {
-  return NextResponse.json(
-    {},
-    {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': 'chrome-extension://*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Credentials': 'true',
-      },
-    }
-  )
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsOptions(request)
 }

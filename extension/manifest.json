@@ -15,7 +15,7 @@
   "host_permissions": [
     "*://*.pjud.cl/*",
     "http://localhost:3000/*",
-    "https://jszpfokzybhpngmqdezd.supabase.co/*"
+    "https://*.supabase.co/*"
   ],
   "background": {
     "service_worker": "service-worker.js"
@@ -30,6 +30,7 @@
     {
       "matches": ["*://*.pjud.cl/*"],
       "js": [
+        "lib/config.js",
         "lib/resumable-upload.js",
         "scraper/remote-config.js",
         "scraper/network-interceptor.js",

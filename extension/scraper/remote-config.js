@@ -20,8 +20,8 @@
  * ============================================================
  */
 
-// En producción, cambiar a la URL del servidor desplegado
-const SCRAPER_CONFIG_ENDPOINT = 'http://localhost:3000/api/scraper/config';
+// Endpoint centralizado en lib/config.js (cargado antes que este archivo)
+const SCRAPER_CONFIG_ENDPOINT = CONFIG.API.SCRAPER_CONFIG;
 const CONFIG_CACHE_KEY = 'legalbot_scraper_config';
 const CONFIG_CACHE_TS_KEY = 'legalbot_scraper_config_ts';
 const CONFIG_TTL_MS = 30 * 60 * 1000; // 30 minutos de cache

@@ -6,42 +6,30 @@
  * Supabase Storage y confirma/reemplaza el hash parcial que
  * el PdfValidator (4.09) calculó client-side.
  *
- * CONTEXTO:
- *   - Archivos ≤50MB: el validador calcula hash completo client-side.
- *   - Archivos >50MB: el validador calcula hash PARCIAL (primeros 1MB +
- *     últimos 1MB + tamaño) para no crashear el navegador.
- *     Los hashes parciales tienen prefijo "p:" en la BD.
- *
- * Este endpoint:
- *   1. Lee el archivo desde Supabase Storage
- *   2. Calcula hash SHA-256 completo en streaming
- *   3. Retorna el hash para que el cliente lo registre
- *
- * Se invoca después de un upload resumable exitoso.
- * En producción, esto se moverá a una Edge Function de Supabase
- * que se dispara automáticamente al crear un nuevo objeto en
- * el bucket 'case-files' (Tarea 4.02).
- *
  * Seguridad:
  *   - Requiere JWT válido
  *   - Solo accede a archivos del usuario autenticado (RLS path)
+ *   - CORS restringido a la extensión de Chrome
  * ============================================================
  */
 
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
+import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 
 const BUCKET_NAME = 'case-files'
 
 export async function POST(request: NextRequest) {
+  const corsHeaders = getCorsHeaders(request, { methods: 'POST, OPTIONS' })
+
   try {
     // === 1. Verificar autenticación ===
     const authHeader = request.headers.get('Authorization')
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'Token de autenticación requerido' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       )
     }
 
@@ -51,7 +39,7 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json(
         { error: 'Sesión inválida o expirada' },
-        { status: 401 }
+        { status: 401, headers: corsHeaders }
       )
     }
 
@@ -62,7 +50,7 @@ export async function POST(request: NextRequest) {
     if (!storagePath) {
       return NextResponse.json(
         { error: 'storagePath es requerido' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       )
     }
 
@@ -70,7 +58,7 @@ export async function POST(request: NextRequest) {
     if (!storagePath.startsWith(user.id + '/')) {
       return NextResponse.json(
         { error: 'No tiene permiso para acceder a este archivo' },
-        { status: 403 }
+        { status: 403, headers: corsHeaders }
       )
     }
 
@@ -82,7 +70,7 @@ export async function POST(request: NextRequest) {
     if (downloadError || !fileData) {
       return NextResponse.json(
         { error: `Error descargando archivo: ${downloadError?.message || 'no encontrado'}` },
-        { status: 404 }
+        { status: 404, headers: corsHeaders }
       )
     }
 
@@ -105,31 +93,17 @@ export async function POST(request: NextRequest) {
           ? 'Hash parcial reemplazado por hash completo'
           : 'Hash completo calculado',
       },
-      {
-        status: 200,
-        headers: {
-          'Access-Control-Allow-Origin': 'chrome-extension://*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        },
-      }
+      { status: 200, headers: corsHeaders }
     )
   } catch (error) {
     console.error('Error en /api/upload/confirm-hash:', error)
     return NextResponse.json(
       { error: 'Error interno del servidor' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     )
   }
 }
 
-export async function OPTIONS() {
-  return NextResponse.json({}, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': 'chrome-extension://*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  })
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsOptions(request)
 }

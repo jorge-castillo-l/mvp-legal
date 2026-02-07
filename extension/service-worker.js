@@ -14,6 +14,9 @@
  * ============================================================
  */
 
+// Cargar configuración centralizada (MV3 Service Workers requieren importScripts al top-level)
+importScripts('lib/config.js');
+
 // ══════════════════════════════════════════════════════════
 // SETUP: SidePanel behavior
 // ══════════════════════════════════════════════════════════
@@ -158,7 +161,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Intentar pre-cachear la config al instalar/actualizar
 chrome.runtime.onInstalled.addListener(async () => {
   try {
-    const response = await fetch('http://localhost:3000/api/scraper/config');
+    const response = await fetch(CONFIG.API.SCRAPER_CONFIG);
     if (response.ok) {
       const config = await response.json();
       await chrome.storage.local.set({

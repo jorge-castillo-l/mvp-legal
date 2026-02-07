@@ -516,12 +516,18 @@ class StrategyEngine {
           result = await this._uploadStandard(blob, filename, pdf, session);
         }
 
+        // Si el servidor detectó duplicado, no contar como upload nuevo
+        if (result.duplicate) {
+          continue;
+        }
+
         uploadedCount++;
 
-        // Registrar hash para deduplicación futura
-        if (pdf._hash && this.pdfValidator) {
+        // Registrar hash localmente para deduplicación client-side futura
+        const hashToRegister = result.hash || pdf._hash;
+        if (hashToRegister && this.pdfValidator) {
           await this.pdfValidator.registerUploadedHash(
-            pdf._hash, session?.user?.id, pdf.rol
+            hashToRegister, session?.user?.id, pdf.rol
           );
         }
 
@@ -529,6 +535,8 @@ class StrategyEngine {
           filename,
           size: blob.size,
           path: result.path,
+          case_id: result.case_id,
+          document_id: result.document_id,
           rol: pdf.rol,
           type: pdf.documentType,
           uploadStrategy,
@@ -550,21 +558,30 @@ class StrategyEngine {
 
   /**
    * Upload estándar via API Route (archivos ≤50MB).
-   * Flujo original: Extension → /api/upload → Supabase Storage
+   * Flujo: Extension → /api/upload → Storage + DB (cases, documents, document_hashes)
+   *
+   * CONTRATO FORMDATA (debe coincidir EXACTO con route.ts):
+   *   file, case_rol, tribunal, caratula, materia, document_type,
+   *   file_hash, source, source_url, captured_at
    */
   async _uploadStandard(blob, filename, pdf, session) {
     const formData = new FormData();
     formData.append('file', blob, filename);
-    formData.append('source_url', pdf.url || '');
-    formData.append('source', pdf.source || 'scraper');
-    formData.append('rol', pdf.rol || '');
+
+    // Campos de causa (para upsert en tabla cases)
+    formData.append('case_rol', pdf.rol || '');
     formData.append('tribunal', pdf.tribunal || '');
     formData.append('caratula', pdf.caratula || '');
+    formData.append('materia', pdf.materia || '');
+
+    // Campos de documento
     formData.append('document_type', pdf.documentType || 'otro');
-    formData.append('confidence', String(pdf.confidence || 0));
+    formData.append('file_hash', pdf._hash || '');
+    formData.append('source', pdf.source || 'scraper');
+    formData.append('source_url', pdf.url || '');
     formData.append('captured_at', pdf.capturedAt || new Date().toISOString());
 
-    const uploadResponse = await fetch('http://localhost:3000/api/upload', {
+    const uploadResponse = await fetch(CONFIG.API.UPLOAD, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
@@ -572,12 +589,22 @@ class StrategyEngine {
       body: formData,
     });
 
+    const responseData = await uploadResponse.json().catch(() => ({}));
+
     if (!uploadResponse.ok) {
-      const errorData = await uploadResponse.json().catch(() => ({}));
-      throw new Error(errorData.error || `Upload HTTP ${uploadResponse.status}`);
+      throw new Error(responseData.error || `Upload HTTP ${uploadResponse.status}`);
     }
 
-    return await uploadResponse.json();
+    // Si el servidor detectó duplicado, no es un error pero lo reportamos
+    if (responseData.duplicate) {
+      console.log(`[StrategyEngine] Duplicado detectado server-side: ${responseData.message}`);
+      this._emit('status', {
+        phase: 'duplicate_skipped',
+        message: responseData.message,
+      });
+    }
+
+    return responseData;
   }
 
   /**
@@ -649,7 +676,7 @@ class StrategyEngine {
    * y retorna el hash completo para registrar en la BD.
    */
   async _confirmHashServerSide(storagePath, partialHash, rol, session) {
-    const response = await fetch('http://localhost:3000/api/upload/confirm-hash', {
+    const response = await fetch(CONFIG.API.UPLOAD_CONFIRM, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
@@ -698,16 +725,38 @@ class StrategyEngine {
 
     this._emit('status', { phase: 'manual_uploading', message: `Subiendo ${file.name}...` });
 
-    const formData = new FormData();
-    formData.append('file', file, file.name);
-    formData.append('source', 'manual_upload');
-
     const session = await supabase.getSession();
     if (!session?.access_token) {
       throw new Error('No hay sesión activa');
     }
 
-    const response = await fetch('http://localhost:3000/api/upload', {
+    // Calcular hash del archivo manual para deduplicación
+    let fileHash = '';
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+      fileHash = Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) {
+      console.warn('[StrategyEngine] No se pudo calcular hash manual:', e.message);
+    }
+
+    // Si hay causa confirmada, asociar el archivo a ella
+    const confirmedCausa = this.causaContext?.getConfirmedCausa();
+
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    formData.append('source', 'manual_upload');
+    formData.append('file_hash', fileHash);
+
+    // Asociar a causa si existe contexto confirmado
+    if (confirmedCausa) {
+      formData.append('case_rol', confirmedCausa.rol || '');
+      formData.append('tribunal', confirmedCausa.tribunal || '');
+      formData.append('caratula', confirmedCausa.caratula || '');
+    }
+
+    const response = await fetch(CONFIG.API.UPLOAD, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
@@ -715,12 +764,17 @@ class StrategyEngine {
       body: formData,
     });
 
+    const result = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Upload HTTP ${response.status}`);
+      throw new Error(result.error || `Upload HTTP ${response.status}`);
     }
 
-    const result = await response.json();
+    if (result.duplicate) {
+      this._emit('status', { phase: 'manual_duplicate', message: result.message });
+      return result;
+    }
+
     this._emit('status', { phase: 'manual_complete', message: `${file.name} subido exitosamente` });
     this._emit('pdf_uploaded', { filename: file.name, size: file.size, path: result.path });
 
