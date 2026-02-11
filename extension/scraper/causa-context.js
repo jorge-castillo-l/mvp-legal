@@ -248,28 +248,61 @@ class CausaContext {
    * Detectar ROL escaneando el texto visible del DOM (último recurso)
    */
   _detectRolFromDomText() {
+    // ESTRATEGIA ESPECÍFICA PARA PJUD: Buscar en tablas con clase table-titulos
+    const pjudTables = document.querySelectorAll('table.table-titulos, table.table-responsive');
+    for (const table of pjudTables) {
+      const firstCell = table.querySelector('td');
+      if (firstCell) {
+        // Limpiar AGRESIVAMENTE espacios invisibles, saltos de línea y caracteres raros
+        const cleanText = (firstCell.textContent || '')
+          .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+          .replace(/\s+/g, ' ') // Normalizar espacios
+          .trim();
+        
+        // Buscar ROL: seguido del patrón
+        const rolMatch = cleanText.match(/ROL\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i);
+        if (rolMatch) {
+          return { 
+            rol: rolMatch[1].toUpperCase().trim(), 
+            source: 'pjud_table', 
+            confidence: 0.95 
+          };
+        }
+      }
+    }
+
     // Buscar en el cuerpo principal, excluyendo menús y footers
-    const mainContent = document.querySelector('main, #content, #main, .content, .main-content')
+    const mainContent = document.querySelector('main, #content, #main, .content, .main-content, .modal-body')
       || document.body;
 
     if (!mainContent) return null;
 
-    // Tomar solo los primeros 3000 caracteres para eficiencia
-    const text = (mainContent.textContent || '').substring(0, 3000);
+    // Tomar solo los primeros 5000 caracteres para eficiencia (aumentado)
+    let text = (mainContent.textContent || '').substring(0, 5000);
+    
+    // Limpieza AGRESIVA de caracteres problemáticos
+    text = text
+      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+      .replace(/\s+/g, ' ') // Normalizar todos los espacios a uno solo
+      .replace(/\u00A0/g, ' ') // Non-breaking spaces
+      .trim();
 
     // Buscar patrones de ROL precedidos de contexto legal
+    // Hacemos los patrones MÁS PERMISIVOS con espacios
     const contextPatterns = [
-      /ROL\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /RIT\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /RUC\s*:?\s*(\d{4,}-\d{4})/i,
-      /Causa\s+(?:N[°º]?\s*)?([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /Expediente\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i,
+      /ROL\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
+      /RIT\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
+      /RUC\s*:?\s*(\d{4,}\s*-\s*\d{4})/i,
+      /Causa\s+(?:N[°º]?\s*)?([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
+      /Expediente\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
     ];
 
     for (const pattern of contextPatterns) {
       const match = text.match(pattern);
       if (match) {
-        return { rol: match[1].toUpperCase(), source: 'dom_text', confidence: 0.7 };
+        // Limpiar el ROL capturado de espacios internos
+        const cleanRol = match[1].replace(/\s+/g, '').toUpperCase();
+        return { rol: cleanRol, source: 'dom_text', confidence: 0.7 };
       }
     }
 
@@ -285,6 +318,25 @@ class CausaContext {
    * Solo los PDFs dentro de esta zona serán capturados.
    */
   _identifyDocumentZone() {
+    // ESTRATEGIA ESPECÍFICA PJUD: Buscar tabs de historia/documentos
+    const pjudTabs = [
+      '#historiaCiv', '#historia', '#documentos', '#expediente',
+      '.tab-pane.active', '.modal-body'
+    ];
+    
+    for (const tabSelector of pjudTabs) {
+      try {
+        const tabElement = document.querySelector(tabSelector);
+        if (!tabElement) continue;
+        
+        // Buscar tabla dentro del tab
+        const table = tabElement.querySelector('table.table-bordered, table.table-striped, table.table-hover, table');
+        if (table && this._isDocumentTable(table)) {
+          return { element: table, type: 'table', selector: `${tabSelector} > table`, confidence: 0.95 };
+        }
+      } catch (e) { /* selector inválido */ }
+    }
+
     // Estrategia 1: Buscar tabla de documentos con selectores conocidos
     const tableSelectors = this.selectors.causaTable || [];
     for (const selector of tableSelectors) {
@@ -329,13 +381,17 @@ class CausaContext {
   _isDocumentTable(table) {
     if (!table || !table.rows || table.rows.length < 2) return false;
 
+    // Obtener texto de headers (thead o primera fila)
     const headerText = (table.querySelector('thead')?.textContent ||
       table.rows[0]?.textContent || '').toUpperCase();
 
+    // Keywords específicas de PJud y otros sitios judiciales
     const docKeywords = [
       'DOCUMENTO', 'ESCRITO', 'RESOLUCIÓN', 'RESOLUCION',
       'ACTUACIÓN', 'ACTUACION', 'NOTIFICACIÓN', 'NOTIFICACION',
       'TIPO', 'FECHA', 'FOLIO', 'CUADERNO', 'DESCARGA',
+      'DOC', 'ANEXO', 'ETAPA', 'TRÁMITE', 'TRAMITE', // Específicos de PJud
+      'DESC', 'FEC', 'FOJA', 'GEORREF', // Abreviaciones comunes
     ];
 
     let matches = 0;
@@ -344,7 +400,16 @@ class CausaContext {
     }
 
     // Al menos 2 keywords legales en los headers = es tabla de documentos
-    return matches >= 2;
+    if (matches >= 2) return true;
+
+    // VALIDACIÓN ADICIONAL: Verificar si tiene enlaces a PDFs en el cuerpo
+    const tbody = table.querySelector('tbody') || table;
+    const pdfLinks = tbody.querySelectorAll('a[href*=".pdf"], form[action*="documento"], form[action*=".pdf"], i.fa-file-pdf-o');
+    
+    // Si tiene al menos 2 filas con iconos de PDF o forms de descarga = es tabla de documentos
+    if (pdfLinks.length >= 2) return true;
+
+    return false;
   }
 
   // ════════════════════════════════════════════════════════
@@ -429,16 +494,29 @@ class CausaContext {
     const zone = this.documentZone?.element;
     if (!zone) return preview;
 
-    // Buscar filas con documentos
-    const rows = zone.querySelectorAll('tr');
+    // Buscar filas con documentos (tbody o directo)
+    const tbody = zone.querySelector('tbody') || zone;
+    const rows = tbody.querySelectorAll('tr');
+    
     for (const row of rows) {
       const cells = row.querySelectorAll('td');
       if (cells.length < 2) continue;
 
-      const rowText = (row.textContent || '').trim();
-      const hasLinks = row.querySelectorAll('a, button[onclick], [onclick]').length > 0;
+      // Limpiar texto de la fila
+      const rowText = (row.textContent || '').replace(/\s+/g, ' ').trim();
+      
+      // Detectar si tiene documentos descargables
+      const hasPdfIcon = row.querySelector('i.fa-file-pdf-o, i.fa-file-pdf');
+      const hasForm = row.querySelector('form[action*="documento"], form[action*=".pdf"], form[action*="docu"]');
+      const hasLink = row.querySelector('a[href*=".pdf"], a[onclick*="submit"], a[onclick*="download"]');
+      const hasDownload = !!(hasPdfIcon || hasForm || hasLink);
 
-      if (!hasLinks && !rowText) continue;
+      // Saltar filas de header (thead puede estar dentro de tbody en algunos sitios)
+      const isHeaderRow = row.querySelector('th') || /^(folio|doc|anexo|etapa|trámite|fecha)/i.test(rowText);
+      if (isHeaderRow) continue;
+
+      // Saltar filas vacías o demasiado cortas
+      if (!rowText || rowText.length < 5) continue;
 
       // Inferir tipo de documento
       const type = this._inferDocumentType(rowText);
@@ -450,22 +528,28 @@ class CausaContext {
         preview.items.push({
           text: rowText.substring(0, 150),
           type: type,
-          hasDownload: hasLinks,
+          hasDownload: hasDownload,
         });
       }
     }
 
-    // Si no encontramos filas, contar links directamente
+    // Si no encontramos filas, contar links/forms directamente
     if (preview.total === 0) {
-      const links = zone.querySelectorAll('a');
-      for (const link of links) {
-        const text = (link.textContent || '').trim();
-        const href = (link.getAttribute('href') || '').toLowerCase();
-        const onclick = (link.getAttribute('onclick') || '').toLowerCase();
+      const downloadElements = zone.querySelectorAll('a, form[action*="documento"]');
+      for (const el of downloadElements) {
+        const text = (el.textContent || '').trim();
+        const href = (el.getAttribute('href') || '').toLowerCase();
+        const action = (el.getAttribute('action') || '').toLowerCase();
+        const onclick = (el.getAttribute('onclick') || '').toLowerCase();
 
-        if (href.includes('.pdf') || onclick.includes('download') ||
-          onclick.includes('documento') || text.length > 3) {
-          const type = this._inferDocumentType(text + ' ' + href);
+        const isDocument = href.includes('.pdf') || 
+                          action.includes('documento') || 
+                          onclick.includes('submit') ||
+                          onclick.includes('download') ||
+                          el.querySelector('i.fa-file-pdf-o, i.fa-file-pdf');
+
+        if (isDocument && text.length > 3) {
+          const type = this._inferDocumentType(text + ' ' + href + ' ' + action);
           preview.byType[type]++;
           preview.total++;
           if (preview.items.length < 50) {
@@ -496,14 +580,28 @@ class CausaContext {
 
   _extractRolFromText(text) {
     if (!text) return null;
+    
+    // Limpiar agresivamente el texto de espacios invisibles y caracteres raros
+    const cleanText = text
+      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+      .replace(/\u00A0/g, ' ') // Non-breaking spaces
+      .replace(/\s+/g, ' ') // Normalizar espacios
+      .trim();
+    
+    // Patrones más permisivos que toleran espacios entre componentes
     const patterns = [
-      /([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /(\d{1,8}-\d{4})/,
+      /([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,  // Con espacios opcionales
+      /(\d{1,8}\s*-\s*\d{4})/,                      // RUC con espacios opcionales
     ];
+    
     for (const p of patterns) {
-      const m = text.match(p);
-      if (m && this._isValidRol(m[1])) {
-        return { rol: m[1].toUpperCase() };
+      const m = cleanText.match(p);
+      if (m) {
+        // Limpiar el ROL capturado de espacios internos
+        const cleanRol = m[1].replace(/\s+/g, '').toUpperCase();
+        if (this._isValidRol(cleanRol)) {
+          return { rol: cleanRol };
+        }
       }
     }
     return null;
