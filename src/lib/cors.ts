@@ -53,7 +53,9 @@ function isAllowedOrigin(origin: string | null): boolean {
 
   // En desarrollo: permitir localhost
   if (process.env.NODE_ENV === 'development') {
-    return origin === 'http://localhost:3000'
+    if (origin === 'http://localhost:3000') return true
+    // Content scripts en iframes de PJud envían origin de la página (ej. oficinajudicialvirtual.pjud.cl)
+    if (/^https:\/\/[^/]*pjud\.cl(\/|$)/.test(origin)) return true
   }
 
   return false

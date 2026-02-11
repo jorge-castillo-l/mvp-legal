@@ -408,19 +408,28 @@ class StrategyEngine {
   }
 
   /**
-   * Intentar descargar un PDF simulando click en un elemento
-   * Usa el throttle humano + espera captura por red
+   * Intentar descargar un PDF.
+   * PJud usa <a onclick="$(this).closest('form').submit();"> - form.submit() hace navegación,
+   * el interceptor nunca lo ve. Si detectamos form trigger, hacemos fetch manual.
    */
   async _attemptDownload(candidate) {
     try {
       return await this.humanThrottle.executeThrottled(async () => {
-        // Preparar escucha de captura por red
+        const element = candidate.element;
+
+        // PJud: elementos que disparan form.submit() - evitar navegación, usar fetch
+        const formPdf = await this._fetchViaForm(element);
+        if (formPdf) {
+          return {
+            ...formPdf,
+            source: 'form_fetch',
+            confidence: candidate.confidence || candidate.score,
+          };
+        }
+
+        // Path original: click + esperar captura por red (fetch/XHR)
         const capturePromise = this.networkInterceptor.waitForCapture(12000);
-
-        // Simular click humano en el elemento
-        this._simulateHumanClick(candidate.element);
-
-        // Esperar a que el interceptor de red capture el PDF
+        this._simulateHumanClick(element);
         const captured = await capturePromise;
 
         if (captured) {
@@ -437,6 +446,71 @@ class StrategyEngine {
       console.warn('[StrategyEngine] Error al descargar:', error.message);
       return null;
     }
+  }
+
+  /**
+   * Si el elemento dispara un form submit (ej. PJud <a onclick="form.submit()">),
+   * extrae datos del form y hace fetch manual. El servidor responde con el PDF.
+   */
+  async _fetchViaForm(element) {
+    const form = element?.closest?.('form');
+    if (!form) return null;
+
+    try {
+      const url = new URL(form.action || '', window.location.href).href;
+      const method = (form.method || 'get').toUpperCase();
+
+      let options = { method, credentials: 'include' };
+
+      if (method === 'GET') {
+        const params = new URLSearchParams(new FormData(form));
+        const separator = url.includes('?') ? '&' : '?';
+        const fullUrl = `${url}${separator}${params.toString()}`;
+        const response = await fetch(fullUrl, options);
+        return await this._parsePdfResponse(response, fullUrl);
+      }
+
+      const enctype = (form.enctype || 'application/x-www-form-urlencoded').toLowerCase();
+      if (enctype.includes('multipart')) {
+        options.body = new FormData(form);
+      } else {
+        options.body = new URLSearchParams(new FormData(form)).toString();
+        options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      }
+
+      const response = await fetch(url, options);
+      return await this._parsePdfResponse(response, url);
+    } catch (e) {
+      console.warn('[StrategyEngine] _fetchViaForm falló:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * Parsea respuesta fetch: si es PDF, retorna objeto compatible con el flujo de captura.
+   */
+  _parsePdfResponse(response, url) {
+    if (!response.ok) return null;
+
+    const contentType = response.headers.get('content-type') || '';
+    const isPdf = contentType.includes('application/pdf') ||
+      contentType.includes('application/octet-stream') ||
+      /\.pdf(\?|$)/i.test(url || '');
+
+    if (!isPdf) return null;
+
+    return response.blob().then((blob) => {
+      if (blob.size < 1024) return null; // Muy pequeño, probablemente no es PDF real
+      return {
+        url: url,
+        contentType: contentType,
+        blobUrl: URL.createObjectURL(blob),
+        size: blob.size,
+        method: 'form_fetch',
+        timestamp: Date.now(),
+        capturedAt: new Date().toISOString(),
+      };
+    }).catch(() => null);
   }
 
   /**

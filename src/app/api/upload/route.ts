@@ -28,7 +28,7 @@
  * ============================================================
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { createHash } from 'crypto'
@@ -53,8 +53,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const token = authHeader.slice(7)
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
 
     if (authError || !user) {
       return NextResponse.json(
@@ -62,6 +63,9 @@ export async function POST(request: NextRequest) {
         { status: 401, headers: corsHeaders }
       )
     }
+
+    // Cliente con token para que RLS (auth.uid()) funcione en inserts/updates
+    const supabase = createClientWithToken(token)
 
     // ══════════════════════════════════════════════════════
     // PASO 2: EXTRAER Y VALIDAR FORMDATA
@@ -206,13 +210,20 @@ export async function POST(request: NextRequest) {
     const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
     const storagePath = `${user.id}/${yearMonth}/${uniqueId}_${sanitizedName}`
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    // Storage: usar admin client (bypassa RLS). El usuario ya fue validado arriba.
+    const supabaseAdmin = createAdminClient()
+    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
       .from(BUCKET_NAME)
       .upload(storagePath, buffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',
         upsert: false,
         duplex: 'half',
+        metadata: {
+          owner: user.id,
+          plan_type: 'free',
+          uploaded_at: new Date().toISOString(),
+        },
       })
 
     if (uploadError) {
@@ -257,14 +268,15 @@ export async function POST(request: NextRequest) {
         documentId = createdDoc.id
       }
 
-      // Actualizar document_count en la causa
-      // (usamos RPC o query directa)
-      await supabase.rpc('increment_counter', {
-        user_id: user.id,
-        counter_type: 'case',
-      }).catch(() => {
-        // No crítico si falla el counter
-      })
+      // Actualizar document_count en la causa (no crítico si falla)
+      try {
+        await supabase.rpc('increment_counter', {
+          user_id: user.id,
+          counter_type: 'case',
+        })
+      } catch {
+        // Ignorar — puede fallar si la función no existe
+      }
     }
 
     // ══════════════════════════════════════════════════════

@@ -13,7 +13,7 @@
  * ============================================================
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createClientWithToken } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
@@ -33,8 +33,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const token = authHeader.slice(7)
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
 
     if (authError || !user) {
       return NextResponse.json(
@@ -42,6 +43,8 @@ export async function POST(request: NextRequest) {
         { status: 401, headers: corsHeaders }
       )
     }
+
+    const supabase = createClientWithToken(token)
 
     // === 2. Obtener path del archivo ===
     const body = await request.json()

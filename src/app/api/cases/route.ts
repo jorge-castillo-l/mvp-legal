@@ -14,7 +14,7 @@
  * ============================================================
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createClientWithToken } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 
@@ -22,9 +22,11 @@ export async function GET(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request, { methods: 'GET, OPTIONS' })
 
   try {
-    // === Auth ===
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // === Auth === (Bearer para extensión, cookies para Dashboard)
+    const authHeader = request.headers.get('Authorization')
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
 
     if (authError || !user) {
       return NextResponse.json(
@@ -32,6 +34,8 @@ export async function GET(request: NextRequest) {
         { status: 401, headers: corsHeaders }
       )
     }
+
+    const supabase = token ? createClientWithToken(token) : supabaseAuth
 
     // === Query con conteo embebido (1 sola ida a DB) ===
     // PostgREST traduce esto a:
