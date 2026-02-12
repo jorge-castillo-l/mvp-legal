@@ -45,6 +45,7 @@ The content is organized as follows:
 components.json
 docs/analisis_riesgos_pjud_2026.md
 docs/APLICAR_MIGRACIONES.md
+docs/APLICAR_SECURITY_FIXES.md
 docs/AUDITORIA_TAREAS_LISTO.md
 docs/CHEATSHEET_SUPABASE.md
 docs/correcciones pendientes.md
@@ -131,6 +132,7 @@ supabase/.temp/storage-version
 supabase/migrations/20260205120000_create_profiles_table.sql
 supabase/migrations/20260205120001_create_case_files_bucket.sql
 supabase/migrations/20260209120000_create_legal_tables.sql
+supabase/migrations/20260212120000_fix_function_search_path.sql
 supabase/README.md
 tsconfig.json
 </directory_structure>
@@ -486,6 +488,149 @@ npx supabase@latest db push
 ---
 
 **¿Listo para aplicar? Ejecuta los 3 comandos de arriba y luego verifica en el Dashboard 🚀**
+</file>
+
+<file path="docs/APLICAR_SECURITY_FIXES.md">
+# Guía: Aplicar Correcciones de Seguridad Supabase
+
+Esta guía te ayuda a implementar las correcciones para los 5 warnings de seguridad detectados por el linter de Supabase.
+
+---
+
+## 📋 Resumen de Correcciones
+
+| Warning | Solución | Estado |
+|---------|----------|--------|
+| Function Search Path Mutable (4 funciones) | Migración SQL | ✅ Lista |
+| Leaked Password Protection Disabled | Configuración Dashboard | ⏳ Manual |
+
+---
+
+## 🔧 Paso 1: Aplicar Migración SQL
+
+La migración `20260212120000_fix_function_search_path.sql` ya está creada en `supabase/migrations/`.
+
+### Opción A: Supabase CLI (Recomendado)
+
+```bash
+# Desde la raíz del proyecto
+npx supabase migration up
+```
+
+### Opción B: SQL Editor en Supabase Dashboard
+
+1. Abre el **SQL Editor** en tu proyecto Supabase
+2. Copia el contenido de `supabase/migrations/20260212120000_fix_function_search_path.sql`
+3. Pégalo en el editor
+4. Pulsa **Run**
+
+### Verificación
+
+Ejecuta en el SQL Editor para confirmar que las funciones tienen `search_path`:
+
+```sql
+SELECT 
+  proname as function_name,
+  prosrc as source_code
+FROM pg_proc 
+WHERE pronamespace = 'public'::regnamespace 
+  AND proname IN (
+    'handle_updated_at',
+    'maybe_reset_monthly_counters',
+    'check_user_limits',
+    'increment_counter'
+  );
+```
+
+Busca en el resultado la línea `set search_path = public` en cada función.
+
+---
+
+## 🔒 Paso 2: Activar Leaked Password Protection
+
+### En el Supabase Dashboard:
+
+1. Ve a tu proyecto en https://supabase.com/dashboard
+2. **Authentication** → **Settings** (en el menú lateral)
+3. Scroll hasta **"Password Settings"**
+4. Activa **"Enable Leaked Password Protection"**
+5. Guarda los cambios
+
+### ¿Qué hace esto?
+
+- Al registrarse o cambiar contraseña, Supabase verifica contra la base de datos de HaveIBeenPwned
+- Bloquea contraseñas conocidas como comprometidas
+- No afecta sesiones actuales ni contraseñas existentes
+- Solo aplica a nuevas contraseñas o cambios futuros
+
+---
+
+## ✅ Verificación Final
+
+### 1. Volver a ejecutar el linter
+
+En el Supabase Dashboard → **Database** → **Linter**
+
+Los 5 warnings deberían desaparecer.
+
+### 2. Probar funcionalidad
+
+```bash
+# Probar que la app sigue funcionando
+npm run dev
+```
+
+- Inicia sesión
+- Sincroniza una causa
+- Verifica que los contadores funcionan
+
+---
+
+## 🚨 Rollback (si algo sale mal)
+
+Si necesitas revertir la migración:
+
+```sql
+-- En SQL Editor, ejecuta la migración original SIN el search_path
+-- (contenido de 20260205120000_create_profiles_table.sql, funciones originales)
+```
+
+O usa:
+
+```bash
+npx supabase migration rollback
+```
+
+---
+
+## 📝 Notas
+
+- **Impacto**: BAJO - Solo añade seguridad, no cambia comportamiento
+- **Tiempo**: ~2 minutos para aplicar ambas correcciones
+- **Reversible**: Sí (aunque no hay razón para revertir)
+- **Testing**: Recomendado pero no crítico - las funciones no cambian su lógica
+
+---
+
+## ❓ Troubleshooting
+
+### Error: "function already exists"
+
+Normal - `CREATE OR REPLACE` sobreescribe la función existente.
+
+### Error: "search_path is not a valid option"
+
+Verifica la sintaxis: debe ser `set search_path = public` (minúsculas, sin comillas en public).
+
+### Los warnings siguen apareciendo
+
+- Espera 1-2 minutos para que el linter se actualice
+- Refresca la página del Dashboard
+- Si persisten, verifica que la migración se aplicó correctamente
+
+---
+
+✅ **¡Listo!** Tu base de datos ahora cumple con las mejores prácticas de seguridad de Supabase.
 </file>
 
 <file path="docs/AUDITORIA_TAREAS_LISTO.md">
@@ -2967,428 +3112,6 @@ Para reportar bugs o sugerir mejoras, contacta al equipo de desarrollo.
 **Última actualización**: Febrero 2026
 </file>
 
-<file path="extension/scraper/dom-analyzer.js">
-/**
- * ============================================================
- * DOM ANALYZER - Layer 2 (Inmunidad al DOM)
- * ============================================================
- * SOLUCIÓN A: Inmunidad al DOM (Vulnerabilidad 1.1, 1.2, 1.3)
- * 
- * En lugar de depender de un selector CSS frágil como #btn-descarga,
- * este módulo usa un SISTEMA DE PUNTUACIÓN HEURÍSTICO:
- * 
- *   1. Intenta selectores conocidos (rápido, config remota)
- *   2. Si fallan, escanea TODO el DOM buscando patrones:
- *      - Texto: "descargar", "PDF", "documento"
- *      - Atributos: href con .pdf, onclick con download
- *      - Iconos: clases .fa-download, imágenes pdf.png
- *      - Contexto: elementos dentro de tablas con datos legales
- *   3. Penetra Shadow DOM recursivamente (Vuln. 1.3)
- *   4. Penetra iframes same-origin (Vuln. 1.2)
- * 
- * Resultado: Incluso si PJud cambia todos sus IDs y clases,
- * el analizador encontrará los botones de descarga por su
- * SIGNIFICADO SEMÁNTICO, no por su nombre CSS.
- * ============================================================
- */
-
-class DOMAnalyzer {
-  constructor(config) {
-    this.config = config || {};
-    this.selectors = config?.selectors || {};
-    this.heuristics = config?.heuristics || {};
-  }
-
-  /**
-   * FUNCIÓN PRINCIPAL: Encontrar todos los elementos descargables
-   * Retorna array ordenado por confianza (mayor primero)
-   */
-  findDownloadElements() {
-    const candidates = [];
-
-    // Estrategia A: Selectores conocidos (más rápido, más preciso si están actualizados)
-    const selectorResults = this._tryKnownSelectors();
-    candidates.push(...selectorResults);
-
-    // Estrategia B: Escaneo heurístico (resiliente a cambios de DOM)
-    const heuristicResults = this._heuristicScan();
-    candidates.push(...heuristicResults);
-
-    // Deduplicar y ordenar por confianza
-    return this._deduplicateAndRank(candidates);
-  }
-
-  /**
-   * Encontrar la tabla principal de causas/documentos
-   * Usa selectores conocidos + heurísticas de contenido
-   */
-  findCausaTable() {
-    // Intentar selectores conocidos primero
-    const tableSelectors = this.selectors.causaTable || [];
-    for (const selector of tableSelectors) {
-      try {
-        const el = this._querySelectorDeep(selector);
-        if (el && el.rows && el.rows.length > 1) {
-          return { element: el, source: 'known_selector', confidence: 0.95 };
-        }
-      } catch (e) { /* selector inválido */ }
-    }
-
-    // Heurística: buscar tabla con palabras clave legales en headers
-    const tables = this._querySelectorAllDeep('table');
-    const keywords = this.heuristics.tableKeywords || [
-      'ROL', 'Causa', 'Tribunal', 'Carátula', 'Fecha', 'Tipo'
-    ];
-
-    let bestTable = null;
-    let bestScore = 0;
-
-    for (const table of tables) {
-      const headerText = (table.querySelector('thead')?.textContent || 
-                          table.querySelector('tr')?.textContent || '').toUpperCase();
-      const fullText = (table.textContent || '').toUpperCase();
-      let score = 0;
-
-      // Puntuar por keywords en headers (más peso)
-      for (const kw of keywords) {
-        if (headerText.includes(kw.toUpperCase())) score += 2;
-        else if (fullText.includes(kw.toUpperCase())) score += 0.5;
-      }
-
-      // Bonus por tener varias filas (probable tabla de datos)
-      const rowCount = table.rows?.length || 0;
-      if (rowCount > 2) score += Math.min(rowCount, 10) * 0.15;
-
-      // Bonus por tener links (probable tabla con documentos)
-      const linkCount = table.querySelectorAll('a').length;
-      if (linkCount > 0) score += Math.min(linkCount, 10) * 0.1;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestTable = table;
-      }
-    }
-
-    if (bestTable && bestScore > 2) {
-      return {
-        element: bestTable,
-        source: 'heuristic',
-        confidence: Math.min(bestScore / 8, 0.9),
-      };
-    }
-
-    return null;
-  }
-
-  /**
-   * Extraer datos de casos desde una tabla detectada
-   */
-  extractCaseData(tableResult) {
-    if (!tableResult?.element) return [];
-
-    const table = tableResult.element;
-    const rows = table.querySelectorAll('tbody tr, tr:not(:first-child)');
-    const cases = [];
-
-    for (const row of rows) {
-      const cells = row.querySelectorAll('td');
-      if (cells.length < 2) continue; // Ignorar filas vacías/headers
-
-      const rowText = (row.textContent || '').trim();
-      const links = row.querySelectorAll('a, button, [onclick]');
-      const downloadLinks = [];
-
-      for (const link of links) {
-        const score = this._scoreDownloadElement(link);
-        if (score >= (this.heuristics.minConfidenceThreshold || 0.35)) {
-          downloadLinks.push({ element: link, score });
-        }
-      }
-
-      // Intentar extraer ROL (formato chileno: C-XXXXX-YYYY o similar)
-      const rolPatterns = [
-        /[A-Z]{1,3}-\d{1,7}-\d{4}/i,   // C-12345-2026
-        /\d{1,7}-\d{4}/,                  // 12345-2026
-        /ROL\s*:?\s*([A-Z0-9\-]+)/i,     // ROL: C-12345-2026
-      ];
-
-      let rol = null;
-      for (const pattern of rolPatterns) {
-        const match = rowText.match(pattern);
-        if (match) {
-          rol = match[1] || match[0];
-          break;
-        }
-      }
-
-      if (downloadLinks.length > 0 || rol) {
-        cases.push({
-          rol: rol,
-          text: rowText.substring(0, 300),
-          downloadLinks: downloadLinks.sort((a, b) => b.score - a.score),
-          rowElement: row,
-          cellCount: cells.length,
-        });
-      }
-    }
-
-    return cases;
-  }
-
-  /**
-   * Detectar contexto de la página (¿es una vista relevante del PJUD?)
-   */
-  analyzePageContext() {
-    const url = window.location.href;
-    const title = document.title || '';
-    const bodyText = (document.body?.textContent || '').substring(0, 5000);
-
-    const legalKeywords = /causa|rol|tribunal|expediente|carátula|juzgado|corte|demanda|querella/i;
-    const isPjud = /pjud\.cl|oficinavirtual.*judicial/i.test(url);
-
-    const table = this.findCausaTable();
-    const hasLegalContent = legalKeywords.test(bodyText);
-    const hasFrames = document.querySelectorAll('iframe, frame').length > 0;
-
-    return {
-      url,
-      title,
-      isPjud,
-      isRelevantPage: isPjud && (table !== null || hasLegalContent),
-      hasTable: table !== null,
-      tableConfidence: table?.confidence || 0,
-      hasLegalContent,
-      hasFrames,
-      frameCount: document.querySelectorAll('iframe, frame').length,
-    };
-  }
-
-  // ════════════════════════════════════════════════════════
-  // SCORING: Sistema de puntuación para elementos descargables
-  // ════════════════════════════════════════════════════════
-
-  /**
-   * Puntuar qué tan probable es que un elemento sea un botón de descarga
-   * Retorna un valor entre 0 (nada probable) y 1 (casi seguro)
-   */
-  _scoreDownloadElement(element) {
-    let score = 0;
-
-    // Recolectar todo el texto/atributos del elemento
-    const text = (element.textContent || '').toLowerCase().trim();
-    const href = (element.getAttribute('href') || '').toLowerCase();
-    const onclick = (element.getAttribute('onclick') || '').toLowerCase();
-    const className = (element.className || '').toLowerCase();
-    const title = (element.getAttribute('title') || '').toLowerCase();
-    const ariaLabel = (element.getAttribute('aria-label') || '').toLowerCase();
-    const dataAttrs = this._getDataAttributes(element).toLowerCase();
-
-    const allText = `${text} ${href} ${onclick} ${className} ${title} ${ariaLabel} ${dataAttrs}`;
-
-    // --- Keywords de descarga ---
-    const keywords = this.heuristics.downloadKeywords || [
-      'descargar', 'download', 'pdf', 'documento', 'escrito',
-      'resolución', 'ver', 'abrir', 'sentencia',
-    ];
-
-    for (const kw of keywords) {
-      if (allText.includes(kw)) score += 0.15;
-    }
-
-    // --- Link directo a PDF (alta confianza) ---
-    if (href.includes('.pdf')) score += 0.5;
-    if (href.includes('download') || href.includes('descarga')) score += 0.3;
-
-    // --- Atributo download HTML5 ---
-    if (element.hasAttribute('download')) score += 0.45;
-
-    // --- onclick con funciones de descarga ---
-    if (onclick) {
-      if (/download|descarga|abrir|verdoc|getdoc|obtener/i.test(onclick)) score += 0.35;
-      if (/window\.open|window\.location/i.test(onclick)) score += 0.1;
-    }
-
-    // --- Iconos dentro del elemento ---
-    const icons = element.querySelectorAll('i, svg, img, span[class*="icon"]');
-    for (const icon of icons) {
-      const iconInfo = `${icon.className || ''} ${icon.getAttribute('src') || ''} ${icon.getAttribute('alt') || ''}`.toLowerCase();
-      if (/download|descarga|pdf|file|archivo/i.test(iconInfo)) {
-        score += 0.25;
-      }
-    }
-
-    // --- Target _blank (común para abrir PDFs) ---
-    if (element.getAttribute('target') === '_blank') score += 0.1;
-
-    // --- Penalizaciones ---
-    // Navegar a otra sección (probablemente no es descarga)
-    if (href.startsWith('#') && !href.includes('download')) score -= 0.2;
-    // Links de paginación
-    if (/página|page|next|prev|anterior|siguiente/i.test(allText)) score -= 0.3;
-    // Links de navegación general
-    if (/inicio|home|menú|salir|logout|cerrar/i.test(allText)) score -= 0.3;
-
-    return Math.max(0, Math.min(score, 1.0));
-  }
-
-  // ════════════════════════════════════════════════════════
-  // BÚSQUEDA: Selectores conocidos y escaneo heurístico
-  // ════════════════════════════════════════════════════════
-
-  _tryKnownSelectors() {
-    const results = [];
-    const downloadSelectors = this.selectors.downloadLink || [];
-
-    for (const selector of downloadSelectors) {
-      try {
-        const elements = this._querySelectorAllDeep(selector);
-        for (const el of elements) {
-          results.push({
-            element: el,
-            source: 'known_selector',
-            selector: selector,
-            confidence: 0.9,
-          });
-        }
-      } catch (e) {
-        // Selector inválido - ignorar silenciosamente
-      }
-    }
-
-    return results;
-  }
-
-  _heuristicScan() {
-    const results = [];
-
-    // Escanear todos los elementos clickeables
-    const clickables = this._querySelectorAllDeep(
-      'a, button, [onclick], [role="button"], input[type="button"], input[type="submit"]'
-    );
-
-    for (const el of clickables) {
-      const score = this._scoreDownloadElement(el);
-      if (score >= (this.heuristics.minConfidenceThreshold || 0.35)) {
-        results.push({
-          element: el,
-          source: 'heuristic',
-          confidence: score,
-        });
-      }
-    }
-
-    return results;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // DEEP QUERY: Penetración de Shadow DOM e iframes
-  // ════════════════════════════════════════════════════════
-
-  /**
-   * querySelector que penetra Shadow DOM e iframes same-origin
-   * Soluciona Vulnerabilidades 1.2 (iframes) y 1.3 (Shadow DOM)
-   */
-  _querySelectorDeep(selector, root = document) {
-    // Intento normal primero
-    try {
-      const result = root.querySelector(selector);
-      if (result) return result;
-    } catch (e) { /* selector inválido */ }
-
-    // Penetrar Shadow DOMs
-    const allElements = root.querySelectorAll('*');
-    for (const el of allElements) {
-      if (el.shadowRoot) {
-        const result = this._querySelectorDeep(selector, el.shadowRoot);
-        if (result) return result;
-      }
-    }
-
-    // Penetrar iframes same-origin
-    const iframes = root.querySelectorAll('iframe, frame');
-    for (const iframe of iframes) {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (doc) {
-          const result = this._querySelectorDeep(selector, doc);
-          if (result) return result;
-        }
-      } catch (e) {
-        // Cross-origin iframe - no se puede acceder (esperado)
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * querySelectorAll que penetra Shadow DOM e iframes same-origin
-   */
-  _querySelectorAllDeep(selector, root = document) {
-    const results = [];
-
-    // Búsqueda normal
-    try {
-      results.push(...root.querySelectorAll(selector));
-    } catch (e) { /* selector inválido */ }
-
-    // Penetrar Shadow DOMs
-    try {
-      const allElements = root.querySelectorAll('*');
-      for (const el of allElements) {
-        if (el.shadowRoot) {
-          results.push(...this._querySelectorAllDeep(selector, el.shadowRoot));
-        }
-      }
-    } catch (e) { /* error en traversal */ }
-
-    // Penetrar iframes same-origin
-    const iframes = root.querySelectorAll('iframe, frame');
-    for (const iframe of iframes) {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (doc) {
-          results.push(...this._querySelectorAllDeep(selector, doc));
-        }
-      } catch (e) {
-        // Cross-origin iframe - esperado
-      }
-    }
-
-    return results;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // UTILIDADES
-  // ════════════════════════════════════════════════════════
-
-  /**
-   * Deduplicar candidatos (mismo elemento) y ordenar por confianza
-   */
-  _deduplicateAndRank(candidates) {
-    const elementMap = new Map();
-
-    for (const candidate of candidates) {
-      const existing = elementMap.get(candidate.element);
-      if (!existing || candidate.confidence > existing.confidence) {
-        elementMap.set(candidate.element, candidate);
-      }
-    }
-
-    return Array.from(elementMap.values())
-      .sort((a, b) => b.confidence - a.confidence);
-  }
-
-  /**
-   * Extraer todos los data-* attributes como string
-   */
-  _getDataAttributes(element) {
-    if (!element.dataset) return '';
-    return Object.values(element.dataset).join(' ');
-  }
-}
-</file>
-
 <file path="extension/scraper/human-throttle.js">
 /**
  * ============================================================
@@ -5474,266 +5197,6 @@ export const config = {
 }
 </file>
 
-<file path="src/types/supabase.ts">
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[]
-
-export type Database = {
-  public: {
-    Tables: {
-      profiles: {
-        Row: {
-          id: string
-          email: string | null
-          plan_type: string
-          chat_count: number
-          deep_thinking_count: number
-          monthly_chat_count: number
-          monthly_deep_thinking_count: number
-          monthly_reset_date: string
-          case_count: number
-          device_fingerprint: string | null
-          last_active_date: string
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id: string
-          email?: string | null
-          plan_type?: string
-          chat_count?: number
-          deep_thinking_count?: number
-          monthly_chat_count?: number
-          monthly_deep_thinking_count?: number
-          monthly_reset_date?: string
-          case_count?: number
-          device_fingerprint?: string | null
-          last_active_date?: string
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          email?: string | null
-          plan_type?: string
-          chat_count?: number
-          deep_thinking_count?: number
-          monthly_chat_count?: number
-          monthly_deep_thinking_count?: number
-          monthly_reset_date?: string
-          case_count?: number
-          device_fingerprint?: string | null
-          last_active_date?: string
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      cases: {
-        Row: {
-          id: string
-          user_id: string
-          rol: string
-          tribunal: string | null
-          caratula: string | null
-          materia: string | null
-          estado: string | null
-          document_count: number
-          last_synced_at: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          rol: string
-          tribunal?: string | null
-          caratula?: string | null
-          materia?: string | null
-          estado?: string | null
-          document_count?: number
-          last_synced_at?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          rol?: string
-          tribunal?: string | null
-          caratula?: string | null
-          materia?: string | null
-          estado?: string | null
-          document_count?: number
-          last_synced_at?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "cases_user_id_fkey"
-            columns: ["user_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      documents: {
-        Row: {
-          id: string
-          case_id: string
-          user_id: string
-          filename: string
-          original_filename: string | null
-          storage_path: string
-          document_type: string
-          file_size: number
-          file_hash: string | null
-          source: string
-          source_url: string | null
-          captured_at: string | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          case_id: string
-          user_id: string
-          filename: string
-          original_filename?: string | null
-          storage_path: string
-          document_type?: string
-          file_size: number
-          file_hash?: string | null
-          source?: string
-          source_url?: string | null
-          captured_at?: string | null
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          case_id?: string
-          user_id?: string
-          filename?: string
-          original_filename?: string | null
-          storage_path?: string
-          document_type?: string
-          file_size?: number
-          file_hash?: string | null
-          source?: string
-          source_url?: string | null
-          captured_at?: string | null
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "documents_case_id_fkey"
-            columns: ["case_id"]
-            referencedRelation: "cases"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "documents_user_id_fkey"
-            columns: ["user_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      document_hashes: {
-        Row: {
-          id: string
-          user_id: string
-          rol: string
-          hash: string
-          filename: string | null
-          document_type: string | null
-          uploaded_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          rol: string
-          hash: string
-          filename?: string | null
-          document_type?: string | null
-          uploaded_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          rol?: string
-          hash?: string
-          filename?: string | null
-          document_type?: string | null
-          uploaded_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "document_hashes_user_id_fkey"
-            columns: ["user_id"]
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      check_user_limits: {
-        Args: { action_type: string; user_id: string }
-        Returns: Json
-      }
-      increment_counter: {
-        Args: { counter_type: string; user_id: string }
-        Returns: boolean
-      }
-      maybe_reset_monthly_counters: {
-        Args: { user_id: string }
-        Returns: undefined
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
-}
-
-// ????????????????????????????????????????????????????????
-// Helper Types
-// ????????????????????????????????????????????????????????
-
-type PublicSchema = Database['public']
-
-export type Tables<T extends keyof PublicSchema['Tables']> =
-  PublicSchema['Tables'][T]['Row']
-
-export type TablesInsert<T extends keyof PublicSchema['Tables']> =
-  PublicSchema['Tables'][T]['Insert']
-
-export type TablesUpdate<T extends keyof PublicSchema['Tables']> =
-  PublicSchema['Tables'][T]['Update']
-
-// Convenience aliases
-export type Profile = Tables<'profiles'>
-export type Case = Tables<'cases'>
-export type Document = Tables<'documents'>
-export type DocumentHash = Tables<'document_hashes'>
-
-export type CaseInsert = TablesInsert<'cases'>
-export type DocumentInsert = TablesInsert<'documents'>
-export type DocumentHashInsert = TablesInsert<'document_hashes'>
-</file>
-
 <file path="supabase/.temp/cli-latest">
 v2.75.0
 </file>
@@ -6014,6 +5477,290 @@ create policy "document_hashes_delete_own"
   using (auth.uid() = user_id);
 </file>
 
+<file path="supabase/migrations/20260212120000_fix_function_search_path.sql">
+-- ============================================================================
+-- MIGRACIÓN: Fix Function Search Path Security
+-- ============================================================================
+-- Añade SET search_path = public a las funciones para prevenir
+-- ataques de inyección de schemas (Supabase Lint Warning 0011)
+--
+-- Funciones afectadas:
+--   - handle_updated_at
+--   - maybe_reset_monthly_counters
+--   - check_user_limits
+--   - increment_counter
+-- ============================================================================
+
+-- 1. FUNCIÓN: ACTUALIZAR TIMESTAMP AUTOMÁTICAMENTE
+-- ============================================================================
+
+create or replace function public.handle_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.updated_at = timezone('utc'::text, now());
+  return new;
+end;
+$$;
+
+comment on function public.handle_updated_at is 'Actualiza automáticamente updated_at. Security: search_path fijado a public';
+
+
+-- 2. FUNCIÓN HELPER: RESETEAR CONTADORES MENSUALES
+-- ============================================================================
+
+create or replace function public.maybe_reset_monthly_counters(
+  user_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_month_start timestamp with time zone;
+begin
+  current_month_start := date_trunc('month', timezone('utc'::text, now()));
+  
+  update public.profiles
+  set
+    monthly_chat_count = 0,
+    monthly_deep_thinking_count = 0,
+    monthly_reset_date = current_month_start
+  where id = user_id
+    and monthly_reset_date < current_month_start;
+end;
+$$;
+
+comment on function public.maybe_reset_monthly_counters is 'Resetea contadores mensuales si el mes cambió. Idempotente: solo resetea una vez por mes. Security: search_path fijado a public';
+
+
+-- 3. FUNCIÓN HELPER: VERIFICAR LÍMITES DE PLAN
+-- ============================================================================
+
+create or replace function public.check_user_limits(
+  user_id uuid,
+  action_type text -- 'chat', 'deep_thinking', 'case'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  user_profile record;
+  result jsonb;
+begin
+  -- Resetear contadores mensuales si corresponde
+  perform public.maybe_reset_monthly_counters(user_id);
+
+  -- Obtener perfil del usuario (con contadores ya reseteados si aplica)
+  select * into user_profile
+  from public.profiles
+  where id = user_id;
+
+  -- Si no existe perfil, retornar error
+  if not found then
+    return jsonb_build_object(
+      'allowed', false,
+      'error', 'Profile not found'
+    );
+  end if;
+
+  -- Verificar según tipo de acción y plan
+  case action_type
+    when 'chat' then
+      -- FREE: 20 chats lifetime (hard block)
+      if user_profile.plan_type = 'free' and user_profile.chat_count >= 20 then
+        return jsonb_build_object(
+          'allowed', false,
+          'error', 'FREE plan limit reached: 20 chats maximum. Upgrade to Pro for unlimited access.',
+          'current_count', user_profile.chat_count,
+          'limit', 20,
+          'plan', 'free',
+          'upgrade_required', true
+        );
+      -- PRO: Fair Use soft cap 3,000/mes (throttle, NOT block)
+      elsif user_profile.plan_type = 'pro' and user_profile.monthly_chat_count >= 3000 then
+        return jsonb_build_object(
+          'allowed', true,
+          'message', 'PRO plan: Fair Use soft cap reached. Throttle applied.',
+          'current_count', user_profile.chat_count,
+          'monthly_count', user_profile.monthly_chat_count,
+          'plan', 'pro',
+          'fair_use_throttle', true,
+          'throttle_ms', 30000
+        );
+      -- PRO: Normal (below soft cap)
+      elsif user_profile.plan_type = 'pro' then
+        return jsonb_build_object(
+          'allowed', true,
+          'message', 'PRO plan: chat allowed',
+          'current_count', user_profile.chat_count,
+          'monthly_count', user_profile.monthly_chat_count,
+          'monthly_remaining', 3000 - user_profile.monthly_chat_count,
+          'plan', 'pro',
+          'fair_use_throttle', false
+        );
+      -- FREE: Below limit
+      else
+        return jsonb_build_object(
+          'allowed', true,
+          'current_count', user_profile.chat_count,
+          'remaining', 20 - user_profile.chat_count,
+          'limit', 20,
+          'plan', 'free'
+        );
+      end if;
+
+    when 'deep_thinking' then
+      -- FREE: 3 deep thinking lifetime (hard block)
+      if user_profile.plan_type = 'free' and user_profile.deep_thinking_count >= 3 then
+        return jsonb_build_object(
+          'allowed', false,
+          'error', 'FREE plan limit reached: 3 Deep Thinking maximum. Upgrade to Pro for 100/month.',
+          'current_count', user_profile.deep_thinking_count,
+          'limit', 3,
+          'plan', 'free',
+          'upgrade_required', true
+        );
+      -- PRO: 100 deep thinking por MES (hard block mensual)
+      elsif user_profile.plan_type = 'pro' and user_profile.monthly_deep_thinking_count >= 100 then
+        return jsonb_build_object(
+          'allowed', false,
+          'error', 'PRO plan monthly limit reached: 100 Deep Thinking per month. Resets next month.',
+          'current_count', user_profile.deep_thinking_count,
+          'monthly_count', user_profile.monthly_deep_thinking_count,
+          'limit', 100,
+          'plan', 'pro'
+        );
+      -- PRO: Below monthly limit
+      elsif user_profile.plan_type = 'pro' then
+        return jsonb_build_object(
+          'allowed', true,
+          'current_count', user_profile.deep_thinking_count,
+          'monthly_count', user_profile.monthly_deep_thinking_count,
+          'remaining', 100 - user_profile.monthly_deep_thinking_count,
+          'plan', 'pro'
+        );
+      -- FREE: Below limit
+      else
+        return jsonb_build_object(
+          'allowed', true,
+          'current_count', user_profile.deep_thinking_count,
+          'remaining', 3 - user_profile.deep_thinking_count,
+          'limit', 3,
+          'plan', 'free'
+        );
+      end if;
+
+    when 'case' then
+      if user_profile.plan_type = 'free' and user_profile.case_count >= 1 then
+        return jsonb_build_object(
+          'allowed', false,
+          'error', 'FREE plan limit reached: 1 case maximum. Upgrade to Pro for 500 cases.',
+          'current_count', user_profile.case_count,
+          'limit', 1,
+          'plan', 'free',
+          'upgrade_required', true
+        );
+      elsif user_profile.plan_type = 'pro' and user_profile.case_count >= 500 then
+        return jsonb_build_object(
+          'allowed', false,
+          'error', 'PRO plan limit reached: 500 cases maximum',
+          'current_count', user_profile.case_count,
+          'limit', 500,
+          'plan', 'pro'
+        );
+      else
+        return jsonb_build_object(
+          'allowed', true,
+          'current_count', user_profile.case_count,
+          'remaining', case 
+            when user_profile.plan_type = 'free' then 1 - user_profile.case_count
+            else 500 - user_profile.case_count
+          end,
+          'plan', user_profile.plan_type
+        );
+      end if;
+
+    else
+      return jsonb_build_object(
+        'allowed', false,
+        'error', 'Invalid action type'
+      );
+  end case;
+end;
+$$;
+
+comment on function public.check_user_limits is 'Verifica si un usuario puede realizar una acción según su plan y contadores actuales. Incluye Fair Use para PRO (soft cap 3,000 chats/mes con throttle). Security: search_path fijado a public';
+
+
+-- 4. FUNCIÓN: INCREMENTAR CONTADORES
+-- ============================================================================
+
+create or replace function public.increment_counter(
+  user_id uuid,
+  counter_type text -- 'chat', 'deep_thinking', 'case'
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  limits_check jsonb;
+begin
+  -- Primero verificar límites (esto también resetea contadores mensuales si necesario)
+  limits_check := public.check_user_limits(user_id, counter_type);
+
+  if (limits_check->>'allowed')::boolean = false then
+    raise exception '%', limits_check->>'error';
+  end if;
+
+  -- Incrementar el contador correspondiente
+  case counter_type
+    when 'chat' then
+      update public.profiles
+      set 
+        chat_count = chat_count + 1,
+        monthly_chat_count = monthly_chat_count + 1,
+        last_active_date = timezone('utc'::text, now())
+      where id = user_id;
+
+    when 'deep_thinking' then
+      update public.profiles
+      set 
+        deep_thinking_count = deep_thinking_count + 1,
+        monthly_deep_thinking_count = monthly_deep_thinking_count + 1,
+        last_active_date = timezone('utc'::text, now())
+      where id = user_id;
+
+    when 'case' then
+      update public.profiles
+      set 
+        case_count = case_count + 1,
+        last_active_date = timezone('utc'::text, now())
+      where id = user_id;
+
+    else
+      raise exception 'Invalid counter type: %', counter_type;
+  end case;
+
+  return true;
+end;
+$$;
+
+comment on function public.increment_counter is 'Incrementa contadores lifetime y mensuales. Valida límites antes de incrementar. Fair Use: permite pero marca throttle para PRO >3,000 chats/mes. Security: search_path fijado a public';
+
+
+-- ============================================================================
+-- FIN DE MIGRACIÓN: FUNCTION SEARCH PATH SECURITY
+-- ============================================================================
+</file>
+
 <file path="tsconfig.json">
 {
   "compilerOptions": {
@@ -6049,19 +5796,6 @@ create policy "document_hashes_delete_own"
   ],
   "exclude": ["node_modules"]
 }
-</file>
-
-<file path="docs/correcciones pendientes.md">
-- cambiar middleware por proxy.
-- ghost card, que era una mejora propuesta por un chat de cursor para agregarle valo al producto.
-
-- actualizar cursorrules.:
-1) que cursor se asegure y me diga si es que debo hacer algo manualmente después de cada vez que "agent" haga algo.
-
-- evaluar si quiero que la IA tenga como funcionalidad generar escritos.
-- evaluar el modo juez y el modo defensor en lugar de tener un solo modo.
-
-- En "mis causas" aparece que tengo 8 documentes pero 16 document_hashes.
 </file>
 
 <file path="docs/TAREA_1.04_COMPLETADA.md">
@@ -6466,288 +6200,6 @@ La **Tarea 1.04 (SQL: Perfiles & RLS)** está completamente implementada y lista
 **Revisión requerida**: Aplicar migración en Supabase Dashboard
 </file>
 
-<file path="extension/content.js">
-/**
- * ============================================================
- * CONTENT SCRIPT - "Los Ojos" del Legal Bot
- * ============================================================
- * Se inyecta automáticamente en pjud.cl (y todos sus iframes).
- *
- * Flujo actualizado con 4.07 (Causa Context):
- *   1. Al cargar: inicializa engine + detecta ROL automáticamente
- *   2. Envía contexto de causa al Sidepanel
- *   3. Espera confirmación del abogado
- *   4. Solo entonces permite sync
- *
- * Los módulos se cargan vía manifest.json en este orden:
- *   remote-config → network-interceptor → dom-analyzer →
- *   human-throttle → causa-context → pdf-validator →
- *   strategy-engine → content.js (este archivo)
- * ============================================================
- */
-
-console.log('[LegalBot] Content Script activo en:', window.location.href);
-
-// ══════════════════════════════════════════════════════════
-// INSTANCIA GLOBAL DEL STRATEGY ENGINE
-// ══════════════════════════════════════════════════════════
-
-let engine = null;
-let isInitialized = false;
-
-async function initializeEngine() {
-  if (isInitialized && engine) return engine;
-
-  try {
-    engine = new StrategyEngine();
-    await engine.initialize();
-    isInitialized = true;
-    console.log('[LegalBot] Strategy Engine inicializado');
-
-    // Detección automática de causa al cargar la página
-    const causa = engine.detectCausa();
-
-    // Notificar al sidepanel
-    chrome.runtime.sendMessage({
-      type: 'scraper_ready',
-      causa: causa,
-      engineReady: true,
-    }).catch(() => {});
-
-    return engine;
-  } catch (error) {
-    console.error('[LegalBot] Error inicializando engine:', error);
-    return null;
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-// MUTATION OBSERVER - Detectar contenido dinámico (AJAX)
-// ══════════════════════════════════════════════════════════
-
-let observerDebounce = null;
-
-const pageObserver = new MutationObserver((mutations) => {
-  clearTimeout(observerDebounce);
-  observerDebounce = setTimeout(() => {
-    if (!engine) return;
-
-    const hasNewContent = mutations.some(mutation => {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const el = /** @type {Element} */ (node);
-          if (el.tagName === 'TABLE' || el.querySelector?.('table') ||
-            el.tagName === 'A' || el.querySelector?.('a')) {
-            return true;
-          }
-        }
-      }
-      return false;
-    });
-
-    if (hasNewContent) {
-      console.log('[LegalBot] Contenido nuevo detectado (AJAX)');
-      // Re-detectar causa con el nuevo contenido
-      const causa = engine.detectCausa();
-      chrome.runtime.sendMessage({
-        type: 'scraper_event',
-        event: 'content_updated',
-        data: { causa: causa },
-      }).catch(() => {});
-    }
-  }, 1500);
-});
-
-if (document.body) {
-  pageObserver.observe(document.body, { childList: true, subtree: true });
-}
-
-// ══════════════════════════════════════════════════════════
-// RE-DETECCIÓN POR EVENTOS (OJV modal, resize, visibilidad)
-// Soluciona: causa no se detecta hasta que el usuario abre DevTools
-// ══════════════════════════════════════════════════════════
-
-let redetectionDebounce = null;
-const REDETECTION_DEBOUNCE_MS = 800;
-
-function triggerRedetection() {
-  clearTimeout(redetectionDebounce);
-  redetectionDebounce = setTimeout(async () => {
-    if (!engine) await initializeEngine();
-    if (!engine) return;
-    const causa = engine.detectCausa();
-    chrome.runtime.sendMessage({
-      type: 'scraper_event',
-      event: 'content_updated',
-      data: { causa: causa },
-    }).catch(() => {});
-  }, REDETECTION_DEBOUNCE_MS);
-}
-
-// Solo en el frame principal (evitar duplicados en iframes)
-if (window === window.top && /pjud\.cl/i.test(document.location.href)) {
-  // Si ya hay hash de modal al cargar, detectar tras breve espera (contenido puede cargar después)
-  if (/modalDetalle|detalle|modal/i.test(location.hash)) {
-    setTimeout(triggerRedetection, 1500);
-  }
-
-  // hashchange: OJV usa #modalDetalleCivil para abrir el modal de causa
-  window.addEventListener('hashchange', () => {
-    if (/modalDetalle|detalle|modal/i.test(location.hash)) {
-      console.log('[LegalBot] Hash cambiado (modal), re-detectando:', location.hash);
-      triggerRedetection();
-    }
-  });
-
-  // resize: abrir DevTools o redimensionar puede hacer visible contenido lazy
-  let resizeDebounce = null;
-  window.addEventListener('resize', () => {
-    clearTimeout(resizeDebounce);
-    resizeDebounce = setTimeout(triggerRedetection, 500);
-  });
-
-  // visibilitychange: cuando la pestaña vuelve a estar visible
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      triggerRedetection();
-    }
-  });
-
-  // Detección periódica cada 8s (fallback para lazy-load que no dispara eventos)
-  setInterval(triggerRedetection, 8000);
-}
-
-// ══════════════════════════════════════════════════════════
-// MESSAGE HANDLER
-// ══════════════════════════════════════════════════════════
-
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  handleMessage(request)
-    .then(response => sendResponse(response))
-    .catch(error => sendResponse({ error: error.message }));
-  return true;
-});
-
-async function handleMessage(request) {
-  switch (request.action) {
-
-    // ── PING ──
-    case 'ping': {
-      const causa = engine?.getDetectedCausa() || null;
-      return {
-        status: 'alive',
-        engineReady: isInitialized,
-        causa: causa,
-      };
-    }
-
-    // ── DETECT: Detectar/re-detectar causa ──
-    case 'detect_causa': {
-      if (!engine) await initializeEngine();
-      if (!engine) return { error: 'No se pudo inicializar' };
-
-      const causa = engine.detectCausa();
-      return { status: 'detected', causa: causa };
-    }
-
-    // ── CONFIRM: El abogado confirma la causa detectada ──
-    case 'confirm_causa': {
-      if (!engine) return { error: 'Engine no inicializado' };
-
-      const confirmed = engine.confirmCausa();
-      if (confirmed) {
-        return { status: 'confirmed', causa: engine.causaContext.getConfirmedCausa() };
-      }
-      return { error: 'No hay causa detectada para confirmar' };
-    }
-
-    // ── SYNC: Sincronizar (requiere causa confirmada) ──
-    case 'sync': {
-      if (!engine) await initializeEngine();
-      if (!engine) return { error: 'No se pudo inicializar el scraper' };
-
-      const results = await engine.sync();
-      return {
-        status: 'sync_complete',
-        results: {
-          rol: results.rol,
-          layer1Count: results.layer1?.length || 0,
-          layer2Count: results.layer2?.length || 0,
-          totalFound: results.totalFound,
-          totalValidated: results.totalValidated,
-          totalUploaded: results.totalUploaded,
-          totalRejected: results.rejected?.length || 0,
-          rejectedReasons: (results.rejected || []).map(r => r.reason),
-          needsManual: results.needsManual,
-          errors: results.errors,
-          duration: results.duration,
-        },
-      };
-    }
-
-    // ── ANALYZE: Solo analizar sin descargar ──
-    case 'analyze': {
-      if (!engine) await initializeEngine();
-      if (!engine) return { error: 'No se pudo inicializar' };
-
-      const causa = engine.getDetectedCausa();
-      const downloads = engine.domAnalyzer.findDownloadElements();
-
-      return {
-        status: 'analysis_complete',
-        causa: causa,
-        downloadElements: downloads.length,
-        topDownloads: downloads.slice(0, 5).map(d => ({
-          text: d.element.textContent?.trim().substring(0, 50),
-          confidence: d.confidence,
-          source: d.source,
-        })),
-      };
-    }
-
-    // ── UPLOAD_MANUAL ──
-    case 'upload_manual': {
-      if (!engine) await initializeEngine();
-      if (!engine) return { error: 'No se pudo inicializar' };
-
-      if (!request.fileData || !request.fileName) {
-        return { error: 'Datos del archivo incompletos' };
-      }
-
-      const blob = new Blob([request.fileData], { type: 'application/pdf' });
-      const file = new File([blob], request.fileName, { type: 'application/pdf' });
-      const result = await engine.uploadManual(file);
-      return { status: 'upload_complete', result };
-    }
-
-    // ── GET_STATUS ──
-    case 'get_status': {
-      return {
-        status: engine?.status || 'not_initialized',
-        engineReady: isInitialized,
-        configVersion: engine?.config?.version || 'N/A',
-        causa: engine?.getDetectedCausa() || null,
-        causaConfirmed: engine?.causaContext?.isConfirmed || false,
-        capturedFiles: engine?.networkInterceptor?.getCapturedFiles()?.length || 0,
-      };
-    }
-
-    default:
-      return { error: `Acción desconocida: ${request.action}` };
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-// AUTO-INICIALIZACIÓN
-// ══════════════════════════════════════════════════════════
-
-if (window === window.top || document.location.href.includes('pjud.cl')) {
-  initializeEngine().catch(err => {
-    console.error('[LegalBot] Error en auto-inicialización:', err);
-  });
-}
-</file>
-
 <file path="extension/lib/supabase.js">
 // Cliente de Supabase para Chrome Extension
 // Este cliente comparte la sesión con el Dashboard Web mediante cookies
@@ -6875,638 +6327,426 @@ class SupabaseClient {
 const supabase = new SupabaseClient();
 </file>
 
-<file path="extension/scraper/causa-context.js">
+<file path="extension/scraper/dom-analyzer.js">
 /**
  * ============================================================
- * CAUSA CONTEXT DETECTOR - Tarea 4.07
+ * DOM ANALYZER - Layer 2 (Inmunidad al DOM)
  * ============================================================
- * PIEZA MÁS CRÍTICA del scraper. Sin esto, todo lo demás es
- * un aspirador ciego que contamina la base de datos.
- *
- * REGLA DE ORO: Sin ROL confirmado = sin scraping. Punto.
- *
- * Responsabilidades:
- *   1. Detectar proactivamente el ROL de la causa actual
- *   2. Identificar la zona de documentos (tabla de expediente)
- *   3. Generar preview de documentos encontrados
- *   4. Enviar contexto al Sidepanel para confirmación del abogado
- *
- * El abogado VE qué causa se detectó y CONFIRMA antes de que
- * se capture un solo byte. En el mundo legal, un documento de
- * otra causa mezclado es peor que ningún documento.
+ * SOLUCIÓN A: Inmunidad al DOM (Vulnerabilidad 1.1, 1.2, 1.3)
+ * 
+ * En lugar de depender de un selector CSS frágil como #btn-descarga,
+ * este módulo usa un SISTEMA DE PUNTUACIÓN HEURÍSTICO:
+ * 
+ *   1. Intenta selectores conocidos (rápido, config remota)
+ *   2. Si fallan, escanea TODO el DOM buscando patrones:
+ *      - Texto: "descargar", "PDF", "documento"
+ *      - Atributos: href con .pdf, onclick con download
+ *      - Iconos: clases .fa-download, imágenes pdf.png
+ *      - Contexto: elementos dentro de tablas con datos legales
+ *   3. Penetra Shadow DOM recursivamente (Vuln. 1.3)
+ *   4. Penetra iframes same-origin (Vuln. 1.2)
+ * 
+ * Resultado: Incluso si PJud cambia todos sus IDs y clases,
+ * el analizador encontrará los botones de descarga por su
+ * SIGNIFICADO SEMÁNTICO, no por su nombre CSS.
  * ============================================================
  */
 
-class CausaContext {
+class DOMAnalyzer {
   constructor(config) {
     this.config = config || {};
     this.selectors = config?.selectors || {};
     this.heuristics = config?.heuristics || {};
-
-    // Estado actual de la detección
-    this.detectedCausa = null;
-    this.isConfirmed = false;
-    this.documentZone = null;
   }
 
   /**
-   * DETECCIÓN PRINCIPAL: Analiza la página y extrae el contexto de la causa.
-   * Retorna null si no se detecta una causa válida.
+   * FUNCIÓN PRINCIPAL: Encontrar todos los elementos descargables
+   * Retorna array ordenado por confianza (mayor primero)
    */
-  detect() {
-    this.isConfirmed = false;
-    this.detectedCausa = null;
-    this.documentZone = null;
+  findDownloadElements() {
+    const candidates = [];
 
-    const url = window.location.href;
+    // Estrategia A: Selectores conocidos (más rápido, más preciso si están actualizados)
+    const selectorResults = this._tryKnownSelectors();
+    candidates.push(...selectorResults);
 
-    // Verificar que estamos en pjud.cl
-    if (!/pjud\.cl/i.test(url)) {
-      return null;
-    }
+    // Estrategia B: Escaneo heurístico (resiliente a cambios de DOM)
+    const heuristicResults = this._heuristicScan();
+    candidates.push(...heuristicResults);
 
-    // Intentar detectar ROL desde múltiples fuentes (orden de confianza)
-    const rolResult =
-      this._detectRolFromUrl(url) ||
-      this._detectRolFromBreadcrumbs() ||
-      this._detectRolFromPageTitle() ||
-      this._detectRolFromFormFields() ||
-      this._detectRolFromHeaderSection() ||
-      this._detectRolFromDomText();
-
-    if (!rolResult) {
-      return null;
-    }
-
-    // Identificar la zona de documentos de esta causa
-    this.documentZone = this._identifyDocumentZone();
-
-    // Extraer metadata adicional de la causa
-    const metadata = this._extractCausaMetadata();
-
-    // Generar preview de documentos
-    const documentPreview = this._generateDocumentPreview();
-
-    this.detectedCausa = {
-      rol: rolResult.rol,
-      rolSource: rolResult.source,
-      rolConfidence: rolResult.confidence,
-      tribunal: metadata.tribunal,
-      caratula: metadata.caratula,
-      materia: metadata.materia,
-      estado: metadata.estado,
-      hasDocumentZone: !!this.documentZone,
-      documentZoneType: this.documentZone?.type || null,
-      documentPreview: documentPreview,
-      totalDocuments: documentPreview.total,
-      pageUrl: url,
-      detectedAt: Date.now(),
-    };
-
-    console.log('[CausaContext] Causa detectada:', this.detectedCausa.rol,
-      '| Tribunal:', this.detectedCausa.tribunal,
-      '| Documentos:', this.detectedCausa.totalDocuments);
-
-    return this.detectedCausa;
+    // Deduplicar y ordenar por confianza
+    return this._deduplicateAndRank(candidates);
   }
 
   /**
-   * Confirmar la causa detectada (llamado tras aprobación del abogado)
+   * Encontrar la tabla principal de causas/documentos
+   * Usa selectores conocidos + heurísticas de contenido
    */
-  confirm() {
-    if (!this.detectedCausa) return false;
-    this.isConfirmed = true;
-    console.log('[CausaContext] Causa CONFIRMADA por el usuario:', this.detectedCausa.rol);
-    return true;
-  }
-
-  /**
-   * Verificar si hay causa confirmada (gate para el scraper)
-   */
-  hasConfirmedCausa() {
-    return this.isConfirmed && this.detectedCausa !== null;
-  }
-
-  /**
-   * Obtener la causa confirmada actual
-   */
-  getConfirmedCausa() {
-    if (!this.isConfirmed) return null;
-    return this.detectedCausa;
-  }
-
-  /**
-   * Obtener la zona de documentos confirmada (el scope del scraper)
-   */
-  getDocumentZone() {
-    if (!this.isConfirmed) return null;
-    return this.documentZone;
-  }
-
-  /**
-   * Resetear (al cambiar de página o cancelar)
-   */
-  reset() {
-    this.detectedCausa = null;
-    this.isConfirmed = false;
-    this.documentZone = null;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // DETECCIÓN DE ROL - Múltiples estrategias
-  // ════════════════════════════════════════════════════════
-
-  /**
-   * Detectar ROL desde la URL (más confiable)
-   * Ejemplo: .../causa?rol=C-12345-2026 o .../causa/C-12345-2026
-   */
-  _detectRolFromUrl(url) {
-    const patterns = [
-      /[?&]rol=([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /[?&]rol=(\d{1,8}-\d{4})/i,
-      /\/causa\/([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /\/expediente\/([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /[?&]rit=([A-Z]{1,4}-\d{1,8}-\d{4})/i,
-      /[?&]ruc=(\d{4,}-\d{4})/i,
-    ];
-
-    for (const pattern of patterns) {
-      const match = url.match(pattern);
-      if (match) {
-        return { rol: match[1].toUpperCase(), source: 'url', confidence: 0.95 };
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Detectar ROL desde breadcrumbs / ruta de navegación
-   */
-  _detectRolFromBreadcrumbs() {
-    const breadcrumbSelectors = [
-      '.breadcrumb', '.breadcrumbs', 'nav[aria-label*="breadcrumb"]',
-      '#breadcrumb', '.ruta-navegacion', '.path-nav',
-    ];
-
-    for (const selector of breadcrumbSelectors) {
-      try {
-        const el = document.querySelector(selector);
-        if (el) {
-          const rol = this._extractRolFromText(el.textContent);
-          if (rol) return { ...rol, source: 'breadcrumb', confidence: 0.9 };
-        }
-      } catch (e) { /* selector inválido */ }
-    }
-    return null;
-  }
-
-  /**
-   * Detectar ROL desde el título de la página
-   */
-  _detectRolFromPageTitle() {
-    const title = document.title || '';
-    const rol = this._extractRolFromText(title);
-    if (rol) return { ...rol, source: 'page_title', confidence: 0.85 };
-    return null;
-  }
-
-  /**
-   * Detectar ROL desde campos de formulario (búsqueda completada)
-   */
-  _detectRolFromFormFields() {
-    const fieldSelectors = [
-      ...(this.selectors.rolField || []),
-      '#rolCausa', '#txtRol', 'input[name="rol"]', 'input[name*="Rol"]',
-      'input[name="rit"]', 'input[name="ruc"]',
-      '#txtRit', '#txtRuc',
-    ];
-
-    for (const selector of fieldSelectors) {
-      try {
-        const el = document.querySelector(selector);
-        if (el && el.value) {
-          const normalized = el.value.trim().toUpperCase();
-          if (this._isValidRol(normalized)) {
-            return { rol: normalized, source: 'form_field', confidence: 0.9 };
-          }
-        }
-      } catch (e) { /* selector inválido */ }
-    }
-    return null;
-  }
-
-  /**
-   * Detectar ROL desde la sección de encabezado de la causa
-   * (cuando estamos dentro del detalle de una causa)
-   */
-  _detectRolFromHeaderSection() {
-    const headerSelectors = [
-      '.detalle-causa', '.ficha-causa', '.header-causa',
-      '#detalleCausa', '#fichaCausa', '.causa-header',
-      '.panel-heading', '.card-header',
-      'h1', 'h2', 'h3',
-    ];
-
-    for (const selector of headerSelectors) {
-      try {
-        const elements = document.querySelectorAll(selector);
-        for (const el of elements) {
-          const text = (el.textContent || '').substring(0, 500);
-          if (/causa|rol|rit|ruc|expediente|tribunal/i.test(text)) {
-            const rol = this._extractRolFromText(text);
-            if (rol) return { ...rol, source: 'header_section', confidence: 0.85 };
-          }
-        }
-      } catch (e) { /* selector inválido */ }
-    }
-    return null;
-  }
-
-  /**
-   * Detectar ROL escaneando el texto visible del DOM (último recurso)
-   */
-  _detectRolFromDomText() {
-    // ESTRATEGIA ESPECÍFICA PARA PJUD: Buscar en tablas con clase table-titulos
-    const pjudTables = document.querySelectorAll('table.table-titulos, table.table-responsive');
-    for (const table of pjudTables) {
-      const firstCell = table.querySelector('td');
-      if (firstCell) {
-        // Limpiar AGRESIVAMENTE espacios invisibles, saltos de línea y caracteres raros
-        const cleanText = (firstCell.textContent || '')
-          .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
-          .replace(/\s+/g, ' ') // Normalizar espacios
-          .trim();
-        
-        // Buscar ROL: seguido del patrón
-        const rolMatch = cleanText.match(/ROL\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i);
-        if (rolMatch) {
-          return { 
-            rol: rolMatch[1].toUpperCase().trim(), 
-            source: 'pjud_table', 
-            confidence: 0.95 
-          };
-        }
-      }
-    }
-
-    // Buscar en el cuerpo principal, excluyendo menús y footers
-    const mainContent = document.querySelector('main, #content, #main, .content, .main-content, .modal-body')
-      || document.body;
-
-    if (!mainContent) return null;
-
-    // Tomar solo los primeros 5000 caracteres para eficiencia (aumentado)
-    let text = (mainContent.textContent || '').substring(0, 5000);
-    
-    // Limpieza AGRESIVA de caracteres problemáticos
-    text = text
-      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
-      .replace(/\s+/g, ' ') // Normalizar todos los espacios a uno solo
-      .replace(/\u00A0/g, ' ') // Non-breaking spaces
-      .trim();
-
-    // Buscar patrones de ROL precedidos de contexto legal
-    // Hacemos los patrones MÁS PERMISIVOS con espacios
-    const contextPatterns = [
-      /ROL\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
-      /RIT\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
-      /RUC\s*:?\s*(\d{4,}\s*-\s*\d{4})/i,
-      /Causa\s+(?:N[°º]?\s*)?([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
-      /Expediente\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
-    ];
-
-    for (const pattern of contextPatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        // Limpiar el ROL capturado de espacios internos
-        const cleanRol = match[1].replace(/\s+/g, '').toUpperCase();
-        return { rol: cleanRol, source: 'dom_text', confidence: 0.7 };
-      }
-    }
-
-    return null;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // ZONA DE DOCUMENTOS - Identificar el scope del scraper
-  // ════════════════════════════════════════════════════════
-
-  /**
-   * Identifica la zona de la página que contiene los documentos de la causa.
-   * Solo los PDFs dentro de esta zona serán capturados.
-   */
-  _identifyDocumentZone() {
-    // ESTRATEGIA ESPECÍFICA PJUD: Buscar tabs de historia/documentos
-    const pjudTabs = [
-      '#historiaCiv', '#historia', '#documentos', '#expediente',
-      '.tab-pane.active', '.modal-body'
-    ];
-    
-    for (const tabSelector of pjudTabs) {
-      try {
-        const tabElement = document.querySelector(tabSelector);
-        if (!tabElement) continue;
-        
-        // Buscar tabla dentro del tab
-        const table = tabElement.querySelector('table.table-bordered, table.table-striped, table.table-hover, table');
-        if (table && this._isDocumentTable(table)) {
-          return { element: table, type: 'table', selector: `${tabSelector} > table`, confidence: 0.95 };
-        }
-      } catch (e) { /* selector inválido */ }
-    }
-
-    // Estrategia 1: Buscar tabla de documentos con selectores conocidos
+  findCausaTable() {
+    // Intentar selectores conocidos primero
     const tableSelectors = this.selectors.causaTable || [];
     for (const selector of tableSelectors) {
       try {
-        const el = document.querySelector(selector);
-        if (el && this._isDocumentTable(el)) {
-          return { element: el, type: 'table', selector, confidence: 0.9 };
+        const el = this._querySelectorDeep(selector);
+        if (el && el.rows && el.rows.length > 1) {
+          return { element: el, source: 'known_selector', confidence: 0.95 };
         }
       } catch (e) { /* selector inválido */ }
     }
 
-    // Estrategia 2: Buscar tabla por contenido (keywords legales en headers)
-    const tables = document.querySelectorAll('table');
+    // Heurística: buscar tabla con palabras clave legales en headers
+    const tables = this._querySelectorAllDeep('table');
+    const keywords = this.heuristics.tableKeywords || [
+      'ROL', 'Causa', 'Tribunal', 'Carátula', 'Fecha', 'Tipo'
+    ];
+
+    let bestTable = null;
+    let bestScore = 0;
+
     for (const table of tables) {
-      if (this._isDocumentTable(table)) {
-        return { element: table, type: 'table', selector: 'heuristic', confidence: 0.75 };
+      const headerText = (table.querySelector('thead')?.textContent || 
+                          table.querySelector('tr')?.textContent || '').toUpperCase();
+      const fullText = (table.textContent || '').toUpperCase();
+      let score = 0;
+
+      // Puntuar por keywords en headers (más peso)
+      for (const kw of keywords) {
+        if (headerText.includes(kw.toUpperCase())) score += 2;
+        else if (fullText.includes(kw.toUpperCase())) score += 0.5;
+      }
+
+      // Bonus por tener varias filas (probable tabla de datos)
+      const rowCount = table.rows?.length || 0;
+      if (rowCount > 2) score += Math.min(rowCount, 10) * 0.15;
+
+      // Bonus por tener links (probable tabla con documentos)
+      const linkCount = table.querySelectorAll('a').length;
+      if (linkCount > 0) score += Math.min(linkCount, 10) * 0.1;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTable = table;
       }
     }
 
-    // Estrategia 3: Buscar contenedores con listas de documentos
-    const containerSelectors = [
-      '.documentos', '.expediente', '.actuaciones', '.resoluciones',
-      '#documentos', '#listaDocumentos', '.lista-documentos',
-      '[class*="document"]', '[class*="expediente"]',
-    ];
-
-    for (const selector of containerSelectors) {
-      try {
-        const el = document.querySelector(selector);
-        if (el && el.querySelectorAll('a').length > 0) {
-          return { element: el, type: 'container', selector, confidence: 0.7 };
-        }
-      } catch (e) { /* selector inválido */ }
+    if (bestTable && bestScore > 2) {
+      return {
+        element: bestTable,
+        source: 'heuristic',
+        confidence: Math.min(bestScore / 8, 0.9),
+      };
     }
 
     return null;
   }
 
   /**
-   * Verificar si una tabla parece contener documentos de una causa
+   * Extraer datos de casos desde una tabla detectada
    */
-  _isDocumentTable(table) {
-    if (!table || !table.rows || table.rows.length < 2) return false;
+  extractCaseData(tableResult) {
+    if (!tableResult?.element) return [];
 
-    // Obtener texto de headers (thead o primera fila)
-    const headerText = (table.querySelector('thead')?.textContent ||
-      table.rows[0]?.textContent || '').toUpperCase();
+    const table = tableResult.element;
+    const rows = table.querySelectorAll('tbody tr, tr:not(:first-child)');
+    const cases = [];
 
-    // Keywords específicas de PJud y otros sitios judiciales
-    const docKeywords = [
-      'DOCUMENTO', 'ESCRITO', 'RESOLUCIÓN', 'RESOLUCION',
-      'ACTUACIÓN', 'ACTUACION', 'NOTIFICACIÓN', 'NOTIFICACION',
-      'TIPO', 'FECHA', 'FOLIO', 'CUADERNO', 'DESCARGA',
-      'DOC', 'ANEXO', 'ETAPA', 'TRÁMITE', 'TRAMITE', // Específicos de PJud
-      'DESC', 'FEC', 'FOJA', 'GEORREF', // Abreviaciones comunes
-    ];
-
-    let matches = 0;
-    for (const kw of docKeywords) {
-      if (headerText.includes(kw)) matches++;
-    }
-
-    // Al menos 2 keywords legales en los headers = es tabla de documentos
-    if (matches >= 2) return true;
-
-    // VALIDACIÓN ADICIONAL: Verificar si tiene enlaces a PDFs en el cuerpo
-    const tbody = table.querySelector('tbody') || table;
-    const pdfLinks = tbody.querySelectorAll('a[href*=".pdf"], form[action*="documento"], form[action*=".pdf"], i.fa-file-pdf-o');
-    
-    // Si tiene al menos 2 filas con iconos de PDF o forms de descarga = es tabla de documentos
-    if (pdfLinks.length >= 2) return true;
-
-    return false;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // METADATA DE LA CAUSA
-  // ════════════════════════════════════════════════════════
-
-  _extractCausaMetadata() {
-    const metadata = {
-      tribunal: null,
-      caratula: null,
-      materia: null,
-      estado: null,
-    };
-
-    // Prioridad 1: table-titulos es la clase PJUD para la tabla de metadatos (ROL, Tribunal, etc.)
-    // table-responsive es demasiado genérica y puede tomar otra tabla distinta primero
-    let priorityText = '';
-    const metadataTables = document.querySelectorAll('table.table-titulos');
-    for (const table of metadataTables) {
-      const text = (table.textContent || '').trim();
-      if (text.length > 50) {
-        priorityText = text;
-        break;
-      }
-    }
-
-    const bodyText = (document.body?.textContent || '').substring(0, 5000);
-    const searchText = priorityText || bodyText;
-
-    // Tribunal
-    const tribunalPatterns = [
-      /Tribunal\s*:?\s*([^\n\r]{5,80})/i,
-      /Juzgado\s+(?:de\s+)?([^\n\r]{5,80})/i,
-      /Corte\s+(?:de\s+)?([^\n\r]{5,80})/i,
-    ];
-    for (const p of tribunalPatterns) {
-      const m = searchText.match(p);
-      if (m) { metadata.tribunal = m[1].trim().substring(0, 80); break; }
-    }
-
-    // Carátula
-    const caratulaPatterns = [
-      /Car[áa]tula\s*:?\s*([^\n\r]{5,120})/i,
-      /Partes\s*:?\s*([^\n\r]{5,120})/i,
-    ];
-    for (const p of caratulaPatterns) {
-      const m = searchText.match(p);
-      if (m) { metadata.caratula = m[1].trim().substring(0, 120); break; }
-    }
-
-    // Materia
-    const materiaPatterns = [
-      /Materia\s*:?\s*([^\n\r]{3,80})/i,
-      /Tipo\s+de\s+Causa\s*:?\s*([^\n\r]{3,80})/i,
-    ];
-    for (const p of materiaPatterns) {
-      const m = searchText.match(p);
-      if (m) { metadata.materia = m[1].trim().substring(0, 80); break; }
-    }
-
-    // Estado
-    const estadoPatterns = [
-      /Estado\s*:?\s*([^\n\r]{3,40})/i,
-      /Situaci[oó]n\s*:?\s*([^\n\r]{3,40})/i,
-    ];
-    for (const p of estadoPatterns) {
-      const m = searchText.match(p);
-      if (m) { metadata.estado = m[1].trim().substring(0, 40); break; }
-    }
-
-    return metadata;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // PREVIEW DE DOCUMENTOS
-  // ════════════════════════════════════════════════════════
-
-  /**
-   * Genera un resumen de los documentos encontrados en la zona,
-   * agrupados por tipo, para mostrar al abogado antes de sincronizar.
-   */
-  _generateDocumentPreview() {
-    const preview = {
-      total: 0,
-      byType: {
-        resoluciones: 0,
-        escritos: 0,
-        actuaciones: 0,
-        notificaciones: 0,
-        otros: 0,
-      },
-      items: [],
-    };
-
-    const zone = this.documentZone?.element;
-    if (!zone) return preview;
-
-    // Buscar filas con documentos (tbody o directo)
-    const tbody = zone.querySelector('tbody') || zone;
-    const rows = tbody.querySelectorAll('tr');
-    
     for (const row of rows) {
       const cells = row.querySelectorAll('td');
-      if (cells.length < 2) continue;
+      if (cells.length < 2) continue; // Ignorar filas vacías/headers
 
-      // Limpiar texto de la fila
-      const rowText = (row.textContent || '').replace(/\s+/g, ' ').trim();
-      
-      // Detectar si tiene documentos descargables
-      const hasPdfIcon = row.querySelector('i.fa-file-pdf-o, i.fa-file-pdf');
-      const hasForm = row.querySelector('form[action*="documento"], form[action*=".pdf"], form[action*="docu"]');
-      const hasLink = row.querySelector('a[href*=".pdf"], a[onclick*="submit"], a[onclick*="download"]');
-      const hasDownload = !!(hasPdfIcon || hasForm || hasLink);
+      const rowText = (row.textContent || '').trim();
+      const links = row.querySelectorAll('a, button, [onclick]');
+      const downloadLinks = [];
 
-      // Saltar filas de header (thead puede estar dentro de tbody en algunos sitios)
-      const isHeaderRow = row.querySelector('th') || /^(folio|doc|anexo|etapa|trámite|fecha)/i.test(rowText);
-      if (isHeaderRow) continue;
+      for (const link of links) {
+        const score = this._scoreDownloadElement(link);
+        if (score >= (this.heuristics.minConfidenceThreshold || 0.35)) {
+          downloadLinks.push({ element: link, score });
+        }
+      }
 
-      // Saltar filas vacías o demasiado cortas
-      if (!rowText || rowText.length < 5) continue;
+      // Intentar extraer ROL (formato chileno: C-XXXXX-YYYY o similar)
+      const rolPatterns = [
+        /[A-Z]{1,3}-\d{1,7}-\d{4}/i,   // C-12345-2026
+        /\d{1,7}-\d{4}/,                  // 12345-2026
+        /ROL\s*:?\s*([A-Z0-9\-]+)/i,     // ROL: C-12345-2026
+      ];
 
-      // Inferir tipo de documento
-      const type = this._inferDocumentType(rowText);
-      preview.byType[type]++;
-      preview.total++;
+      let rol = null;
+      for (const pattern of rolPatterns) {
+        const match = rowText.match(pattern);
+        if (match) {
+          rol = match[1] || match[0];
+          break;
+        }
+      }
 
-      // Guardar solo los primeros 50 para el preview
-      if (preview.items.length < 50) {
-        preview.items.push({
-          text: rowText.substring(0, 150),
-          type: type,
-          hasDownload: hasDownload,
+      if (downloadLinks.length > 0 || rol) {
+        cases.push({
+          rol: rol,
+          text: rowText.substring(0, 300),
+          downloadLinks: downloadLinks.sort((a, b) => b.score - a.score),
+          rowElement: row,
+          cellCount: cells.length,
         });
       }
     }
 
-    // Si no encontramos filas, contar links/forms directamente
-    if (preview.total === 0) {
-      const downloadElements = zone.querySelectorAll('a, form[action*="documento"]');
-      for (const el of downloadElements) {
-        const text = (el.textContent || '').trim();
-        const href = (el.getAttribute('href') || '').toLowerCase();
-        const action = (el.getAttribute('action') || '').toLowerCase();
-        const onclick = (el.getAttribute('onclick') || '').toLowerCase();
-
-        const isDocument = href.includes('.pdf') || 
-                          action.includes('documento') || 
-                          onclick.includes('submit') ||
-                          onclick.includes('download') ||
-                          el.querySelector('i.fa-file-pdf-o, i.fa-file-pdf');
-
-        if (isDocument && text.length > 3) {
-          const type = this._inferDocumentType(text + ' ' + href + ' ' + action);
-          preview.byType[type]++;
-          preview.total++;
-          if (preview.items.length < 50) {
-            preview.items.push({ text: text.substring(0, 150), type, hasDownload: true });
-          }
-        }
-      }
-    }
-
-    return preview;
+    return cases;
   }
 
   /**
-   * Inferir el tipo de documento legal desde su texto
+   * Detectar contexto de la página (¿es una vista relevante del PJUD?)
    */
-  _inferDocumentType(text) {
-    const t = (text || '').toUpperCase();
-    if (/RESOLUCI[OÓ]N|AUTO|SENTENCIA|DECRETO/i.test(t)) return 'resoluciones';
-    if (/ESCRITO|DEMANDA|CONTESTACI|RECURSO|APELACI/i.test(t)) return 'escritos';
-    if (/ACTUACI[OÓ]N|DILIGENCIA|AUDIENCIA/i.test(t)) return 'actuaciones';
-    if (/NOTIFICACI[OÓ]N|C[ÉE]DULA|CARTA/i.test(t)) return 'notificaciones';
-    return 'otros';
+  analyzePageContext() {
+    const url = window.location.href;
+    const title = document.title || '';
+    const bodyText = (document.body?.textContent || '').substring(0, 5000);
+
+    const legalKeywords = /causa|rol|tribunal|expediente|carátula|juzgado|corte|demanda|querella/i;
+    const isPjud = /pjud\.cl|oficinavirtual.*judicial/i.test(url);
+
+    const table = this.findCausaTable();
+    const hasLegalContent = legalKeywords.test(bodyText);
+    const hasFrames = document.querySelectorAll('iframe, frame').length > 0;
+
+    return {
+      url,
+      title,
+      isPjud,
+      isRelevantPage: isPjud && (table !== null || hasLegalContent),
+      hasTable: table !== null,
+      tableConfidence: table?.confidence || 0,
+      hasLegalContent,
+      hasFrames,
+      frameCount: document.querySelectorAll('iframe, frame').length,
+    };
+  }
+
+  // ════════════════════════════════════════════════════════
+  // SCORING: Sistema de puntuación para elementos descargables
+  // ════════════════════════════════════════════════════════
+
+  /**
+   * Puntuar qué tan probable es que un elemento sea un botón de descarga
+   * Retorna un valor entre 0 (nada probable) y 1 (casi seguro)
+   */
+  _scoreDownloadElement(element) {
+    let score = 0;
+
+    // Recolectar todo el texto/atributos del elemento
+    const text = (element.textContent || '').toLowerCase().trim();
+    const href = (element.getAttribute('href') || '').toLowerCase();
+    const onclick = (element.getAttribute('onclick') || '').toLowerCase();
+    const className = (element.className || '').toLowerCase();
+    const title = (element.getAttribute('title') || '').toLowerCase();
+    const ariaLabel = (element.getAttribute('aria-label') || '').toLowerCase();
+    const dataAttrs = this._getDataAttributes(element).toLowerCase();
+
+    const allText = `${text} ${href} ${onclick} ${className} ${title} ${ariaLabel} ${dataAttrs}`;
+
+    // --- Keywords de descarga ---
+    const keywords = this.heuristics.downloadKeywords || [
+      'descargar', 'download', 'pdf', 'documento', 'escrito',
+      'resolución', 'ver', 'abrir', 'sentencia',
+    ];
+
+    for (const kw of keywords) {
+      if (allText.includes(kw)) score += 0.15;
+    }
+
+    // --- Link directo a PDF (alta confianza) ---
+    if (href.includes('.pdf')) score += 0.5;
+    if (href.includes('download') || href.includes('descarga')) score += 0.3;
+
+    // --- Atributo download HTML5 ---
+    if (element.hasAttribute('download')) score += 0.45;
+
+    // --- onclick con funciones de descarga ---
+    if (onclick) {
+      if (/download|descarga|abrir|verdoc|getdoc|obtener/i.test(onclick)) score += 0.35;
+      if (/window\.open|window\.location/i.test(onclick)) score += 0.1;
+    }
+
+    // --- Iconos dentro del elemento ---
+    const icons = element.querySelectorAll('i, svg, img, span[class*="icon"]');
+    for (const icon of icons) {
+      const iconInfo = `${icon.className || ''} ${icon.getAttribute('src') || ''} ${icon.getAttribute('alt') || ''}`.toLowerCase();
+      if (/download|descarga|pdf|file|archivo/i.test(iconInfo)) {
+        score += 0.25;
+      }
+    }
+
+    // --- Target _blank (común para abrir PDFs) ---
+    if (element.getAttribute('target') === '_blank') score += 0.1;
+
+    // --- Penalizaciones ---
+    // Navegar a otra sección (probablemente no es descarga)
+    // No penalizar si tiene ícono PDF: PJud usa href="#" + form.submit para descargas
+    const hasPdfIcon = element.querySelector('i.fa-file-pdf, i.fa-file-pdf-o');
+    if (href.startsWith('#') && !href.includes('download') && !hasPdfIcon) score -= 0.2;
+    // Links de paginación
+    if (/página|page|next|prev|anterior|siguiente/i.test(allText)) score -= 0.3;
+    // Links de navegación general
+    if (/inicio|home|menú|salir|logout|cerrar/i.test(allText)) score -= 0.3;
+
+    return Math.max(0, Math.min(score, 1.0));
+  }
+
+  // ════════════════════════════════════════════════════════
+  // BÚSQUEDA: Selectores conocidos y escaneo heurístico
+  // ════════════════════════════════════════════════════════
+
+  _tryKnownSelectors() {
+    const results = [];
+    const downloadSelectors = this.selectors.downloadLink || [];
+
+    for (const selector of downloadSelectors) {
+      try {
+        const elements = this._querySelectorAllDeep(selector);
+        for (const el of elements) {
+          results.push({
+            element: el,
+            source: 'known_selector',
+            selector: selector,
+            confidence: 0.9,
+          });
+        }
+      } catch (e) {
+        // Selector inválido - ignorar silenciosamente
+      }
+    }
+
+    return results;
+  }
+
+  _heuristicScan() {
+    const results = [];
+
+    // Escanear todos los elementos clickeables
+    const clickables = this._querySelectorAllDeep(
+      'a, button, [onclick], [role="button"], input[type="button"], input[type="submit"]'
+    );
+
+    for (const el of clickables) {
+      const score = this._scoreDownloadElement(el);
+      if (score >= (this.heuristics.minConfidenceThreshold || 0.35)) {
+        results.push({
+          element: el,
+          source: 'heuristic',
+          confidence: score,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // DEEP QUERY: Penetración de Shadow DOM e iframes
+  // ════════════════════════════════════════════════════════
+
+  /**
+   * querySelector que penetra Shadow DOM e iframes same-origin
+   * Soluciona Vulnerabilidades 1.2 (iframes) y 1.3 (Shadow DOM)
+   */
+  _querySelectorDeep(selector, root = document) {
+    // Intento normal primero
+    try {
+      const result = root.querySelector(selector);
+      if (result) return result;
+    } catch (e) { /* selector inválido */ }
+
+    // Penetrar Shadow DOMs
+    const allElements = root.querySelectorAll('*');
+    for (const el of allElements) {
+      if (el.shadowRoot) {
+        const result = this._querySelectorDeep(selector, el.shadowRoot);
+        if (result) return result;
+      }
+    }
+
+    // Penetrar iframes same-origin
+    const iframes = root.querySelectorAll('iframe, frame');
+    for (const iframe of iframes) {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (doc) {
+          const result = this._querySelectorDeep(selector, doc);
+          if (result) return result;
+        }
+      } catch (e) {
+        // Cross-origin iframe - no se puede acceder (esperado)
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * querySelectorAll que penetra Shadow DOM e iframes same-origin
+   */
+  _querySelectorAllDeep(selector, root = document) {
+    const results = [];
+
+    // Búsqueda normal
+    try {
+      results.push(...root.querySelectorAll(selector));
+    } catch (e) { /* selector inválido */ }
+
+    // Penetrar Shadow DOMs
+    try {
+      const allElements = root.querySelectorAll('*');
+      for (const el of allElements) {
+        if (el.shadowRoot) {
+          results.push(...this._querySelectorAllDeep(selector, el.shadowRoot));
+        }
+      }
+    } catch (e) { /* error en traversal */ }
+
+    // Penetrar iframes same-origin
+    const iframes = root.querySelectorAll('iframe, frame');
+    for (const iframe of iframes) {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (doc) {
+          results.push(...this._querySelectorAllDeep(selector, doc));
+        }
+      } catch (e) {
+        // Cross-origin iframe - esperado
+      }
+    }
+
+    return results;
   }
 
   // ════════════════════════════════════════════════════════
   // UTILIDADES
   // ════════════════════════════════════════════════════════
 
-  _extractRolFromText(text) {
-    if (!text) return null;
-    
-    // Limpiar agresivamente el texto de espacios invisibles y caracteres raros
-    const cleanText = text
-      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
-      .replace(/\u00A0/g, ' ') // Non-breaking spaces
-      .replace(/\s+/g, ' ') // Normalizar espacios
-      .trim();
-    
-    // Patrones más permisivos que toleran espacios entre componentes
-    const patterns = [
-      /([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,  // Con espacios opcionales
-      /(\d{1,8}\s*-\s*\d{4})/,                      // RUC con espacios opcionales
-    ];
-    
-    for (const p of patterns) {
-      const m = cleanText.match(p);
-      if (m) {
-        // Limpiar el ROL capturado de espacios internos
-        const cleanRol = m[1].replace(/\s+/g, '').toUpperCase();
-        if (this._isValidRol(cleanRol)) {
-          return { rol: cleanRol };
-        }
+  /**
+   * Deduplicar candidatos (mismo elemento) y ordenar por confianza
+   */
+  _deduplicateAndRank(candidates) {
+    const elementMap = new Map();
+
+    for (const candidate of candidates) {
+      const existing = elementMap.get(candidate.element);
+      if (!existing || candidate.confidence > existing.confidence) {
+        elementMap.set(candidate.element, candidate);
       }
     }
-    return null;
+
+    return Array.from(elementMap.values())
+      .sort((a, b) => b.confidence - a.confidence);
   }
 
-  _isValidRol(rol) {
-    if (!rol || rol.length < 5) return false;
-    // Verificar que el año es razonable (1990-2030)
-    const yearMatch = rol.match(/(\d{4})$/);
-    if (yearMatch) {
-      const year = parseInt(yearMatch[1]);
-      if (year < 1990 || year > 2030) return false;
-    }
-    return /^[A-Z]{0,4}-?\d{1,8}-\d{4}$/i.test(rol);
+  /**
+   * Extraer todos los data-* attributes como string
+   */
+  _getDataAttributes(element) {
+    if (!element.dataset) return '';
+    return Object.values(element.dataset).join(' ');
   }
 }
 </file>
@@ -9648,6 +8888,350 @@ export async function updateSession(request: NextRequest) {
 }
 </file>
 
+<file path="src/types/supabase.ts">
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.1"
+  }
+  public: {
+    Tables: {
+      cases: {
+        Row: {
+          caratula: string | null
+          created_at: string
+          document_count: number
+          estado: string | null
+          id: string
+          last_synced_at: string | null
+          materia: string | null
+          rol: string
+          tribunal: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          caratula?: string | null
+          created_at?: string
+          document_count?: number
+          estado?: string | null
+          id?: string
+          last_synced_at?: string | null
+          materia?: string | null
+          rol: string
+          tribunal?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          caratula?: string | null
+          created_at?: string
+          document_count?: number
+          estado?: string | null
+          id?: string
+          last_synced_at?: string | null
+          materia?: string | null
+          rol?: string
+          tribunal?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      document_hashes: {
+        Row: {
+          document_type: string | null
+          filename: string | null
+          hash: string
+          id: string
+          rol: string
+          uploaded_at: string
+          user_id: string
+        }
+        Insert: {
+          document_type?: string | null
+          filename?: string | null
+          hash: string
+          id?: string
+          rol: string
+          uploaded_at?: string
+          user_id: string
+        }
+        Update: {
+          document_type?: string | null
+          filename?: string | null
+          hash?: string
+          id?: string
+          rol?: string
+          uploaded_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      documents: {
+        Row: {
+          captured_at: string | null
+          case_id: string
+          created_at: string
+          document_type: string
+          file_hash: string | null
+          file_size: number
+          filename: string
+          id: string
+          original_filename: string | null
+          source: string
+          source_url: string | null
+          storage_path: string
+          user_id: string
+        }
+        Insert: {
+          captured_at?: string | null
+          case_id: string
+          created_at?: string
+          document_type?: string
+          file_hash?: string | null
+          file_size: number
+          filename: string
+          id?: string
+          original_filename?: string | null
+          source?: string
+          source_url?: string | null
+          storage_path: string
+          user_id: string
+        }
+        Update: {
+          captured_at?: string | null
+          case_id?: string
+          created_at?: string
+          document_type?: string
+          file_hash?: string | null
+          file_size?: number
+          filename?: string
+          id?: string
+          original_filename?: string | null
+          source?: string
+          source_url?: string | null
+          storage_path?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          case_count: number
+          chat_count: number
+          created_at: string
+          deep_thinking_count: number
+          device_fingerprint: string | null
+          email: string | null
+          id: string
+          last_active_date: string
+          monthly_chat_count: number
+          monthly_deep_thinking_count: number
+          monthly_reset_date: string
+          plan_type: string
+          updated_at: string
+        }
+        Insert: {
+          case_count?: number
+          chat_count?: number
+          created_at?: string
+          deep_thinking_count?: number
+          device_fingerprint?: string | null
+          email?: string | null
+          id: string
+          last_active_date?: string
+          monthly_chat_count?: number
+          monthly_deep_thinking_count?: number
+          monthly_reset_date?: string
+          plan_type?: string
+          updated_at?: string
+        }
+        Update: {
+          case_count?: number
+          chat_count?: number
+          created_at?: string
+          deep_thinking_count?: number
+          device_fingerprint?: string | null
+          email?: string | null
+          id?: string
+          last_active_date?: string
+          monthly_chat_count?: number
+          monthly_deep_thinking_count?: number
+          monthly_reset_date?: string
+          plan_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      check_user_limits: {
+        Args: { action_type: string; user_id: string }
+        Returns: Json
+      }
+      increment_counter: {
+        Args: { counter_type: string; user_id: string }
+        Returns: boolean
+      }
+      maybe_reset_monthly_counters: {
+        Args: { user_id: string }
+        Returns: undefined
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const
+</file>
+
 <file path="supabase/migrations/20260205120000_create_profiles_table.sql">
 -- ============================================================================
 -- TAREA 1.04: SQL Perfiles & RLS
@@ -10353,6 +9937,1010 @@ Asegúrate de ejecutar el script completo, no solo partes.
 Verifica que tengas permisos de superadmin en Supabase.
 </file>
 
+<file path="docs/correcciones pendientes.md">
+- cambiar middleware por proxy.
+- ghost card, que era una mejora propuesta por un chat de cursor para agregarle valo al producto.
+
+- actualizar cursorrules.:
+1) que cursor se asegure y me diga si es que debo hacer algo manualmente después de cada vez que "agent" haga algo.
+
+- evaluar si quiero que la IA tenga como funcionalidad generar escritos.
+- evaluar el modo juez y el modo defensor en lugar de tener un solo modo.
+
+- Arreglar todo lo relacionado a mis causas, incluido la base de datos, ya que la extensión descarga archivos que ya estaban descargados.
+</file>
+
+<file path="extension/content.js">
+/**
+ * ============================================================
+ * CONTENT SCRIPT - "Los Ojos" del Legal Bot
+ * ============================================================
+ * Se inyecta automáticamente en pjud.cl (y todos sus iframes).
+ *
+ * Flujo actualizado con 4.07 (Causa Context):
+ *   1. Al cargar: inicializa engine + detecta ROL automáticamente
+ *   2. Envía contexto de causa al Sidepanel
+ *   3. Espera confirmación del abogado
+ *   4. Solo entonces permite sync
+ *
+ * Los módulos se cargan vía manifest.json en este orden:
+ *   remote-config → network-interceptor → dom-analyzer →
+ *   human-throttle → causa-context → pdf-validator →
+ *   strategy-engine → content.js (este archivo)
+ * ============================================================
+ */
+
+console.log('[LegalBot] Content Script activo en:', window.location.href);
+
+// ══════════════════════════════════════════════════════════
+// INSTANCIA GLOBAL DEL STRATEGY ENGINE
+// ══════════════════════════════════════════════════════════
+
+let engine = null;
+let isInitialized = false;
+
+async function initializeEngine() {
+  if (isInitialized && engine) return engine;
+
+  try {
+    engine = new StrategyEngine();
+    await engine.initialize();
+    isInitialized = true;
+    console.log('[LegalBot] Strategy Engine inicializado');
+
+    // Detección automática de causa al cargar la página
+    const causa = engine.detectCausa();
+
+    // Notificar al sidepanel
+    chrome.runtime.sendMessage({
+      type: 'scraper_ready',
+      causa: causa,
+      engineReady: true,
+    }).catch(() => {});
+
+    return engine;
+  } catch (error) {
+    console.error('[LegalBot] Error inicializando engine:', error);
+    return null;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// MUTATION OBSERVER - Detectar contenido dinámico (AJAX)
+// ══════════════════════════════════════════════════════════
+
+let observerDebounce = null;
+
+const pageObserver = new MutationObserver((mutations) => {
+  clearTimeout(observerDebounce);
+  observerDebounce = setTimeout(() => {
+    if (!engine) return;
+
+    const hasNewContent = mutations.some(mutation => {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = /** @type {Element} */ (node);
+          if (el.tagName === 'TABLE' || el.querySelector?.('table') ||
+            el.tagName === 'A' || el.querySelector?.('a')) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+
+    if (hasNewContent) {
+      console.log('[LegalBot] Contenido nuevo detectado (AJAX)');
+      // Re-detectar causa con el nuevo contenido
+      const causa = engine.detectCausa();
+      chrome.runtime.sendMessage({
+        type: 'scraper_event',
+        event: 'content_updated',
+        data: { causa: causa },
+      }).catch(() => {});
+    }
+  }, 1500);
+});
+
+if (document.body) {
+  pageObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+// ══════════════════════════════════════════════════════════
+// RE-DETECCIÓN POR EVENTOS (OJV modal, resize, visibilidad)
+// Soluciona: causa no se detecta hasta que el usuario abre DevTools
+// ══════════════════════════════════════════════════════════
+
+let redetectionDebounce = null;
+const REDETECTION_DEBOUNCE_MS = 800;
+
+function triggerRedetection() {
+  clearTimeout(redetectionDebounce);
+  redetectionDebounce = setTimeout(async () => {
+    if (!engine) await initializeEngine();
+    if (!engine) return;
+    const causa = engine.detectCausa();
+    chrome.runtime.sendMessage({
+      type: 'scraper_event',
+      event: 'content_updated',
+      data: { causa: causa },
+    }).catch(() => {});
+  }, REDETECTION_DEBOUNCE_MS);
+}
+
+// ══════════════════════════════════════════════════════════
+// CAPTURA CLIC EN TABLA DE RESULTADOS (caratulado/tribunal)
+// Al hacer clic en el ícono de detalle, guardamos la fila para
+// usarla cuando el modal cargue (donde el ROL es el mismo para
+// todas las causas pero caratulado/tribunal vienen de la fila).
+// ══════════════════════════════════════════════════════════
+
+const PJUD_LAST_CLICKED_KEY = '__pjudLastClickedRow';
+
+function capturePjudRowClick(e) {
+  const link = e.target.closest?.('a.toggle-modal, a[href="#modalDetalleCivil"]');
+  if (!link) return;
+
+  const row = link.closest?.('tr');
+  const tbody = row?.closest?.('#verDetalle');
+  if (!row || !tbody) return;
+
+  const cells = row.querySelectorAll('td');
+  if (cells.length < 5) return;
+
+  const data = {
+    rol: (cells[1]?.textContent || '').trim(),
+    fecha: (cells[2]?.textContent || '').trim(),
+    caratulado: (cells[3]?.textContent || '').trim(),
+    tribunal: (cells[4]?.textContent || '').trim(),
+    clickedAt: Date.now(),
+  };
+
+  if (!data.caratulado && !data.tribunal) return;
+
+  window[PJUD_LAST_CLICKED_KEY] = data;
+  try {
+    chrome.storage.session.set({ [PJUD_LAST_CLICKED_KEY]: data });
+  } catch (err) { /* ignorar */ }
+
+  console.log('[LegalBot] Fila capturada:', data.rol, '|', data.caratulado?.substring(0, 40) + '...');
+}
+
+if (/pjud\.cl/i.test(document.location.href)) {
+  document.addEventListener('click', capturePjudRowClick, true);
+}
+
+// Solo en el frame principal (evitar duplicados en iframes)
+if (window === window.top && /pjud\.cl/i.test(document.location.href)) {
+  // Si ya hay hash de modal al cargar, detectar tras breve espera (contenido puede cargar después)
+  if (/modalDetalle|detalle|modal/i.test(location.hash)) {
+    setTimeout(triggerRedetection, 1500);
+  }
+
+  // hashchange: OJV usa #modalDetalleCivil para abrir el modal de causa
+  window.addEventListener('hashchange', () => {
+    if (/modalDetalle|detalle|modal/i.test(location.hash)) {
+      console.log('[LegalBot] Hash cambiado (modal), re-detectando:', location.hash);
+      triggerRedetection();
+    }
+  });
+
+  // resize: abrir DevTools o redimensionar puede hacer visible contenido lazy
+  let resizeDebounce = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(triggerRedetection, 500);
+  });
+
+  // visibilitychange: cuando la pestaña vuelve a estar visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      triggerRedetection();
+    }
+  });
+
+  // Detección periódica cada 8s (fallback para lazy-load que no dispara eventos)
+  setInterval(triggerRedetection, 8000);
+}
+
+// ══════════════════════════════════════════════════════════
+// MESSAGE HANDLER
+// ══════════════════════════════════════════════════════════
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  handleMessage(request)
+    .then(response => sendResponse(response))
+    .catch(error => sendResponse({ error: error.message }));
+  return true;
+});
+
+async function handleMessage(request) {
+  switch (request.action) {
+
+    // ── PING ──
+    case 'ping': {
+      const causa = engine?.getDetectedCausa() || null;
+      return {
+        status: 'alive',
+        engineReady: isInitialized,
+        causa: causa,
+      };
+    }
+
+    // ── DETECT: Detectar/re-detectar causa ──
+    case 'detect_causa': {
+      if (!engine) await initializeEngine();
+      if (!engine) return { error: 'No se pudo inicializar' };
+
+      const causa = engine.detectCausa();
+      return { status: 'detected', causa: causa };
+    }
+
+    // ── CONFIRM: El abogado confirma la causa detectada ──
+    case 'confirm_causa': {
+      if (!engine) return { error: 'Engine no inicializado' };
+
+      const confirmed = engine.confirmCausa();
+      if (confirmed) {
+        return { status: 'confirmed', causa: engine.causaContext.getConfirmedCausa() };
+      }
+      return { error: 'No hay causa detectada para confirmar' };
+    }
+
+    // ── SYNC: Sincronizar (requiere causa confirmada) ──
+    case 'sync': {
+      if (!engine) await initializeEngine();
+      if (!engine) return { error: 'No se pudo inicializar el scraper' };
+
+      const results = await engine.sync();
+      if (results?.error) return { error: results.error };
+      return {
+        status: 'sync_complete',
+        results: {
+          rol: results.rol,
+          layer1Count: results.layer1?.length || 0,
+          layer2Count: results.layer2?.length || 0,
+          totalFound: results.totalFound,
+          totalValidated: results.totalValidated,
+          totalUploaded: results.totalUploaded,
+          totalRejected: results.rejected?.length || 0,
+          rejectedReasons: (results.rejected || []).map(r => r.reason),
+          needsManual: results.needsManual,
+          errors: results.errors,
+          duration: results.duration,
+        },
+      };
+    }
+
+    // ── ANALYZE: Solo analizar sin descargar ──
+    case 'analyze': {
+      if (!engine) await initializeEngine();
+      if (!engine) return { error: 'No se pudo inicializar' };
+
+      const causa = engine.getDetectedCausa();
+      const downloads = engine.domAnalyzer.findDownloadElements();
+
+      return {
+        status: 'analysis_complete',
+        causa: causa,
+        downloadElements: downloads.length,
+        topDownloads: downloads.slice(0, 5).map(d => ({
+          text: d.element.textContent?.trim().substring(0, 50),
+          confidence: d.confidence,
+          source: d.source,
+        })),
+      };
+    }
+
+    // ── UPLOAD_MANUAL ──
+    case 'upload_manual': {
+      if (!engine) await initializeEngine();
+      if (!engine) return { error: 'No se pudo inicializar' };
+
+      if (!request.fileData || !request.fileName) {
+        return { error: 'Datos del archivo incompletos' };
+      }
+
+      const blob = new Blob([request.fileData], { type: 'application/pdf' });
+      const file = new File([blob], request.fileName, { type: 'application/pdf' });
+      const result = await engine.uploadManual(file);
+      return { status: 'upload_complete', result };
+    }
+
+    // ── GET_STATUS ──
+    case 'get_status': {
+      return {
+        status: engine?.status || 'not_initialized',
+        engineReady: isInitialized,
+        configVersion: engine?.config?.version || 'N/A',
+        causa: engine?.getDetectedCausa() || null,
+        causaConfirmed: engine?.causaContext?.isConfirmed || false,
+        capturedFiles: engine?.networkInterceptor?.getCapturedFiles()?.length || 0,
+      };
+    }
+
+    default:
+      return { error: `Acción desconocida: ${request.action}` };
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// AUTO-INICIALIZACIÓN
+// ══════════════════════════════════════════════════════════
+
+if (window === window.top || document.location.href.includes('pjud.cl')) {
+  initializeEngine().catch(err => {
+    console.error('[LegalBot] Error en auto-inicialización:', err);
+  });
+}
+</file>
+
+<file path="extension/scraper/causa-context.js">
+/**
+ * ============================================================
+ * CAUSA CONTEXT DETECTOR - Tarea 4.07
+ * ============================================================
+ * PIEZA MÁS CRÍTICA del scraper. Sin esto, todo lo demás es
+ * un aspirador ciego que contamina la base de datos.
+ *
+ * REGLA DE ORO: Sin ROL confirmado = sin scraping. Punto.
+ *
+ * Responsabilidades:
+ *   1. Detectar proactivamente el ROL de la causa actual
+ *   2. Identificar la zona de documentos (tabla de expediente)
+ *   3. Generar preview de documentos encontrados
+ *   4. Enviar contexto al Sidepanel para confirmación del abogado
+ *
+ * El abogado VE qué causa se detectó y CONFIRMA antes de que
+ * se capture un solo byte. En el mundo legal, un documento de
+ * otra causa mezclado es peor que ningún documento.
+ * ============================================================
+ */
+
+class CausaContext {
+  constructor(config) {
+    this.config = config || {};
+    this.selectors = config?.selectors || {};
+    this.heuristics = config?.heuristics || {};
+
+    // Estado actual de la detección
+    this.detectedCausa = null;
+    this.isConfirmed = false;
+    this.documentZone = null;
+  }
+
+  /**
+   * DETECCIÓN PRINCIPAL: Analiza la página y extrae el contexto de la causa.
+   * Retorna null si no se detecta una causa válida.
+   */
+  detect() {
+    this.isConfirmed = false;
+    this.detectedCausa = null;
+    this.documentZone = null;
+
+    const url = window.location.href;
+
+    // Verificar que estamos en pjud.cl
+    if (!/pjud\.cl/i.test(url)) {
+      return null;
+    }
+
+    // Intentar detectar ROL desde múltiples fuentes (orden de confianza)
+    const rolResult =
+      this._detectRolFromUrl(url) ||
+      this._detectRolFromBreadcrumbs() ||
+      this._detectRolFromPageTitle() ||
+      this._detectRolFromFormFields() ||
+      this._detectRolFromHeaderSection() ||
+      this._detectRolFromDomText();
+
+    if (!rolResult) {
+      return null;
+    }
+
+    // Identificar la zona de documentos de esta causa
+    this.documentZone = this._identifyDocumentZone();
+
+    // Extraer metadata adicional de la causa (pasamos rol para validar caché)
+    const metadata = this._extractCausaMetadata(rolResult.rol);
+
+    // Generar preview de documentos
+    const documentPreview = this._generateDocumentPreview();
+
+    this.detectedCausa = {
+      rol: rolResult.rol,
+      rolSource: rolResult.source,
+      rolConfidence: rolResult.confidence,
+      tribunal: metadata.tribunal,
+      caratula: metadata.caratula,
+      materia: metadata.materia,
+      estado: metadata.estado,
+      hasDocumentZone: !!this.documentZone,
+      documentZoneType: this.documentZone?.type || null,
+      documentPreview: documentPreview,
+      totalDocuments: documentPreview.total,
+      pageUrl: url,
+      detectedAt: Date.now(),
+    };
+
+    console.log('[CausaContext] Causa detectada:', this.detectedCausa.rol,
+      '| Tribunal:', this.detectedCausa.tribunal,
+      '| Documentos:', this.detectedCausa.totalDocuments);
+
+    return this.detectedCausa;
+  }
+
+  /**
+   * Confirmar la causa detectada (llamado tras aprobación del abogado)
+   */
+  confirm() {
+    if (!this.detectedCausa) return false;
+    this.isConfirmed = true;
+    console.log('[CausaContext] Causa CONFIRMADA por el usuario:', this.detectedCausa.rol);
+    return true;
+  }
+
+  /**
+   * Verificar si hay causa confirmada (gate para el scraper)
+   */
+  hasConfirmedCausa() {
+    return this.isConfirmed && this.detectedCausa !== null;
+  }
+
+  /**
+   * Obtener la causa confirmada actual
+   */
+  getConfirmedCausa() {
+    if (!this.isConfirmed) return null;
+    return this.detectedCausa;
+  }
+
+  /**
+   * Obtener la zona de documentos confirmada (el scope del scraper)
+   */
+  getDocumentZone() {
+    if (!this.isConfirmed) return null;
+    return this.documentZone;
+  }
+
+  /**
+   * Resetear (al cambiar de página o cancelar)
+   */
+  reset() {
+    this.detectedCausa = null;
+    this.isConfirmed = false;
+    this.documentZone = null;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // DETECCIÓN DE ROL - Múltiples estrategias
+  // ════════════════════════════════════════════════════════
+
+  /**
+   * Detectar ROL desde la URL (más confiable)
+   * Ejemplo: .../causa?rol=C-12345-2026 o .../causa/C-12345-2026
+   */
+  _detectRolFromUrl(url) {
+    const patterns = [
+      /[?&]rol=([A-Z]{1,4}-\d{1,8}-\d{4})/i,
+      /[?&]rol=(\d{1,8}-\d{4})/i,
+      /\/causa\/([A-Z]{1,4}-\d{1,8}-\d{4})/i,
+      /\/expediente\/([A-Z]{1,4}-\d{1,8}-\d{4})/i,
+      /[?&]rit=([A-Z]{1,4}-\d{1,8}-\d{4})/i,
+      /[?&]ruc=(\d{4,}-\d{4})/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) {
+        return { rol: match[1].toUpperCase(), source: 'url', confidence: 0.95 };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Detectar ROL desde breadcrumbs / ruta de navegación
+   */
+  _detectRolFromBreadcrumbs() {
+    const breadcrumbSelectors = [
+      '.breadcrumb', '.breadcrumbs', 'nav[aria-label*="breadcrumb"]',
+      '#breadcrumb', '.ruta-navegacion', '.path-nav',
+    ];
+
+    for (const selector of breadcrumbSelectors) {
+      try {
+        const el = document.querySelector(selector);
+        if (el) {
+          const rol = this._extractRolFromText(el.textContent);
+          if (rol) return { ...rol, source: 'breadcrumb', confidence: 0.9 };
+        }
+      } catch (e) { /* selector inválido */ }
+    }
+    return null;
+  }
+
+  /**
+   * Detectar ROL desde el título de la página
+   */
+  _detectRolFromPageTitle() {
+    const title = document.title || '';
+    const rol = this._extractRolFromText(title);
+    if (rol) return { ...rol, source: 'page_title', confidence: 0.85 };
+    return null;
+  }
+
+  /**
+   * Detectar ROL desde campos de formulario (búsqueda completada)
+   */
+  _detectRolFromFormFields() {
+    const fieldSelectors = [
+      ...(this.selectors.rolField || []),
+      '#rolCausa', '#txtRol', 'input[name="rol"]', 'input[name*="Rol"]',
+      'input[name="rit"]', 'input[name="ruc"]',
+      '#txtRit', '#txtRuc',
+    ];
+
+    for (const selector of fieldSelectors) {
+      try {
+        const el = document.querySelector(selector);
+        if (el && el.value) {
+          const normalized = el.value.trim().toUpperCase();
+          if (this._isValidRol(normalized)) {
+            return { rol: normalized, source: 'form_field', confidence: 0.9 };
+          }
+        }
+      } catch (e) { /* selector inválido */ }
+    }
+    return null;
+  }
+
+  /**
+   * Detectar ROL desde la sección de encabezado de la causa
+   * (cuando estamos dentro del detalle de una causa)
+   */
+  _detectRolFromHeaderSection() {
+    const headerSelectors = [
+      '.detalle-causa', '.ficha-causa', '.header-causa',
+      '#detalleCausa', '#fichaCausa', '.causa-header',
+      '.panel-heading', '.card-header',
+      'h1', 'h2', 'h3',
+    ];
+
+    for (const selector of headerSelectors) {
+      try {
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
+          const text = (el.textContent || '').substring(0, 500);
+          if (/causa|rol|rit|ruc|expediente|tribunal/i.test(text)) {
+            const rol = this._extractRolFromText(text);
+            if (rol) return { ...rol, source: 'header_section', confidence: 0.85 };
+          }
+        }
+      } catch (e) { /* selector inválido */ }
+    }
+    return null;
+  }
+
+  /**
+   * Detectar ROL escaneando el texto visible del DOM (último recurso)
+   */
+  _detectRolFromDomText() {
+    // ESTRATEGIA ESPECÍFICA PARA PJUD: Buscar en tablas con clase table-titulos
+    const pjudTables = document.querySelectorAll('table.table-titulos, table.table-responsive');
+    for (const table of pjudTables) {
+      const firstCell = table.querySelector('td');
+      if (firstCell) {
+        // Limpiar AGRESIVAMENTE espacios invisibles, saltos de línea y caracteres raros
+        const cleanText = (firstCell.textContent || '')
+          .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+          .replace(/\s+/g, ' ') // Normalizar espacios
+          .trim();
+        
+        // Buscar ROL: seguido del patrón
+        const rolMatch = cleanText.match(/ROL\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i);
+        if (rolMatch) {
+          return { 
+            rol: rolMatch[1].toUpperCase().trim(), 
+            source: 'pjud_table', 
+            confidence: 0.95 
+          };
+        }
+      }
+    }
+
+    // Buscar en el cuerpo principal, excluyendo menús y footers
+    const mainContent = document.querySelector('main, #content, #main, .content, .main-content, .modal-body')
+      || document.body;
+
+    if (!mainContent) return null;
+
+    // Tomar solo los primeros 5000 caracteres para eficiencia (aumentado)
+    let text = (mainContent.textContent || '').substring(0, 5000);
+    
+    // Limpieza AGRESIVA de caracteres problemáticos
+    text = text
+      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+      .replace(/\s+/g, ' ') // Normalizar todos los espacios a uno solo
+      .replace(/\u00A0/g, ' ') // Non-breaking spaces
+      .trim();
+
+    // Buscar patrones de ROL precedidos de contexto legal
+    // Hacemos los patrones MÁS PERMISIVOS con espacios
+    const contextPatterns = [
+      /ROL\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
+      /RIT\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
+      /RUC\s*:?\s*(\d{4,}\s*-\s*\d{4})/i,
+      /Causa\s+(?:N[°º]?\s*)?([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
+      /Expediente\s*:?\s*([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,
+    ];
+
+    for (const pattern of contextPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        // Limpiar el ROL capturado de espacios internos
+        const cleanRol = match[1].replace(/\s+/g, '').toUpperCase();
+        return { rol: cleanRol, source: 'dom_text', confidence: 0.7 };
+      }
+    }
+
+    return null;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // ZONA DE DOCUMENTOS - Identificar el scope del scraper
+  // ════════════════════════════════════════════════════════
+
+  /**
+   * Identifica la zona de la página que contiene los documentos de la causa.
+   * Solo los PDFs dentro de esta zona serán capturados.
+   */
+  _identifyDocumentZone() {
+    // ESTRATEGIA PJUD: Zona unificada (table-titulos + tabla folios)
+    // Incluye: Texto Demanda, Anexos, Certificado de Envío, Ebook + tabla de historia/folios
+    const tabContent = document.querySelector('#loadHistCuadernoCiv');
+    if (tabContent?.parentElement) {
+      const zone = tabContent.parentElement;
+      const hasPdfElements = zone.querySelector(
+        'i.fa-file-pdf-o, i.fa-file-pdf, form[action*="documento"], form[action*="docu"]'
+      );
+      if (hasPdfElements) {
+        return { element: zone, type: 'container', selector: 'pjud_unified_zone', confidence: 0.95 };
+      }
+    }
+
+    // Fallback: Buscar tabs de historia/documentos (solo tabla folios)
+    const pjudTabs = [
+      '#historiaCiv', '#historia', '#documentos', '#expediente',
+      '.tab-pane.active', '.modal-body'
+    ];
+
+    for (const tabSelector of pjudTabs) {
+      try {
+        const tabElement = document.querySelector(tabSelector);
+        if (!tabElement) continue;
+        
+        // Buscar tabla dentro del tab
+        const table = tabElement.querySelector('table.table-bordered, table.table-striped, table.table-hover, table');
+        if (table && this._isDocumentTable(table)) {
+          return { element: table, type: 'table', selector: `${tabSelector} > table`, confidence: 0.95 };
+        }
+      } catch (e) { /* selector inválido */ }
+    }
+
+    // Estrategia 1: Buscar tabla de documentos con selectores conocidos
+    const tableSelectors = this.selectors.causaTable || [];
+    for (const selector of tableSelectors) {
+      try {
+        const el = document.querySelector(selector);
+        if (el && this._isDocumentTable(el)) {
+          return { element: el, type: 'table', selector, confidence: 0.9 };
+        }
+      } catch (e) { /* selector inválido */ }
+    }
+
+    // Estrategia 2: Buscar tabla por contenido (keywords legales en headers)
+    const tables = document.querySelectorAll('table');
+    for (const table of tables) {
+      if (this._isDocumentTable(table)) {
+        return { element: table, type: 'table', selector: 'heuristic', confidence: 0.75 };
+      }
+    }
+
+    // Estrategia 3: Buscar contenedores con listas de documentos
+    const containerSelectors = [
+      '.documentos', '.expediente', '.actuaciones', '.resoluciones',
+      '#documentos', '#listaDocumentos', '.lista-documentos',
+      '[class*="document"]', '[class*="expediente"]',
+    ];
+
+    for (const selector of containerSelectors) {
+      try {
+        const el = document.querySelector(selector);
+        if (el && el.querySelectorAll('a').length > 0) {
+          return { element: el, type: 'container', selector, confidence: 0.7 };
+        }
+      } catch (e) { /* selector inválido */ }
+    }
+
+    return null;
+  }
+
+  /**
+   * Verificar si una tabla parece contener documentos de una causa
+   */
+  _isDocumentTable(table) {
+    if (!table || !table.rows || table.rows.length < 2) return false;
+
+    // Obtener texto de headers (thead o primera fila)
+    const headerText = (table.querySelector('thead')?.textContent ||
+      table.rows[0]?.textContent || '').toUpperCase();
+
+    // Keywords específicas de PJud y otros sitios judiciales
+    const docKeywords = [
+      'DOCUMENTO', 'ESCRITO', 'RESOLUCIÓN', 'RESOLUCION',
+      'ACTUACIÓN', 'ACTUACION', 'NOTIFICACIÓN', 'NOTIFICACION',
+      'TIPO', 'FECHA', 'FOLIO', 'CUADERNO', 'DESCARGA',
+      'DOC', 'ANEXO', 'ETAPA', 'TRÁMITE', 'TRAMITE', // Específicos de PJud
+      'DESC', 'FEC', 'FOJA', 'GEORREF', // Abreviaciones comunes
+    ];
+
+    let matches = 0;
+    for (const kw of docKeywords) {
+      if (headerText.includes(kw)) matches++;
+    }
+
+    // Al menos 2 keywords legales en los headers = es tabla de documentos
+    if (matches >= 2) return true;
+
+    // VALIDACIÓN ADICIONAL: Verificar si tiene enlaces a PDFs en el cuerpo
+    const tbody = table.querySelector('tbody') || table;
+    const pdfLinks = tbody.querySelectorAll('a[href*=".pdf"], form[action*="documento"], form[action*=".pdf"], i.fa-file-pdf-o, i.fa-file-pdf');
+    
+    // Si tiene al menos 2 filas con iconos de PDF o forms de descarga = es tabla de documentos
+    if (pdfLinks.length >= 2) return true;
+
+    return false;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // METADATA DE LA CAUSA
+  // ════════════════════════════════════════════════════════
+
+  _extractCausaMetadata(detectedRol) {
+    const metadata = {
+      tribunal: null,
+      caratula: null,
+      materia: null,
+      estado: null,
+    };
+
+    // Prioridad 1: table-titulos es la clase PJUD para la tabla de metadatos (ROL, Tribunal, etc.)
+    // table-responsive es demasiado genérica y puede tomar otra tabla distinta primero
+    let priorityText = '';
+    const metadataTables = document.querySelectorAll('table.table-titulos');
+    for (const table of metadataTables) {
+      const text = (table.textContent || '').trim();
+      if (text.length > 50) {
+        priorityText = text;
+        break;
+      }
+    }
+
+    const bodyText = (document.body?.textContent || '').substring(0, 5000);
+    const searchText = priorityText || bodyText;
+
+    // Tribunal
+    const tribunalPatterns = [
+      /Tribunal\s*:?\s*([^\n\r]{5,80})/i,
+      /Juzgado\s+(?:de\s+)?([^\n\r]{5,80})/i,
+      /Corte\s+(?:de\s+)?([^\n\r]{5,80})/i,
+    ];
+    for (const p of tribunalPatterns) {
+      const m = searchText.match(p);
+      if (m) { metadata.tribunal = m[1].trim().substring(0, 80); break; }
+    }
+
+    // Carátula
+    const caratulaPatterns = [
+      /Car[áa]tula\s*:?\s*([^\n\r]{5,120})/i,
+      /Partes\s*:?\s*([^\n\r]{5,120})/i,
+    ];
+    for (const p of caratulaPatterns) {
+      const m = searchText.match(p);
+      if (m) { metadata.caratula = m[1].trim().substring(0, 120); break; }
+    }
+
+    // Materia
+    const materiaPatterns = [
+      /Materia\s*:?\s*([^\n\r]{3,80})/i,
+      /Tipo\s+de\s+Causa\s*:?\s*([^\n\r]{3,80})/i,
+    ];
+    for (const p of materiaPatterns) {
+      const m = searchText.match(p);
+      if (m) { metadata.materia = m[1].trim().substring(0, 80); break; }
+    }
+
+    // Estado
+    const estadoPatterns = [
+      /Estado\s*:?\s*([^\n\r]{3,40})/i,
+      /Situaci[oó]n\s*:?\s*([^\n\r]{3,40})/i,
+    ];
+    for (const p of estadoPatterns) {
+      const m = searchText.match(p);
+      if (m) { metadata.estado = m[1].trim().substring(0, 40); break; }
+    }
+
+    // Fallback: caratulado/tribunal de la fila clickeada en tabla de resultados (content.js)
+    // Solo usamos el caché si: (1) ROL coincide, (2) no expiró, (3) faltan datos en la página
+    try {
+      const cached = typeof window !== 'undefined' && window.__pjudLastClickedRow;
+      const rolMatches = detectedRol && cached?.rol &&
+        String(cached.rol).replace(/\s/g, '') === String(detectedRol).replace(/\s/g, '');
+      const notExpired = cached?.clickedAt && (Date.now() - cached.clickedAt) < 300000;
+      if (cached && rolMatches && notExpired) {
+        if (!metadata.caratula && cached.caratulado) {
+          metadata.caratula = cached.caratulado.substring(0, 120);
+        }
+        if (!metadata.tribunal && cached.tribunal) {
+          metadata.tribunal = cached.tribunal.substring(0, 80);
+        }
+      }
+    } catch (e) { /* ignorar */ }
+
+    return metadata;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // PREVIEW DE DOCUMENTOS
+  // ════════════════════════════════════════════════════════
+
+  /**
+   * Genera un resumen de los documentos encontrados en la zona,
+   * agrupados por tipo, para mostrar al abogado antes de sincronizar.
+   */
+  _generateDocumentPreview() {
+    const preview = {
+      total: 0,
+      byType: {
+        resoluciones: 0,
+        escritos: 0,
+        actuaciones: 0,
+        notificaciones: 0,
+        otros: 0,
+      },
+      items: [],
+    };
+
+    const zone = this.documentZone?.element;
+    if (!zone) return preview;
+
+    // Buscar filas con documentos (todas las tablas en la zona cuando es container)
+    const rows = zone.querySelectorAll('tr');
+    
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 2) continue;
+
+      // Limpiar texto de la fila
+      const rowText = (row.textContent || '').replace(/\s+/g, ' ').trim();
+      
+      // Detectar si tiene documentos descargables
+      const pdfIcons = row.querySelectorAll('i.fa-file-pdf-o, i.fa-file-pdf');
+      const hasForm = row.querySelector('form[action*="documento"], form[action*=".pdf"], form[action*="docu"]');
+      const hasLink = row.querySelector('a[href*=".pdf"], a[onclick*="submit"], a[onclick*="download"]');
+      const hasDownload = !!(pdfIcons.length > 0 || hasForm || hasLink);
+
+      // Saltar filas de header (thead puede estar dentro de tbody en algunos sitios)
+      const isHeaderRow = row.querySelector('th') || /^(folio|doc|anexo|etapa|trámite|fecha)/i.test(rowText);
+      if (isHeaderRow) continue;
+
+      // Saltar filas vacías o demasiado cortas
+      if (!rowText || rowText.length < 5) continue;
+
+      // Inferir tipo de documento
+      const type = this._inferDocumentType(rowText);
+      const count = pdfIcons.length > 0 ? pdfIcons.length : (hasDownload ? 1 : 0);
+      preview.byType[type] += count;
+      preview.total += count;
+
+      // Guardar solo los primeros 50 para el preview
+      if (preview.items.length < 50) {
+        preview.items.push({
+          text: rowText.substring(0, 150),
+          type: type,
+          hasDownload: hasDownload,
+        });
+      }
+    }
+
+    // Si no encontramos filas, contar links/forms directamente
+    if (preview.total === 0) {
+      const downloadElements = zone.querySelectorAll('a, form[action*="documento"]');
+      for (const el of downloadElements) {
+        const text = (el.textContent || '').trim();
+        const href = (el.getAttribute('href') || '').toLowerCase();
+        const action = (el.getAttribute('action') || '').toLowerCase();
+        const onclick = (el.getAttribute('onclick') || '').toLowerCase();
+
+        const isDocument = href.includes('.pdf') || 
+                          action.includes('documento') || 
+                          onclick.includes('submit') ||
+                          onclick.includes('download') ||
+                          el.querySelector('i.fa-file-pdf-o, i.fa-file-pdf');
+
+        if (isDocument && text.length > 3) {
+          const type = this._inferDocumentType(text + ' ' + href + ' ' + action);
+          preview.byType[type]++;
+          preview.total++;
+          if (preview.items.length < 50) {
+            preview.items.push({ text: text.substring(0, 150), type, hasDownload: true });
+          }
+        }
+      }
+    }
+
+    return preview;
+  }
+
+  /**
+   * Inferir el tipo de documento legal desde su texto
+   */
+  _inferDocumentType(text) {
+    const t = (text || '').toUpperCase();
+    if (/RESOLUCI[OÓ]N|AUTO|SENTENCIA|DECRETO/i.test(t)) return 'resoluciones';
+    if (/ESCRITO|DEMANDA|CONTESTACI|RECURSO|APELACI/i.test(t)) return 'escritos';
+    if (/ACTUACI[OÓ]N|DILIGENCIA|AUDIENCIA/i.test(t)) return 'actuaciones';
+    if (/NOTIFICACI[OÓ]N|C[ÉE]DULA|CARTA/i.test(t)) return 'notificaciones';
+    return 'otros';
+  }
+
+  // ════════════════════════════════════════════════════════
+  // UTILIDADES
+  // ════════════════════════════════════════════════════════
+
+  _extractRolFromText(text) {
+    if (!text) return null;
+    
+    // Limpiar agresivamente el texto de espacios invisibles y caracteres raros
+    const cleanText = text
+      .replace(/[\u200B-\u200D\uFEFF]/g, '') // Zero-width chars
+      .replace(/\u00A0/g, ' ') // Non-breaking spaces
+      .replace(/\s+/g, ' ') // Normalizar espacios
+      .trim();
+    
+    // Patrones más permisivos que toleran espacios entre componentes
+    const patterns = [
+      /([A-Z]{1,4}\s*-\s*\d{1,8}\s*-\s*\d{4})/i,  // Con espacios opcionales
+      /(\d{1,8}\s*-\s*\d{4})/,                      // RUC con espacios opcionales
+    ];
+    
+    for (const p of patterns) {
+      const m = cleanText.match(p);
+      if (m) {
+        // Limpiar el ROL capturado de espacios internos
+        const cleanRol = m[1].replace(/\s+/g, '').toUpperCase();
+        if (this._isValidRol(cleanRol)) {
+          return { rol: cleanRol };
+        }
+      }
+    }
+    return null;
+  }
+
+  _isValidRol(rol) {
+    if (!rol || rol.length < 5) return false;
+    // Verificar que el año es razonable (1990-2030)
+    const yearMatch = rol.match(/(\d{4})$/);
+    if (yearMatch) {
+      const year = parseInt(yearMatch[1]);
+      if (year < 1990 || year > 2030) return false;
+    }
+    return /^[A-Z]{0,4}-?\d{1,8}-\d{4}$/i.test(rol);
+  }
+}
+</file>
+
 <file path="extension/service-worker.js">
 /**
  * ============================================================
@@ -10882,13 +11470,18 @@ class StrategyEngine {
       await this.initialize();
     }
 
-    // ──── GATE: Verificar causa confirmada (4.07) ────
-    if (!this.causaContext.hasConfirmedCausa()) {
+    // ──── GATE: Verificar causa detectada; auto-confirmar si hay detección (flujo simplificado) ────
+    const detected = this.causaContext.detectedCausa;
+    if (!detected) {
       this._emit('status', {
         phase: 'no_causa',
-        message: 'Debe confirmar la causa antes de sincronizar. Verifique el ROL detectado.',
+        message: 'No se detectó una causa. Navegue a una causa en pjud.cl y intente de nuevo.',
       });
-      return { error: 'Causa no confirmada', needsManual: false, totalFound: 0, totalUploaded: 0 };
+      return { error: 'Causa no detectada', needsManual: false, totalFound: 0, totalUploaded: 0 };
+    }
+    // Auto-confirmar: el clic en Sincronizar cuenta como confirmación implícita
+    if (!this.causaContext.hasConfirmedCausa()) {
+      this.causaContext.confirm();
     }
 
     const confirmedCausa = this.causaContext.getConfirmedCausa();
@@ -11052,8 +11645,20 @@ class StrategyEngine {
         message: 'Buscando descargas dentro de la zona de documentos de la causa...',
       });
 
-      // Buscar links de descarga DENTRO de la zona confirmada
       const zoneElement = documentZone.element;
+
+      // FASE PREVIA: Scrape modal de Anexos (expand-then-scrape)
+      // PJud carga los anexos por AJAX al abrir el modal; no están en el DOM hasta entonces
+      const anexosPdfs = await this._scrapeAnexosModal(zoneElement);
+      if (anexosPdfs.length > 0) {
+        results.push(...anexosPdfs);
+        this._emit('status', {
+          phase: 'layer2_anexos',
+          message: `${anexosPdfs.length} documento(s) extraído(s) de Anexos`,
+        });
+      }
+
+      // Buscar links de descarga DENTRO de la zona confirmada
       const clickables = zoneElement.querySelectorAll('a, button, [onclick], [role="button"]');
       const candidates = [];
 
@@ -11107,24 +11712,142 @@ class StrategyEngine {
     let downloadCount = 0;
 
     for (const caseData of cases) {
-      if (caseData.downloadLinks.length === 0) continue;
-      const bestLink = caseData.downloadLinks[0];
+      for (const linkData of caseData.downloadLinks) {
+        const pdf = await this._attemptDownload(linkData);
+        if (pdf) {
+          pdf.caseText = caseData.text;
+          results.push(pdf);
+          downloadCount++;
 
-      const pdf = await this._attemptDownload(bestLink);
-      if (pdf) {
-        pdf.caseText = caseData.text;
-        results.push(pdf);
-        downloadCount++;
-
-        this._emit('status', {
-          phase: 'layer2_downloading',
-          message: `Descargando documento ${downloadCount}...`,
-          current: downloadCount,
-        });
+          this._emit('status', {
+            phase: 'layer2_downloading',
+            message: `Descargando documento ${downloadCount}...`,
+            current: downloadCount,
+          });
+        }
       }
     }
 
     return results;
+  }
+
+  /**
+   * Scrape de modal Anexos (PJud): expand-then-scrape.
+   * El enlace abre #modalAnexoCausaCivil y los PDFs se cargan por AJAX.
+   * Flujo: detectar enlace → clic → esperar carga → extraer PDFs → cerrar modal.
+   */
+  async _scrapeAnexosModal(zoneElement) {
+    const results = [];
+    const anexosSelectors = [
+      'a[href="#modalAnexoCausaCivil"]',
+      'a[onclick*="anexoCausaCivil"]',
+      'a[data-toggle="modal"][href*="Anexo"]',
+    ];
+
+    let anexosLink = null;
+    for (const sel of anexosSelectors) {
+      try {
+        anexosLink = zoneElement.querySelector(sel);
+        if (anexosLink) break;
+      } catch (e) { /* selector inválido */ }
+    }
+
+    if (!anexosLink) return results;
+
+    try {
+      this._emit('status', {
+        phase: 'layer2_anexos_open',
+        message: 'Abriendo modal de Anexos...',
+      });
+
+      // Sin executeThrottled aquí: cada _attemptDownload ya usa su propio throttle.
+      // Envolver todo causaba deadlock (maxConcurrent=1: el slot nunca se liberaba).
+      await new Promise(r => setTimeout(r, 500)); // breve delay antes del clic
+      this._simulateHumanClick(anexosLink);
+      const modal = await this._waitForModalContent('#modalAnexoCausaCivil', 6000);
+
+      if (!modal) {
+        console.warn('[StrategyEngine] Modal Anexos no cargó a tiempo o está vacío');
+        return results;
+      }
+
+      const modalBody = modal.querySelector('.modal-body');
+      const searchRoot = modalBody || modal;
+
+      const clickables = searchRoot.querySelectorAll('a, button, [onclick], [role="button"]');
+      const candidates = [];
+      for (const el of clickables) {
+        const score = this.domAnalyzer._scoreDownloadElement(el);
+        if (score >= (this.config.heuristics?.minConfidenceThreshold || 0.35)) {
+          candidates.push({ element: el, confidence: score, source: 'anexos_modal' });
+        }
+      }
+
+      candidates.sort((a, b) => b.confidence - a.confidence);
+
+      for (const candidate of candidates.slice(0, 20)) {
+        const pdf = await this._attemptDownload(candidate);
+        if (pdf) results.push(pdf);
+      }
+
+      this._closeModal(modal);
+    } catch (e) {
+      console.warn('[StrategyEngine] Error al scrapear modal Anexos:', e.message);
+    }
+
+    return results;
+  }
+
+  /**
+   * Espera a que el modal se abra y tenga contenido (AJAX).
+   * Retorna el elemento del modal o null si timeout.
+   */
+  _waitForModalContent(modalId, maxMs = 6000) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        const modal = document.querySelector(modalId);
+        if (!modal) {
+          if (Date.now() - start < maxMs) setTimeout(check, 300);
+          else resolve(null);
+          return;
+        }
+
+        const isVisible = modal.classList.contains('in') ||
+          modal.classList.contains('show') ||
+          (modal.style?.display && modal.style.display !== 'none');
+
+        const hasPdfContent = modal.querySelector(
+          'i.fa-file-pdf-o, i.fa-file-pdf, form[action*="documento"], a[href*=".pdf"]'
+        );
+
+        if (isVisible && hasPdfContent) {
+          resolve(modal);
+          return;
+        }
+
+        if (Date.now() - start >= maxMs) {
+          resolve(modal); // devolver aunque esté vacío para poder cerrar
+          return;
+        }
+
+        setTimeout(check, 300);
+      };
+      check();
+    });
+  }
+
+  /**
+   * Cierra un modal Bootstrap (data-dismiss o backdrop).
+   */
+  _closeModal(modal) {
+    try {
+      const btn = modal.querySelector('[data-dismiss="modal"], .close, button[aria-label="Close"]');
+      if (btn) btn.click();
+      else modal.classList.remove('in', 'show');
+    } catch (e) {
+      console.warn('[StrategyEngine] No se pudo cerrar modal:', e.message);
+    }
   }
 
   /**
@@ -11639,7 +12362,7 @@ class StrategyEngine {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
-    "next": "16.1.4",
+    "next": "^16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.4.0"
@@ -12015,11 +12738,12 @@ export async function OPTIONS(request: NextRequest) {
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>Legal Bot</h1>
-      <p class="status" id="header-status">Esperando conexión...</p>
-    </header>
-    
+    <!-- Banner global: visible solo durante sync -->
+    <div id="sync-wait-banner" class="card sync-wait-banner" style="display: none;">
+      <span class="sync-wait-icon">⚠️</span>
+      <span>Espere y no haga nada. Si cambia de pestaña o navega, se detendrá la sincronización.</span>
+    </div>
+
     <!-- Sección de Autenticación -->
     <div id="auth-section" class="card" style="display: none;">
       <div id="auth-status"><p>Verificando sesión...</p></div>
@@ -12042,7 +12766,7 @@ export async function OPTIONS(request: NextRequest) {
         <!-- ══════════════════════════════════════ -->
         <div id="tab-sync" class="tab-content active">
 
-          <!-- Detección de Causa (4.07) -->
+          <!-- Causa Detectada + Sincronizar -->
           <div id="causa-section" class="card">
             <h2>Causa Detectada</h2>
             <div id="causa-info" class="causa-info">
@@ -12054,32 +12778,14 @@ export async function OPTIONS(request: NextRequest) {
               <p class="preview-title" id="doc-count">0 documentos encontrados</p>
               <div id="doc-types" class="doc-types"></div>
             </div>
-            <button id="confirm-causa-btn" class="btn-primary btn-confirm" style="display: none;">
-              Confirmar Causa
-            </button>
-            <button id="refresh-detect-btn" class="btn-secondary" style="margin-top: 8px;">
-              🔄 Refrescar detección
-            </button>
-            <p id="causa-hint" class="hint">Navegue a una causa en pjud.cl para detectarla</p>
-          </div>
-
-          <!-- Botón Sincronizar -->
-          <div id="sync-section" class="card">
             <button id="sync-btn" class="btn-primary btn-sync" disabled>
               <span class="btn-icon">⚡</span>
               Sincronizar
             </button>
-            <p class="hint" id="sync-hint">Confirme la causa antes de sincronizar</p>
           </div>
 
-          <!-- Advertencias de Archivos Grandes -->
-          <div id="size-warnings" class="card" style="display: none;">
-            <div id="size-warnings-content"></div>
-          </div>
-
-          <!-- Progreso -->
-          <div id="sync-progress" class="card" style="display: none;">
-            <h2>Progreso</h2>
+          <!-- Bloque compacto: progreso y resultado (visible solo durante sync) -->
+          <div id="sync-compact" class="card sync-compact" style="display: none;">
             <div class="progress-container">
               <div id="progress-bar" class="progress-bar"></div>
             </div>
@@ -12090,37 +12796,9 @@ export async function OPTIONS(request: NextRequest) {
               </div>
               <div id="resumable-status" class="progress-status" style="font-size: 12px;"></div>
             </div>
-            <div id="progress-details" class="progress-details"></div>
-          </div>
-
-          <!-- Resumen de Batch -->
-          <div id="batch-summary" class="card" style="display: none;">
-            <div id="batch-summary-content"></div>
-          </div>
-
-          <!-- Resultados -->
-          <div id="sync-results" class="card" style="display: none;">
-            <h2>Resultados</h2>
-            <div id="results-content"></div>
-          </div>
-
-          <!-- Upload Manual (Layer 3) -->
-          <div id="manual-upload-section" class="card" style="display: none;">
-            <h2>Subida Manual</h2>
-            <p class="hint">Arrastre PDFs aquí o haga clic para seleccionar</p>
-            <div id="drop-zone" class="drop-zone">
-              <span class="drop-icon">📄</span>
-              <span class="drop-text">Soltar PDF aquí</span>
-              <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
-            </div>
-            <div id="upload-status" class="progress-status" style="display: none;"></div>
-          </div>
-
-          <!-- Diagnóstico -->
-          <div class="card">
-            <h2>Diagnóstico</h2>
-            <button id="analyze-btn" class="btn-secondary">Analizar Página</button>
-            <div id="analysis-output" class="output-area"></div>
+            <div id="sync-compact-result"></div>
+            <div id="sync-compact-details"></div>
+            <div id="size-warnings-content" style="display: none;"></div>
           </div>
         </div>
 
@@ -12200,7 +12878,7 @@ export async function OPTIONS(request: NextRequest) {
  *   1. Estado global y inicialización
  *   2. Autenticación
  *   3. Sistema de Tabs
- *   4. Tab Sincronizar (causa detection, sync, upload manual)
+ *   4. Tab Sincronizar (causa detection, sync)
  *   5. Tab Mis Causas (fetch, render, empty/loading states)
  *   6. Eventos del Scraper (progreso, resultados)
  *   7. Utilidades
@@ -12214,10 +12892,9 @@ export async function OPTIONS(request: NextRequest) {
 let currentUser = null;
 let currentSession = null;
 let isSyncing = false;
-let causaConfirmed = false;
 let lastDetectedCausa = null;
 let activeTab = 'sync';
-let casesLoaded = false; // Evita re-fetch innecesario
+let casesLoaded = false;
 
 // ══════════════════════════════════════════════════════════
 // 2. INICIALIZACIÓN
@@ -12230,7 +12907,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTabs();
   setupEventListeners();
   setupScraperEventListener();
-  setupDragAndDrop();
 
   setTimeout(requestCausaDetection, 1000);
   setInterval(checkAuthentication, 30000);
@@ -12348,10 +13024,7 @@ function setupEventListeners() {
     chrome.tabs.create({ url: CONFIG.PAGES.LOGIN });
   });
 
-  document.getElementById('confirm-causa-btn')?.addEventListener('click', handleConfirmCausa);
   document.getElementById('sync-btn')?.addEventListener('click', handleSync);
-  document.getElementById('analyze-btn')?.addEventListener('click', handleAnalyze);
-  document.getElementById('refresh-detect-btn')?.addEventListener('click', handleRefreshDetection);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -12368,85 +13041,54 @@ async function requestCausaDetection() {
   } catch (e) { /* Content script no cargado */ }
 }
 
-async function handleRefreshDetection() {
-  updateHeaderStatus('Buscando causa...', 'info');
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) {
-      updateHeaderStatus('Sin pestaña activa', 'warning');
-      return;
-    }
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'detect_causa' });
-    if (response?.causa) displayDetectedCausa(response.causa);
-    else if (response?.error) {
-      updateHeaderStatus('Error: ' + response.error, 'error');
-      displayDetectedCausa(null);
-    } else {
-      displayDetectedCausa(null);
-    }
-  } catch (_e) {
-    updateHeaderStatus('Sin conexión. ¿Está la pestaña activa en pjud.cl?', 'error');
-  }
-}
-
 function displayDetectedCausa(causa) {
+  // Preservar caratulado/tribunal ante re-detecciones (ej. durante sync) que los pierdan
+  if (causa && lastDetectedCausa && causa.rol === lastDetectedCausa.rol) {
+    if (!causa.caratula && lastDetectedCausa.caratula) {
+      causa = { ...causa, caratula: lastDetectedCausa.caratula };
+    }
+    if (!causa.tribunal && lastDetectedCausa.tribunal) {
+      causa = { ...causa, tribunal: lastDetectedCausa.tribunal };
+    }
+  }
   lastDetectedCausa = causa;
+  const syncBtn = document.getElementById('sync-btn');
+  const causaRol = document.getElementById('causa-rol');
+  const causaTribunal = document.getElementById('causa-tribunal');
+  const causaCaratula = document.getElementById('causa-caratula');
+  const docPreview = document.getElementById('doc-preview');
+  const docCount = document.getElementById('doc-count');
+  const docTypes = document.getElementById('doc-types');
 
   if (!causa) {
-    document.getElementById('causa-rol').textContent = '--';
-    document.getElementById('causa-tribunal').textContent = 'No se detectó una causa en esta página';
-    document.getElementById('causa-caratula').textContent = '';
-    document.getElementById('confirm-causa-btn').style.display = 'none';
-    document.getElementById('doc-preview').style.display = 'none';
-    document.getElementById('causa-hint').textContent = 'Navegue a una causa en pjud.cl para detectarla';
-    updateHeaderStatus('Sin causa detectada', 'warning');
+    causaRol.textContent = '--';
+    causaTribunal.textContent = 'No se detectó una causa en esta página';
+    causaCaratula.textContent = '';
+    docPreview.style.display = 'none';
+    if (syncBtn) syncBtn.disabled = true;
     return;
   }
 
-  document.getElementById('causa-rol').textContent = `ROL: ${causa.rol}`;
-  document.getElementById('causa-tribunal').textContent =
+  causaRol.textContent = `ROL: ${causa.rol}`;
+  causaTribunal.textContent =
     causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource}`;
-  document.getElementById('causa-caratula').textContent =
+  causaCaratula.textContent =
     causa.caratula ? `Carátula: ${causa.caratula}` : '';
 
   const preview = causa.documentPreview;
   if (preview && preview.total > 0) {
-    document.getElementById('doc-preview').style.display = 'block';
-    document.getElementById('doc-count').textContent = `${preview.total} documento(s) encontrado(s)`;
+    docPreview.style.display = 'block';
+    docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos de la causa`;
     const typesHtml = Object.entries(preview.byType)
       .filter(([, count]) => count > 0)
       .map(([type, count]) => `<span class="doc-type-badge">${type}: ${count}</span>`)
       .join('');
-    document.getElementById('doc-types').innerHTML = typesHtml;
+    docTypes.innerHTML = typesHtml;
   } else {
-    document.getElementById('doc-preview').style.display = 'none';
+    docPreview.style.display = 'none';
   }
 
-  document.getElementById('confirm-causa-btn').style.display = 'block';
-  document.getElementById('causa-hint').textContent = 'Verifique que la causa detectada es correcta y confirme';
-  updateHeaderStatus(`Causa ${causa.rol} detectada`, 'info');
-}
-
-async function handleConfirmCausa() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'confirm_causa' });
-
-    if (response?.status === 'confirmed') {
-      causaConfirmed = true;
-      document.getElementById('confirm-causa-btn').style.display = 'none';
-      document.getElementById('causa-hint').textContent = '✓ Causa confirmada. Lista para sincronizar.';
-      document.getElementById('causa-hint').classList.add('hint-success');
-      document.getElementById('sync-btn').disabled = false;
-      document.getElementById('sync-hint').textContent = 'Presione para capturar y subir los documentos de esta causa';
-      updateHeaderStatus(`Causa ${response.causa.rol} confirmada`, 'success');
-    } else {
-      showNotification(response?.error || 'Error al confirmar', 'error');
-    }
-  } catch (error) {
-    showNotification('Error: ' + error.message, 'error');
-  }
+  if (syncBtn) syncBtn.disabled = false;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -12454,16 +13096,21 @@ async function handleConfirmCausa() {
 // ══════════════════════════════════════════════════════════
 
 async function handleSync() {
-  if (isSyncing || !causaConfirmed) return;
+  if (isSyncing || !lastDetectedCausa) return;
   if (!currentUser) { showNotification('Debe iniciar sesión primero', 'error'); return; }
 
   isSyncing = true;
   const syncBtn = document.getElementById('sync-btn');
+  const compactEl = document.getElementById('sync-compact');
+  const waitBanner = document.getElementById('sync-wait-banner');
   syncBtn.disabled = true;
   syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando...';
-  document.getElementById('sync-progress').style.display = 'block';
-  document.getElementById('sync-results').style.display = 'none';
-  document.getElementById('manual-upload-section').style.display = 'none';
+  compactEl.style.display = 'block';
+  if (waitBanner) waitBanner.style.display = 'flex';
+  document.getElementById('sync-compact-result').innerHTML = '';
+  document.getElementById('sync-compact-details').innerHTML = '';
+  document.getElementById('size-warnings-content').style.display = 'none';
+  document.getElementById('size-warnings-content').innerHTML = '';
   updateProgress(0, 'Conectando con la página...');
 
   try {
@@ -12481,14 +13128,19 @@ async function handleSync() {
       casesLoaded = false;
       loadCases();
     }
+
+    syncBtn.innerHTML = '<span class="btn-icon">✓</span> Sincronizado';
   } catch (error) {
     updateProgress(100, `Error: ${error.message}`, 'error');
-    document.getElementById('manual-upload-section').style.display = 'block';
+    renderCompactResult(null, `Error: ${error.message}`, 'error');
+    syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
   }
 
   isSyncing = false;
-  syncBtn.disabled = false;
-  syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
+  syncBtn.disabled = lastDetectedCausa ? false : true;
+  if (waitBanner) waitBanner.style.display = 'none';
+
+  // Mantener el resultado visible (éxito o error) hasta la próxima sincronización
 }
 
 // ══════════════════════════════════════════════════════════
@@ -12545,8 +13197,7 @@ async function loadCases() {
 function renderCaseCard(c) {
   const docCount = c.document_count || 0;
   const timeAgo = c.last_synced_at ? getTimeAgo(c.last_synced_at) : 'Sin sincronizar';
-  const caratula = c.caratula || 'Carátula no disponible';
-  const tribunal = c.tribunal || '';
+  const tribunalDisplay = c.tribunal || 'Tribunal no disponible';
 
   // Indicador de frescura
   let freshness = 'stale'; // gris
@@ -12562,8 +13213,7 @@ function renderCaseCard(c) {
         <span class="case-rol">${escapeHtml(c.rol)}</span>
         <span class="case-badge badge-${freshness}">${docCount} doc${docCount !== 1 ? 's' : ''}</span>
       </div>
-      <p class="case-caratula">${escapeHtml(caratula)}</p>
-      ${tribunal ? `<p class="case-tribunal">${escapeHtml(tribunal)}</p>` : ''}
+      <p class="case-tribunal">${escapeHtml(tribunalDisplay)}</p>
       <div class="case-footer">
         <span class="case-time">${timeAgo}</span>
       </div>
@@ -12582,7 +13232,6 @@ function setupScraperEventListener() {
     }
     if (message.type === 'scraper_ready') {
       if (message.causa) displayDetectedCausa(message.causa);
-      updateHeaderStatus('Scraper conectado', 'success');
     }
   });
 }
@@ -12591,7 +13240,6 @@ function handleScraperEvent(event, data) {
   switch (event) {
     case 'status': handleStatusUpdate(data); break;
     case 'causa_detected': displayDetectedCausa(data); break;
-    case 'causa_confirmed': updateHeaderStatus(`Causa ${data?.rol} confirmada`, 'success'); break;
     case 'pdf_captured': showNotification(`PDF capturado: ${formatSize(data?.size)}`, 'success'); break;
     case 'pdf_uploaded': handlePdfUploaded(data); break;
     case 'upload_progress': handleUploadProgress(data); break;
@@ -12618,170 +13266,75 @@ function handleStatusUpdate(data) {
     ['fallback', 'all_rejected', 'wrong_page'].includes(data.phase) ? 'warning' :
       data.phase === 'complete' ? 'success' : 'info';
   updateProgress(progress, data.message, type);
-  if (['fallback', 'wrong_page', 'all_rejected'].includes(data.phase)) {
-    document.getElementById('manual-upload-section').style.display = 'block';
+}
+
+function renderCompactResult(results, errorMsg, type) {
+  const el = document.getElementById('sync-compact-result');
+  if (!el) return;
+
+  if (errorMsg) {
+    el.innerHTML = `<div class="result-summary result-error"><p>${errorMsg}</p></div>`;
+    return;
+  }
+
+  if (!results) return;
+  const duration = results.duration ? `${(results.duration / 1000).toFixed(1)}s` : 'N/A';
+
+  if (results.totalUploaded > 0) {
+    el.innerHTML = `
+      <div class="result-summary result-success">
+        <p><strong>${results.totalUploaded}</strong> documento(s) sincronizado(s)</p>
+        <p class="result-detail">ROL: ${results.rol || 'N/A'} · Duración: ${duration}</p>
+      </div>
+    `;
+    if (results.rejectedReasons?.length > 0) {
+      el.innerHTML += `<div class="result-filtered"><p class="result-detail">Filtrados: ${results.rejectedReasons.join('; ')}</p></div>`;
+    }
+  } else if (results.totalFound > 0) {
+    el.innerHTML = `<div class="result-summary result-warning"><p>${results.totalFound} documento(s) encontrado(s), todos filtrados.</p></div>`;
+  } else {
+    el.innerHTML = `<div class="result-summary result-warning"><p>No se detectaron documentos.</p></div>`;
+  }
+
+  if (results.errors?.length > 0) {
+    el.innerHTML += `<div class="result-errors">${results.errors.map(e => `<p class="result-detail error-text">• ${e}</p>`).join('')}</div>`;
   }
 }
 
 function showSyncResults(results) {
-  const section = document.getElementById('sync-results');
-  const content = document.getElementById('results-content');
-  const manualSection = document.getElementById('manual-upload-section');
+  if (!results) return;
+  renderCompactResult(results);
 
-  if (!results) { section.style.display = 'none'; return; }
-  section.style.display = 'block';
-  const duration = results.duration ? `${(results.duration / 1000).toFixed(1)}s` : 'N/A';
-
-  if (results.totalUploaded > 0) {
-    content.innerHTML = `
-      <div class="result-summary result-success">
-        <p><strong>${results.totalUploaded}</strong> documento(s) sincronizado(s)</p>
-        <p class="result-detail">ROL: ${results.rol || 'N/A'}</p>
-        <p class="result-detail">Capturados: ${results.totalFound} | Validados: ${results.totalValidated} | Rechazados: ${results.totalRejected || 0}</p>
-        <p class="result-detail">Red: ${results.layer1Count || 0} | DOM: ${results.layer2Count || 0} | Duración: ${duration}</p>
-      </div>
-    `;
-    if (results.rejectedReasons?.length > 0) {
-      content.innerHTML += `<div class="result-filtered"><p><strong>Documentos filtrados:</strong></p>${results.rejectedReasons.map(r => `<p class="result-detail">• ${r}</p>`).join('')}</div>`;
-    }
-  } else if (results.totalFound > 0) {
-    content.innerHTML = `<div class="result-summary result-warning"><p>Se encontraron ${results.totalFound} documento(s) pero todos fueron filtrados</p></div>`;
-    manualSection.style.display = 'block';
-  } else {
-    content.innerHTML = `<div class="result-summary result-warning"><p>No se detectaron documentos automáticamente</p><p class="result-detail">Use la subida manual como alternativa.</p></div>`;
-    manualSection.style.display = 'block';
-  }
-
-  if (results.errors?.length > 0) {
-    content.innerHTML += `<div class="result-errors">${results.errors.map(e => `<p class="result-detail error-text">• ${e}</p>`).join('')}</div>`;
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-// 10. UPLOAD MANUAL (Layer 3)
-// ══════════════════════════════════════════════════════════
-
-function setupDragAndDrop() {
-  const dropZone = document.getElementById('drop-zone');
-  const fileInput = document.getElementById('file-input');
-  if (!dropZone || !fileInput) return;
-
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drop-zone-active'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drop-zone-active'));
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drop-zone-active');
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
-    if (files.length > 0) handleManualUpload(files);
-    else showNotification('Solo se aceptan archivos PDF', 'error');
-  });
-  fileInput.addEventListener('change', (e) => {
-    const files = Array.from(e.target.files).filter(f => f.type === 'application/pdf');
-    if (files.length > 0) handleManualUpload(files);
-    fileInput.value = '';
-  });
-}
-
-async function handleManualUpload(files) {
-  if (!currentUser) { showNotification('Debe iniciar sesión', 'error'); return; }
-  const uploadStatus = document.getElementById('upload-status');
-  uploadStatus.style.display = 'block';
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    uploadStatus.textContent = `Subiendo ${file.name} (${i + 1}/${files.length})...`;
-    uploadStatus.className = 'progress-status status-info';
-    try {
-      await uploadDirectly(file);
-      uploadStatus.textContent = `${file.name} subido exitosamente`;
-      uploadStatus.className = 'progress-status status-success';
-      // Refrescar causas
-      if (casesLoaded) { casesLoaded = false; loadCases(); }
-    } catch (error) {
-      uploadStatus.textContent = `Error: ${error.message}`;
-      uploadStatus.className = 'progress-status status-error';
+  // Actualizar "documentos encontrados" con el total real capturado (incl. anexos)
+  if (typeof results.totalFound === 'number' && results.totalFound >= 0) {
+    const docPreview = document.getElementById('doc-preview');
+    const docCount = document.getElementById('doc-count');
+    const docTypes = document.getElementById('doc-types');
+    if (docPreview && docCount) {
+      docPreview.style.display = 'block';
+      docCount.textContent = `${results.totalFound} documento(s) encontrado(s)`;
+      if (docTypes && results.totalUploaded !== undefined) {
+        const badges = [`subidos: ${results.totalUploaded}`];
+        if (results.totalFound > results.totalValidated && results.totalValidated !== undefined) {
+          badges.push(`descartados: ${results.totalFound - results.totalValidated}`);
+        }
+        docTypes.innerHTML = badges.map(b => `<span class="doc-type-badge">${b}</span>`).join('');
+      }
     }
   }
-  setTimeout(() => { uploadStatus.style.display = 'none'; }, 5000);
-}
-
-async function uploadDirectly(file) {
-  const session = await supabase.getSession();
-  if (!session?.access_token) throw new Error('No hay sesión activa');
-
-  let fileHash = '';
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-    fileHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch (e) { console.warn('[Sidepanel] No se pudo calcular hash:', e.message); }
-
-  const formData = new FormData();
-  formData.append('file', file, file.name);
-  formData.append('source', 'manual_upload');
-  formData.append('file_hash', fileHash);
-  if (causaConfirmed && lastDetectedCausa) {
-    formData.append('case_rol', lastDetectedCausa.rol || '');
-    formData.append('tribunal', lastDetectedCausa.tribunal || '');
-    formData.append('caratula', lastDetectedCausa.caratula || '');
-  }
-
-  const response = await fetch(CONFIG.API.UPLOAD, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${session.access_token}` },
-    body: formData,
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-  if (result.duplicate) throw new Error(result.message || 'Documento duplicado');
-  return result;
 }
 
 // ══════════════════════════════════════════════════════════
-// 11. ANÁLISIS
-// ══════════════════════════════════════════════════════════
-
-async function handleAnalyze() {
-  const btn = document.getElementById('analyze-btn');
-  const output = document.getElementById('analysis-output');
-  btn.disabled = true;
-  btn.textContent = 'Analizando...';
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) throw new Error('No hay pestaña activa');
-    const r = await chrome.tabs.sendMessage(tab.id, { action: 'analyze' });
-    if (r?.error) throw new Error(r.error);
-    const c = r.causa || {};
-    output.innerHTML = `
-      <div class="analysis-report">
-        <p><strong>ROL:</strong> ${c.rol || 'No detectado'}</p>
-        <p><strong>Tribunal:</strong> ${c.tribunal || 'N/A'}</p>
-        <p><strong>Carátula:</strong> ${c.caratula || 'N/A'}</p>
-        <p><strong>Zona documentos:</strong> ${c.hasDocumentZone ? '✓' : '✗'}</p>
-        <p><strong>Documentos:</strong> ${c.totalDocuments || 0}</p>
-        <p><strong>Links descargables:</strong> ${r.downloadElements || 0}</p>
-      </div>`;
-  } catch (error) {
-    output.innerHTML = `<p class="error-text">Error: ${error.message}</p>`;
-  }
-  btn.disabled = false;
-  btn.textContent = 'Analizar Página';
-}
-
-// ══════════════════════════════════════════════════════════
-// 12. ARCHIVOS GRANDES — Batch Summary
+// 10. ARCHIVOS GRANDES — Batch Summary (dentro de sync-compact)
 // ══════════════════════════════════════════════════════════
 
 function displayBatchSummary(summary) {
   if (!summary) return;
-  const warningsEl = document.getElementById('size-warnings');
   const warningsContent = document.getElementById('size-warnings-content');
-  const summaryEl = document.getElementById('batch-summary');
-  const summaryContent = document.getElementById('batch-summary-content');
+  if (!warningsContent) return;
 
   if (summary.resumableCount > 0 || summary.needsConfirmation) {
-    warningsEl.style.display = 'block';
+    warningsContent.style.display = 'block';
     let html = '';
     if (summary.resumableCount > 0 && !summary.needsConfirmation) {
       html += `<div class="warning-banner warning-info"><p><strong>📦 ${summary.resumableCount} archivo(s) grande(s)</strong></p><p class="result-detail">Upload resumible. ~${summary.estimatedTotalUploadFormatted || '...'}</p></div>`;
@@ -12792,12 +13345,9 @@ function displayBatchSummary(summary) {
       }
     }
     warningsContent.innerHTML = html;
-  } else { warningsEl.style.display = 'none'; }
-
-  if (summary.totalApproved > 0) {
-    summaryEl.style.display = 'block';
-    summaryContent.innerHTML = `<p class="result-detail"><strong>${summary.totalApproved}</strong> aprobado(s) · ${summary.totalSizeFormatted} · ~${summary.estimatedTotalUploadFormatted}${summary.totalRejected > 0 ? ` · ${summary.totalRejected} rechazado(s)` : ''}</p>`;
-  } else { summaryEl.style.display = 'none'; }
+  } else {
+    warningsContent.style.display = 'none';
+  }
 }
 
 function handleUploadProgress(data) {
@@ -12827,7 +13377,7 @@ function handleUploadError(data) {
 }
 
 // ══════════════════════════════════════════════════════════
-// 13. UTILIDADES
+// 11. UTILIDADES
 // ══════════════════════════════════════════════════════════
 
 function updateProgress(percent, message, type = 'info') {
@@ -12837,13 +13387,8 @@ function updateProgress(percent, message, type = 'info') {
   if (status && message) { status.textContent = message; status.className = `progress-status status-${type}`; }
 }
 
-function updateHeaderStatus(text, type = 'info') {
-  const el = document.getElementById('header-status');
-  if (el) { el.textContent = text; el.className = `status status-${type}`; }
-}
-
 function showNotification(message, type = 'info') {
-  const details = document.getElementById('progress-details');
+  const details = document.getElementById('sync-compact-details');
   if (details) {
     const entry = document.createElement('p');
     entry.className = `notification notification-${type}`;
@@ -12948,6 +13493,40 @@ h1 {
 .status-warning { color: var(--warning-color); }
 .status-error { color: var(--error-color); }
 .status-info { color: var(--accent-color); }
+
+/* Banner de espera durante sincronización */
+.sync-wait-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 14px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #92400e;
+  margin: 0;
+  position: fixed;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 9999;
+}
+.sync-wait-icon { font-size: 22px; }
+
+/* Cuando el banner también usa estilos de .card, evitamos que afecte layout */
+.card.sync-wait-banner {
+  margin-bottom: 0;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+}
+
+/* Bloque compacto de progreso/resultado (solo durante sync) */
+.sync-compact .progress-container { margin-bottom: 8px; }
+.sync-compact .progress-status { font-size: 12px; margin: 4px 0; }
+.sync-compact #sync-compact-result { margin-top: 8px; }
+.sync-compact #sync-compact-details { font-size: 11px; color: var(--muted-color); margin-top: 4px; max-height: 80px; overflow-y: auto; }
 
 /* ══════ CARDS ══════ */
 
@@ -13130,6 +13709,11 @@ h2 {
 .result-warning {
   background-color: #fff7ed;
   border: 1px solid #fed7aa;
+}
+
+.result-error {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
 }
 
 .result-summary p {
