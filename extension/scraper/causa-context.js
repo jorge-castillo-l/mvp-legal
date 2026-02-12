@@ -63,8 +63,8 @@ class CausaContext {
     // Identificar la zona de documentos de esta causa
     this.documentZone = this._identifyDocumentZone();
 
-    // Extraer metadata adicional de la causa
-    const metadata = this._extractCausaMetadata();
+    // Extraer metadata adicional de la causa (pasamos rol para validar caché)
+    const metadata = this._extractCausaMetadata(rolResult.rol);
 
     // Generar preview de documentos
     const documentPreview = this._generateDocumentPreview();
@@ -318,12 +318,25 @@ class CausaContext {
    * Solo los PDFs dentro de esta zona serán capturados.
    */
   _identifyDocumentZone() {
-    // ESTRATEGIA ESPECÍFICA PJUD: Buscar tabs de historia/documentos
+    // ESTRATEGIA PJUD: Zona unificada (table-titulos + tabla folios)
+    // Incluye: Texto Demanda, Anexos, Certificado de Envío, Ebook + tabla de historia/folios
+    const tabContent = document.querySelector('#loadHistCuadernoCiv');
+    if (tabContent?.parentElement) {
+      const zone = tabContent.parentElement;
+      const hasPdfElements = zone.querySelector(
+        'i.fa-file-pdf-o, i.fa-file-pdf, form[action*="documento"], form[action*="docu"]'
+      );
+      if (hasPdfElements) {
+        return { element: zone, type: 'container', selector: 'pjud_unified_zone', confidence: 0.95 };
+      }
+    }
+
+    // Fallback: Buscar tabs de historia/documentos (solo tabla folios)
     const pjudTabs = [
       '#historiaCiv', '#historia', '#documentos', '#expediente',
       '.tab-pane.active', '.modal-body'
     ];
-    
+
     for (const tabSelector of pjudTabs) {
       try {
         const tabElement = document.querySelector(tabSelector);
@@ -404,7 +417,7 @@ class CausaContext {
 
     // VALIDACIÓN ADICIONAL: Verificar si tiene enlaces a PDFs en el cuerpo
     const tbody = table.querySelector('tbody') || table;
-    const pdfLinks = tbody.querySelectorAll('a[href*=".pdf"], form[action*="documento"], form[action*=".pdf"], i.fa-file-pdf-o');
+    const pdfLinks = tbody.querySelectorAll('a[href*=".pdf"], form[action*="documento"], form[action*=".pdf"], i.fa-file-pdf-o, i.fa-file-pdf');
     
     // Si tiene al menos 2 filas con iconos de PDF o forms de descarga = es tabla de documentos
     if (pdfLinks.length >= 2) return true;
@@ -416,7 +429,7 @@ class CausaContext {
   // METADATA DE LA CAUSA
   // ════════════════════════════════════════════════════════
 
-  _extractCausaMetadata() {
+  _extractCausaMetadata(detectedRol) {
     const metadata = {
       tribunal: null,
       caratula: null,
@@ -424,7 +437,20 @@ class CausaContext {
       estado: null,
     };
 
+    // Prioridad 1: table-titulos es la clase PJUD para la tabla de metadatos (ROL, Tribunal, etc.)
+    // table-responsive es demasiado genérica y puede tomar otra tabla distinta primero
+    let priorityText = '';
+    const metadataTables = document.querySelectorAll('table.table-titulos');
+    for (const table of metadataTables) {
+      const text = (table.textContent || '').trim();
+      if (text.length > 50) {
+        priorityText = text;
+        break;
+      }
+    }
+
     const bodyText = (document.body?.textContent || '').substring(0, 5000);
+    const searchText = priorityText || bodyText;
 
     // Tribunal
     const tribunalPatterns = [
@@ -433,7 +459,7 @@ class CausaContext {
       /Corte\s+(?:de\s+)?([^\n\r]{5,80})/i,
     ];
     for (const p of tribunalPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.tribunal = m[1].trim().substring(0, 80); break; }
     }
 
@@ -443,7 +469,7 @@ class CausaContext {
       /Partes\s*:?\s*([^\n\r]{5,120})/i,
     ];
     for (const p of caratulaPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.caratula = m[1].trim().substring(0, 120); break; }
     }
 
@@ -453,7 +479,7 @@ class CausaContext {
       /Tipo\s+de\s+Causa\s*:?\s*([^\n\r]{3,80})/i,
     ];
     for (const p of materiaPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.materia = m[1].trim().substring(0, 80); break; }
     }
 
@@ -463,9 +489,26 @@ class CausaContext {
       /Situaci[oó]n\s*:?\s*([^\n\r]{3,40})/i,
     ];
     for (const p of estadoPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.estado = m[1].trim().substring(0, 40); break; }
     }
+
+    // Fallback: caratulado/tribunal de la fila clickeada en tabla de resultados (content.js)
+    // Solo usamos el caché si: (1) ROL coincide, (2) no expiró, (3) faltan datos en la página
+    try {
+      const cached = typeof window !== 'undefined' && window.__pjudLastClickedRow;
+      const rolMatches = detectedRol && cached?.rol &&
+        String(cached.rol).replace(/\s/g, '') === String(detectedRol).replace(/\s/g, '');
+      const notExpired = cached?.clickedAt && (Date.now() - cached.clickedAt) < 300000;
+      if (cached && rolMatches && notExpired) {
+        if (!metadata.caratula && cached.caratulado) {
+          metadata.caratula = cached.caratulado.substring(0, 120);
+        }
+        if (!metadata.tribunal && cached.tribunal) {
+          metadata.tribunal = cached.tribunal.substring(0, 80);
+        }
+      }
+    } catch (e) { /* ignorar */ }
 
     return metadata;
   }
@@ -494,9 +537,8 @@ class CausaContext {
     const zone = this.documentZone?.element;
     if (!zone) return preview;
 
-    // Buscar filas con documentos (tbody o directo)
-    const tbody = zone.querySelector('tbody') || zone;
-    const rows = tbody.querySelectorAll('tr');
+    // Buscar filas con documentos (todas las tablas en la zona cuando es container)
+    const rows = zone.querySelectorAll('tr');
     
     for (const row of rows) {
       const cells = row.querySelectorAll('td');
@@ -506,10 +548,10 @@ class CausaContext {
       const rowText = (row.textContent || '').replace(/\s+/g, ' ').trim();
       
       // Detectar si tiene documentos descargables
-      const hasPdfIcon = row.querySelector('i.fa-file-pdf-o, i.fa-file-pdf');
+      const pdfIcons = row.querySelectorAll('i.fa-file-pdf-o, i.fa-file-pdf');
       const hasForm = row.querySelector('form[action*="documento"], form[action*=".pdf"], form[action*="docu"]');
       const hasLink = row.querySelector('a[href*=".pdf"], a[onclick*="submit"], a[onclick*="download"]');
-      const hasDownload = !!(hasPdfIcon || hasForm || hasLink);
+      const hasDownload = !!(pdfIcons.length > 0 || hasForm || hasLink);
 
       // Saltar filas de header (thead puede estar dentro de tbody en algunos sitios)
       const isHeaderRow = row.querySelector('th') || /^(folio|doc|anexo|etapa|trámite|fecha)/i.test(rowText);
@@ -520,8 +562,9 @@ class CausaContext {
 
       // Inferir tipo de documento
       const type = this._inferDocumentType(rowText);
-      preview.byType[type]++;
-      preview.total++;
+      const count = pdfIcons.length > 0 ? pdfIcons.length : (hasDownload ? 1 : 0);
+      preview.byType[type] += count;
+      preview.total += count;
 
       // Guardar solo los primeros 50 para el preview
       if (preview.items.length < 50) {

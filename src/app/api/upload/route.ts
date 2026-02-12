@@ -281,22 +281,22 @@ export async function POST(request: NextRequest) {
 
     // ══════════════════════════════════════════════════════
     // PASO 7: REGISTRAR HASH PARA DEDUPLICACIÓN
+    // Solo si el documento se registró — evita hashes huérfanos.
     // ══════════════════════════════════════════════════════
-    const newHash: DocumentHashInsert = {
-      user_id: user.id,
-      rol: caseRol || 'sin_rol',
-      hash: fileHash,
-      filename: sanitizedName,
-      document_type: documentType,
-    }
+    if (documentId) {
+      const newHash: DocumentHashInsert = {
+        user_id: user.id,
+        rol: caseRol || 'sin_rol',
+        hash: fileHash,
+        filename: sanitizedName,
+        document_type: documentType,
+      }
 
-    const { error: hashError } = await supabase
-      .from('document_hashes')
-      .insert(newHash)
+      const { error: hashError } = await supabase
+        .from('document_hashes')
+        .insert(newHash)
 
-    if (hashError) {
-      // Si es constraint violation (duplicado por race condition), no es error
-      if (!hashError.message.includes('unique') && !hashError.message.includes('duplicate')) {
+      if (hashError && !hashError.message.includes('unique') && !hashError.message.includes('duplicate')) {
         console.error('Error registrando hash:', hashError)
       }
     }

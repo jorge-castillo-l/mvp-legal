@@ -1,5 +1,4 @@
 - cambiar middleware por proxy.
--  la extensión capta los links de descarga pero no el rol y otros datos, al parecer hay que estudiar el HTML del pjud y cambiar el código del scraper en función del html del pjud, en cuanto a selectores, etc.
 - ghost card, que era una mejora propuesta por un chat de cursor para agregarle valo al producto.
 
 - actualizar cursorrules.:
@@ -7,3 +6,7 @@
 
 - evaluar si quiero que la IA tenga como funcionalidad generar escritos.
 - evaluar el modo juez y el modo defensor en lugar de tener un solo modo.
+
+- En "mis causas" aparece que tengo 8 documentes pero 16 document_hashes.
+ 
+- El caratulado lo necesito y me gustaría que aparezca en el sidepanel justo debajo del tribunal, pero aparece en el DOM previo al DOM en donde se detecta la causa. Quiero saber si se puede extraer el caratulado tomando en cuenta que está en la página previa a la que actúa el scraper.

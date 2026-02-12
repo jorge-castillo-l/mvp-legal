@@ -162,13 +162,18 @@ class StrategyEngine {
       await this.initialize();
     }
 
-    // ──── GATE: Verificar causa confirmada (4.07) ────
-    if (!this.causaContext.hasConfirmedCausa()) {
+    // ──── GATE: Verificar causa detectada; auto-confirmar si hay detección (flujo simplificado) ────
+    const detected = this.causaContext.detectedCausa;
+    if (!detected) {
       this._emit('status', {
         phase: 'no_causa',
-        message: 'Debe confirmar la causa antes de sincronizar. Verifique el ROL detectado.',
+        message: 'No se detectó una causa. Navegue a una causa en pjud.cl y intente de nuevo.',
       });
-      return { error: 'Causa no confirmada', needsManual: false, totalFound: 0, totalUploaded: 0 };
+      return { error: 'Causa no detectada', needsManual: false, totalFound: 0, totalUploaded: 0 };
+    }
+    // Auto-confirmar: el clic en Sincronizar cuenta como confirmación implícita
+    if (!this.causaContext.hasConfirmedCausa()) {
+      this.causaContext.confirm();
     }
 
     const confirmedCausa = this.causaContext.getConfirmedCausa();
@@ -332,8 +337,20 @@ class StrategyEngine {
         message: 'Buscando descargas dentro de la zona de documentos de la causa...',
       });
 
-      // Buscar links de descarga DENTRO de la zona confirmada
       const zoneElement = documentZone.element;
+
+      // FASE PREVIA: Scrape modal de Anexos (expand-then-scrape)
+      // PJud carga los anexos por AJAX al abrir el modal; no están en el DOM hasta entonces
+      const anexosPdfs = await this._scrapeAnexosModal(zoneElement);
+      if (anexosPdfs.length > 0) {
+        results.push(...anexosPdfs);
+        this._emit('status', {
+          phase: 'layer2_anexos',
+          message: `${anexosPdfs.length} documento(s) extraído(s) de Anexos`,
+        });
+      }
+
+      // Buscar links de descarga DENTRO de la zona confirmada
       const clickables = zoneElement.querySelectorAll('a, button, [onclick], [role="button"]');
       const candidates = [];
 
@@ -387,24 +404,142 @@ class StrategyEngine {
     let downloadCount = 0;
 
     for (const caseData of cases) {
-      if (caseData.downloadLinks.length === 0) continue;
-      const bestLink = caseData.downloadLinks[0];
+      for (const linkData of caseData.downloadLinks) {
+        const pdf = await this._attemptDownload(linkData);
+        if (pdf) {
+          pdf.caseText = caseData.text;
+          results.push(pdf);
+          downloadCount++;
 
-      const pdf = await this._attemptDownload(bestLink);
-      if (pdf) {
-        pdf.caseText = caseData.text;
-        results.push(pdf);
-        downloadCount++;
-
-        this._emit('status', {
-          phase: 'layer2_downloading',
-          message: `Descargando documento ${downloadCount}...`,
-          current: downloadCount,
-        });
+          this._emit('status', {
+            phase: 'layer2_downloading',
+            message: `Descargando documento ${downloadCount}...`,
+            current: downloadCount,
+          });
+        }
       }
     }
 
     return results;
+  }
+
+  /**
+   * Scrape de modal Anexos (PJud): expand-then-scrape.
+   * El enlace abre #modalAnexoCausaCivil y los PDFs se cargan por AJAX.
+   * Flujo: detectar enlace → clic → esperar carga → extraer PDFs → cerrar modal.
+   */
+  async _scrapeAnexosModal(zoneElement) {
+    const results = [];
+    const anexosSelectors = [
+      'a[href="#modalAnexoCausaCivil"]',
+      'a[onclick*="anexoCausaCivil"]',
+      'a[data-toggle="modal"][href*="Anexo"]',
+    ];
+
+    let anexosLink = null;
+    for (const sel of anexosSelectors) {
+      try {
+        anexosLink = zoneElement.querySelector(sel);
+        if (anexosLink) break;
+      } catch (e) { /* selector inválido */ }
+    }
+
+    if (!anexosLink) return results;
+
+    try {
+      this._emit('status', {
+        phase: 'layer2_anexos_open',
+        message: 'Abriendo modal de Anexos...',
+      });
+
+      // Sin executeThrottled aquí: cada _attemptDownload ya usa su propio throttle.
+      // Envolver todo causaba deadlock (maxConcurrent=1: el slot nunca se liberaba).
+      await new Promise(r => setTimeout(r, 500)); // breve delay antes del clic
+      this._simulateHumanClick(anexosLink);
+      const modal = await this._waitForModalContent('#modalAnexoCausaCivil', 6000);
+
+      if (!modal) {
+        console.warn('[StrategyEngine] Modal Anexos no cargó a tiempo o está vacío');
+        return results;
+      }
+
+      const modalBody = modal.querySelector('.modal-body');
+      const searchRoot = modalBody || modal;
+
+      const clickables = searchRoot.querySelectorAll('a, button, [onclick], [role="button"]');
+      const candidates = [];
+      for (const el of clickables) {
+        const score = this.domAnalyzer._scoreDownloadElement(el);
+        if (score >= (this.config.heuristics?.minConfidenceThreshold || 0.35)) {
+          candidates.push({ element: el, confidence: score, source: 'anexos_modal' });
+        }
+      }
+
+      candidates.sort((a, b) => b.confidence - a.confidence);
+
+      for (const candidate of candidates.slice(0, 20)) {
+        const pdf = await this._attemptDownload(candidate);
+        if (pdf) results.push(pdf);
+      }
+
+      this._closeModal(modal);
+    } catch (e) {
+      console.warn('[StrategyEngine] Error al scrapear modal Anexos:', e.message);
+    }
+
+    return results;
+  }
+
+  /**
+   * Espera a que el modal se abra y tenga contenido (AJAX).
+   * Retorna el elemento del modal o null si timeout.
+   */
+  _waitForModalContent(modalId, maxMs = 6000) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        const modal = document.querySelector(modalId);
+        if (!modal) {
+          if (Date.now() - start < maxMs) setTimeout(check, 300);
+          else resolve(null);
+          return;
+        }
+
+        const isVisible = modal.classList.contains('in') ||
+          modal.classList.contains('show') ||
+          (modal.style?.display && modal.style.display !== 'none');
+
+        const hasPdfContent = modal.querySelector(
+          'i.fa-file-pdf-o, i.fa-file-pdf, form[action*="documento"], a[href*=".pdf"]'
+        );
+
+        if (isVisible && hasPdfContent) {
+          resolve(modal);
+          return;
+        }
+
+        if (Date.now() - start >= maxMs) {
+          resolve(modal); // devolver aunque esté vacío para poder cerrar
+          return;
+        }
+
+        setTimeout(check, 300);
+      };
+      check();
+    });
+  }
+
+  /**
+   * Cierra un modal Bootstrap (data-dismiss o backdrop).
+   */
+  _closeModal(modal) {
+    try {
+      const btn = modal.querySelector('[data-dismiss="modal"], .close, button[aria-label="Close"]');
+      if (btn) btn.click();
+      else modal.classList.remove('in', 'show');
+    } catch (e) {
+      console.warn('[StrategyEngine] No se pudo cerrar modal:', e.message);
+    }
   }
 
   /**

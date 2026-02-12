@@ -252,7 +252,9 @@ class DOMAnalyzer {
 
     // --- Penalizaciones ---
     // Navegar a otra sección (probablemente no es descarga)
-    if (href.startsWith('#') && !href.includes('download')) score -= 0.2;
+    // No penalizar si tiene ícono PDF: PJud usa href="#" + form.submit para descargas
+    const hasPdfIcon = element.querySelector('i.fa-file-pdf, i.fa-file-pdf-o');
+    if (href.startsWith('#') && !href.includes('download') && !hasPdfIcon) score -= 0.2;
     // Links de paginación
     if (/página|page|next|prev|anterior|siguiente/i.test(allText)) score -= 0.3;
     // Links de navegación general

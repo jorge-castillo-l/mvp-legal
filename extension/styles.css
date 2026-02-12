@@ -56,6 +56,40 @@ h1 {
 .status-error { color: var(--error-color); }
 .status-info { color: var(--accent-color); }
 
+/* Banner de espera durante sincronización */
+.sync-wait-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 14px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #92400e;
+  margin: 0;
+  position: fixed;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 9999;
+}
+.sync-wait-icon { font-size: 22px; }
+
+/* Cuando el banner también usa estilos de .card, evitamos que afecte layout */
+.card.sync-wait-banner {
+  margin-bottom: 0;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+}
+
+/* Bloque compacto de progreso/resultado (solo durante sync) */
+.sync-compact .progress-container { margin-bottom: 8px; }
+.sync-compact .progress-status { font-size: 12px; margin: 4px 0; }
+.sync-compact #sync-compact-result { margin-top: 8px; }
+.sync-compact #sync-compact-details { font-size: 11px; color: var(--muted-color); margin-top: 4px; max-height: 80px; overflow-y: auto; }
+
 /* ══════ CARDS ══════ */
 
 .card {
@@ -237,6 +271,11 @@ h2 {
 .result-warning {
   background-color: #fff7ed;
   border: 1px solid #fed7aa;
+}
+
+.result-error {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
 }
 
 .result-summary p {

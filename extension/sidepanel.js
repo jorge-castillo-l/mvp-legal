@@ -8,7 +8,7 @@
  *   1. Estado global y inicialización
  *   2. Autenticación
  *   3. Sistema de Tabs
- *   4. Tab Sincronizar (causa detection, sync, upload manual)
+ *   4. Tab Sincronizar (causa detection, sync)
  *   5. Tab Mis Causas (fetch, render, empty/loading states)
  *   6. Eventos del Scraper (progreso, resultados)
  *   7. Utilidades
@@ -22,10 +22,9 @@
 let currentUser = null;
 let currentSession = null;
 let isSyncing = false;
-let causaConfirmed = false;
 let lastDetectedCausa = null;
 let activeTab = 'sync';
-let casesLoaded = false; // Evita re-fetch innecesario
+let casesLoaded = false;
 
 // ══════════════════════════════════════════════════════════
 // 2. INICIALIZACIÓN
@@ -38,7 +37,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTabs();
   setupEventListeners();
   setupScraperEventListener();
-  setupDragAndDrop();
 
   setTimeout(requestCausaDetection, 1000);
   setInterval(checkAuthentication, 30000);
@@ -156,9 +154,7 @@ function setupEventListeners() {
     chrome.tabs.create({ url: CONFIG.PAGES.LOGIN });
   });
 
-  document.getElementById('confirm-causa-btn')?.addEventListener('click', handleConfirmCausa);
   document.getElementById('sync-btn')?.addEventListener('click', handleSync);
-  document.getElementById('analyze-btn')?.addEventListener('click', handleAnalyze);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -171,67 +167,58 @@ async function requestCausaDetection() {
     if (!tab?.id) return;
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'detect_causa' });
     if (response?.causa) displayDetectedCausa(response.causa);
+    else if (response && !response.error) displayDetectedCausa(null);
   } catch (e) { /* Content script no cargado */ }
 }
 
 function displayDetectedCausa(causa) {
+  // Preservar caratulado/tribunal ante re-detecciones (ej. durante sync) que los pierdan
+  if (causa && lastDetectedCausa && causa.rol === lastDetectedCausa.rol) {
+    if (!causa.caratula && lastDetectedCausa.caratula) {
+      causa = { ...causa, caratula: lastDetectedCausa.caratula };
+    }
+    if (!causa.tribunal && lastDetectedCausa.tribunal) {
+      causa = { ...causa, tribunal: lastDetectedCausa.tribunal };
+    }
+  }
   lastDetectedCausa = causa;
+  const syncBtn = document.getElementById('sync-btn');
+  const causaRol = document.getElementById('causa-rol');
+  const causaTribunal = document.getElementById('causa-tribunal');
+  const causaCaratula = document.getElementById('causa-caratula');
+  const docPreview = document.getElementById('doc-preview');
+  const docCount = document.getElementById('doc-count');
+  const docTypes = document.getElementById('doc-types');
 
   if (!causa) {
-    document.getElementById('causa-rol').textContent = '--';
-    document.getElementById('causa-tribunal').textContent = 'No se detectó una causa en esta página';
-    document.getElementById('causa-caratula').textContent = '';
-    document.getElementById('confirm-causa-btn').style.display = 'none';
-    document.getElementById('doc-preview').style.display = 'none';
-    document.getElementById('causa-hint').textContent = 'Navegue a una causa en pjud.cl para detectarla';
-    updateHeaderStatus('Sin causa detectada', 'warning');
+    causaRol.textContent = '--';
+    causaTribunal.textContent = 'No se detectó una causa en esta página';
+    causaCaratula.textContent = '';
+    docPreview.style.display = 'none';
+    if (syncBtn) syncBtn.disabled = true;
     return;
   }
 
-  document.getElementById('causa-rol').textContent = `ROL: ${causa.rol}`;
-  document.getElementById('causa-tribunal').textContent =
-    causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource} (confianza: ${Math.round(causa.rolConfidence * 100)}%)`;
-  document.getElementById('causa-caratula').textContent =
+  causaRol.textContent = `ROL: ${causa.rol}`;
+  causaTribunal.textContent =
+    causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource}`;
+  causaCaratula.textContent =
     causa.caratula ? `Carátula: ${causa.caratula}` : '';
 
   const preview = causa.documentPreview;
   if (preview && preview.total > 0) {
-    document.getElementById('doc-preview').style.display = 'block';
-    document.getElementById('doc-count').textContent = `${preview.total} documento(s) encontrado(s)`;
+    docPreview.style.display = 'block';
+    docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos de la causa`;
     const typesHtml = Object.entries(preview.byType)
       .filter(([, count]) => count > 0)
       .map(([type, count]) => `<span class="doc-type-badge">${type}: ${count}</span>`)
       .join('');
-    document.getElementById('doc-types').innerHTML = typesHtml;
+    docTypes.innerHTML = typesHtml;
   } else {
-    document.getElementById('doc-preview').style.display = 'none';
+    docPreview.style.display = 'none';
   }
 
-  document.getElementById('confirm-causa-btn').style.display = 'block';
-  document.getElementById('causa-hint').textContent = 'Verifique que la causa detectada es correcta y confirme';
-  updateHeaderStatus(`Causa ${causa.rol} detectada`, 'info');
-}
-
-async function handleConfirmCausa() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'confirm_causa' });
-
-    if (response?.status === 'confirmed') {
-      causaConfirmed = true;
-      document.getElementById('confirm-causa-btn').style.display = 'none';
-      document.getElementById('causa-hint').textContent = '✓ Causa confirmada. Lista para sincronizar.';
-      document.getElementById('causa-hint').classList.add('hint-success');
-      document.getElementById('sync-btn').disabled = false;
-      document.getElementById('sync-hint').textContent = 'Presione para capturar y subir los documentos de esta causa';
-      updateHeaderStatus(`Causa ${response.causa.rol} confirmada`, 'success');
-    } else {
-      showNotification(response?.error || 'Error al confirmar', 'error');
-    }
-  } catch (error) {
-    showNotification('Error: ' + error.message, 'error');
-  }
+  if (syncBtn) syncBtn.disabled = false;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -239,16 +226,21 @@ async function handleConfirmCausa() {
 // ══════════════════════════════════════════════════════════
 
 async function handleSync() {
-  if (isSyncing || !causaConfirmed) return;
+  if (isSyncing || !lastDetectedCausa) return;
   if (!currentUser) { showNotification('Debe iniciar sesión primero', 'error'); return; }
 
   isSyncing = true;
   const syncBtn = document.getElementById('sync-btn');
+  const compactEl = document.getElementById('sync-compact');
+  const waitBanner = document.getElementById('sync-wait-banner');
   syncBtn.disabled = true;
   syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando...';
-  document.getElementById('sync-progress').style.display = 'block';
-  document.getElementById('sync-results').style.display = 'none';
-  document.getElementById('manual-upload-section').style.display = 'none';
+  compactEl.style.display = 'block';
+  if (waitBanner) waitBanner.style.display = 'flex';
+  document.getElementById('sync-compact-result').innerHTML = '';
+  document.getElementById('sync-compact-details').innerHTML = '';
+  document.getElementById('size-warnings-content').style.display = 'none';
+  document.getElementById('size-warnings-content').innerHTML = '';
   updateProgress(0, 'Conectando con la página...');
 
   try {
@@ -266,14 +258,19 @@ async function handleSync() {
       casesLoaded = false;
       loadCases();
     }
+
+    syncBtn.innerHTML = '<span class="btn-icon">✓</span> Sincronizado';
   } catch (error) {
     updateProgress(100, `Error: ${error.message}`, 'error');
-    document.getElementById('manual-upload-section').style.display = 'block';
+    renderCompactResult(null, `Error: ${error.message}`, 'error');
+    syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
   }
 
   isSyncing = false;
-  syncBtn.disabled = false;
-  syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
+  syncBtn.disabled = lastDetectedCausa ? false : true;
+  if (waitBanner) waitBanner.style.display = 'none';
+
+  // Mantener el resultado visible (éxito o error) hasta la próxima sincronización
 }
 
 // ══════════════════════════════════════════════════════════
@@ -330,8 +327,7 @@ async function loadCases() {
 function renderCaseCard(c) {
   const docCount = c.document_count || 0;
   const timeAgo = c.last_synced_at ? getTimeAgo(c.last_synced_at) : 'Sin sincronizar';
-  const caratula = c.caratula || 'Carátula no disponible';
-  const tribunal = c.tribunal || '';
+  const tribunalDisplay = c.tribunal || 'Tribunal no disponible';
 
   // Indicador de frescura
   let freshness = 'stale'; // gris
@@ -347,8 +343,7 @@ function renderCaseCard(c) {
         <span class="case-rol">${escapeHtml(c.rol)}</span>
         <span class="case-badge badge-${freshness}">${docCount} doc${docCount !== 1 ? 's' : ''}</span>
       </div>
-      <p class="case-caratula">${escapeHtml(caratula)}</p>
-      ${tribunal ? `<p class="case-tribunal">${escapeHtml(tribunal)}</p>` : ''}
+      <p class="case-tribunal">${escapeHtml(tribunalDisplay)}</p>
       <div class="case-footer">
         <span class="case-time">${timeAgo}</span>
       </div>
@@ -367,7 +362,6 @@ function setupScraperEventListener() {
     }
     if (message.type === 'scraper_ready') {
       if (message.causa) displayDetectedCausa(message.causa);
-      updateHeaderStatus('Scraper conectado', 'success');
     }
   });
 }
@@ -376,7 +370,6 @@ function handleScraperEvent(event, data) {
   switch (event) {
     case 'status': handleStatusUpdate(data); break;
     case 'causa_detected': displayDetectedCausa(data); break;
-    case 'causa_confirmed': updateHeaderStatus(`Causa ${data?.rol} confirmada`, 'success'); break;
     case 'pdf_captured': showNotification(`PDF capturado: ${formatSize(data?.size)}`, 'success'); break;
     case 'pdf_uploaded': handlePdfUploaded(data); break;
     case 'upload_progress': handleUploadProgress(data); break;
@@ -403,170 +396,75 @@ function handleStatusUpdate(data) {
     ['fallback', 'all_rejected', 'wrong_page'].includes(data.phase) ? 'warning' :
       data.phase === 'complete' ? 'success' : 'info';
   updateProgress(progress, data.message, type);
-  if (['fallback', 'wrong_page', 'all_rejected'].includes(data.phase)) {
-    document.getElementById('manual-upload-section').style.display = 'block';
+}
+
+function renderCompactResult(results, errorMsg, type) {
+  const el = document.getElementById('sync-compact-result');
+  if (!el) return;
+
+  if (errorMsg) {
+    el.innerHTML = `<div class="result-summary result-error"><p>${errorMsg}</p></div>`;
+    return;
+  }
+
+  if (!results) return;
+  const duration = results.duration ? `${(results.duration / 1000).toFixed(1)}s` : 'N/A';
+
+  if (results.totalUploaded > 0) {
+    el.innerHTML = `
+      <div class="result-summary result-success">
+        <p><strong>${results.totalUploaded}</strong> documento(s) sincronizado(s)</p>
+        <p class="result-detail">ROL: ${results.rol || 'N/A'} · Duración: ${duration}</p>
+      </div>
+    `;
+    if (results.rejectedReasons?.length > 0) {
+      el.innerHTML += `<div class="result-filtered"><p class="result-detail">Filtrados: ${results.rejectedReasons.join('; ')}</p></div>`;
+    }
+  } else if (results.totalFound > 0) {
+    el.innerHTML = `<div class="result-summary result-warning"><p>${results.totalFound} documento(s) encontrado(s), todos filtrados.</p></div>`;
+  } else {
+    el.innerHTML = `<div class="result-summary result-warning"><p>No se detectaron documentos.</p></div>`;
+  }
+
+  if (results.errors?.length > 0) {
+    el.innerHTML += `<div class="result-errors">${results.errors.map(e => `<p class="result-detail error-text">• ${e}</p>`).join('')}</div>`;
   }
 }
 
 function showSyncResults(results) {
-  const section = document.getElementById('sync-results');
-  const content = document.getElementById('results-content');
-  const manualSection = document.getElementById('manual-upload-section');
+  if (!results) return;
+  renderCompactResult(results);
 
-  if (!results) { section.style.display = 'none'; return; }
-  section.style.display = 'block';
-  const duration = results.duration ? `${(results.duration / 1000).toFixed(1)}s` : 'N/A';
-
-  if (results.totalUploaded > 0) {
-    content.innerHTML = `
-      <div class="result-summary result-success">
-        <p><strong>${results.totalUploaded}</strong> documento(s) sincronizado(s)</p>
-        <p class="result-detail">ROL: ${results.rol || 'N/A'}</p>
-        <p class="result-detail">Capturados: ${results.totalFound} | Validados: ${results.totalValidated} | Rechazados: ${results.totalRejected || 0}</p>
-        <p class="result-detail">Red: ${results.layer1Count || 0} | DOM: ${results.layer2Count || 0} | Duración: ${duration}</p>
-      </div>
-    `;
-    if (results.rejectedReasons?.length > 0) {
-      content.innerHTML += `<div class="result-filtered"><p><strong>Documentos filtrados:</strong></p>${results.rejectedReasons.map(r => `<p class="result-detail">• ${r}</p>`).join('')}</div>`;
-    }
-  } else if (results.totalFound > 0) {
-    content.innerHTML = `<div class="result-summary result-warning"><p>Se encontraron ${results.totalFound} documento(s) pero todos fueron filtrados</p></div>`;
-    manualSection.style.display = 'block';
-  } else {
-    content.innerHTML = `<div class="result-summary result-warning"><p>No se detectaron documentos automáticamente</p><p class="result-detail">Use la subida manual como alternativa.</p></div>`;
-    manualSection.style.display = 'block';
-  }
-
-  if (results.errors?.length > 0) {
-    content.innerHTML += `<div class="result-errors">${results.errors.map(e => `<p class="result-detail error-text">• ${e}</p>`).join('')}</div>`;
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-// 10. UPLOAD MANUAL (Layer 3)
-// ══════════════════════════════════════════════════════════
-
-function setupDragAndDrop() {
-  const dropZone = document.getElementById('drop-zone');
-  const fileInput = document.getElementById('file-input');
-  if (!dropZone || !fileInput) return;
-
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drop-zone-active'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drop-zone-active'));
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drop-zone-active');
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
-    if (files.length > 0) handleManualUpload(files);
-    else showNotification('Solo se aceptan archivos PDF', 'error');
-  });
-  fileInput.addEventListener('change', (e) => {
-    const files = Array.from(e.target.files).filter(f => f.type === 'application/pdf');
-    if (files.length > 0) handleManualUpload(files);
-    fileInput.value = '';
-  });
-}
-
-async function handleManualUpload(files) {
-  if (!currentUser) { showNotification('Debe iniciar sesión', 'error'); return; }
-  const uploadStatus = document.getElementById('upload-status');
-  uploadStatus.style.display = 'block';
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    uploadStatus.textContent = `Subiendo ${file.name} (${i + 1}/${files.length})...`;
-    uploadStatus.className = 'progress-status status-info';
-    try {
-      await uploadDirectly(file);
-      uploadStatus.textContent = `${file.name} subido exitosamente`;
-      uploadStatus.className = 'progress-status status-success';
-      // Refrescar causas
-      if (casesLoaded) { casesLoaded = false; loadCases(); }
-    } catch (error) {
-      uploadStatus.textContent = `Error: ${error.message}`;
-      uploadStatus.className = 'progress-status status-error';
+  // Actualizar "documentos encontrados" con el total real capturado (incl. anexos)
+  if (typeof results.totalFound === 'number' && results.totalFound >= 0) {
+    const docPreview = document.getElementById('doc-preview');
+    const docCount = document.getElementById('doc-count');
+    const docTypes = document.getElementById('doc-types');
+    if (docPreview && docCount) {
+      docPreview.style.display = 'block';
+      docCount.textContent = `${results.totalFound} documento(s) encontrado(s)`;
+      if (docTypes && results.totalUploaded !== undefined) {
+        const badges = [`subidos: ${results.totalUploaded}`];
+        if (results.totalFound > results.totalValidated && results.totalValidated !== undefined) {
+          badges.push(`descartados: ${results.totalFound - results.totalValidated}`);
+        }
+        docTypes.innerHTML = badges.map(b => `<span class="doc-type-badge">${b}</span>`).join('');
+      }
     }
   }
-  setTimeout(() => { uploadStatus.style.display = 'none'; }, 5000);
-}
-
-async function uploadDirectly(file) {
-  const session = await supabase.getSession();
-  if (!session?.access_token) throw new Error('No hay sesión activa');
-
-  let fileHash = '';
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-    fileHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch (e) { console.warn('[Sidepanel] No se pudo calcular hash:', e.message); }
-
-  const formData = new FormData();
-  formData.append('file', file, file.name);
-  formData.append('source', 'manual_upload');
-  formData.append('file_hash', fileHash);
-  if (causaConfirmed && lastDetectedCausa) {
-    formData.append('case_rol', lastDetectedCausa.rol || '');
-    formData.append('tribunal', lastDetectedCausa.tribunal || '');
-    formData.append('caratula', lastDetectedCausa.caratula || '');
-  }
-
-  const response = await fetch(CONFIG.API.UPLOAD, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${session.access_token}` },
-    body: formData,
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-  if (result.duplicate) throw new Error(result.message || 'Documento duplicado');
-  return result;
 }
 
 // ══════════════════════════════════════════════════════════
-// 11. ANÁLISIS
-// ══════════════════════════════════════════════════════════
-
-async function handleAnalyze() {
-  const btn = document.getElementById('analyze-btn');
-  const output = document.getElementById('analysis-output');
-  btn.disabled = true;
-  btn.textContent = 'Analizando...';
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) throw new Error('No hay pestaña activa');
-    const r = await chrome.tabs.sendMessage(tab.id, { action: 'analyze' });
-    if (r?.error) throw new Error(r.error);
-    const c = r.causa || {};
-    output.innerHTML = `
-      <div class="analysis-report">
-        <p><strong>ROL:</strong> ${c.rol || 'No detectado'}</p>
-        <p><strong>Tribunal:</strong> ${c.tribunal || 'N/A'}</p>
-        <p><strong>Carátula:</strong> ${c.caratula || 'N/A'}</p>
-        <p><strong>Zona documentos:</strong> ${c.hasDocumentZone ? '✓' : '✗'}</p>
-        <p><strong>Documentos:</strong> ${c.totalDocuments || 0}</p>
-        <p><strong>Links descargables:</strong> ${r.downloadElements || 0}</p>
-      </div>`;
-  } catch (error) {
-    output.innerHTML = `<p class="error-text">Error: ${error.message}</p>`;
-  }
-  btn.disabled = false;
-  btn.textContent = 'Analizar Página';
-}
-
-// ══════════════════════════════════════════════════════════
-// 12. ARCHIVOS GRANDES — Batch Summary
+// 10. ARCHIVOS GRANDES — Batch Summary (dentro de sync-compact)
 // ══════════════════════════════════════════════════════════
 
 function displayBatchSummary(summary) {
   if (!summary) return;
-  const warningsEl = document.getElementById('size-warnings');
   const warningsContent = document.getElementById('size-warnings-content');
-  const summaryEl = document.getElementById('batch-summary');
-  const summaryContent = document.getElementById('batch-summary-content');
+  if (!warningsContent) return;
 
   if (summary.resumableCount > 0 || summary.needsConfirmation) {
-    warningsEl.style.display = 'block';
+    warningsContent.style.display = 'block';
     let html = '';
     if (summary.resumableCount > 0 && !summary.needsConfirmation) {
       html += `<div class="warning-banner warning-info"><p><strong>📦 ${summary.resumableCount} archivo(s) grande(s)</strong></p><p class="result-detail">Upload resumible. ~${summary.estimatedTotalUploadFormatted || '...'}</p></div>`;
@@ -577,12 +475,9 @@ function displayBatchSummary(summary) {
       }
     }
     warningsContent.innerHTML = html;
-  } else { warningsEl.style.display = 'none'; }
-
-  if (summary.totalApproved > 0) {
-    summaryEl.style.display = 'block';
-    summaryContent.innerHTML = `<p class="result-detail"><strong>${summary.totalApproved}</strong> aprobado(s) · ${summary.totalSizeFormatted} · ~${summary.estimatedTotalUploadFormatted}${summary.totalRejected > 0 ? ` · ${summary.totalRejected} rechazado(s)` : ''}</p>`;
-  } else { summaryEl.style.display = 'none'; }
+  } else {
+    warningsContent.style.display = 'none';
+  }
 }
 
 function handleUploadProgress(data) {
@@ -612,7 +507,7 @@ function handleUploadError(data) {
 }
 
 // ══════════════════════════════════════════════════════════
-// 13. UTILIDADES
+// 11. UTILIDADES
 // ══════════════════════════════════════════════════════════
 
 function updateProgress(percent, message, type = 'info') {
@@ -622,13 +517,8 @@ function updateProgress(percent, message, type = 'info') {
   if (status && message) { status.textContent = message; status.className = `progress-status status-${type}`; }
 }
 
-function updateHeaderStatus(text, type = 'info') {
-  const el = document.getElementById('header-status');
-  if (el) { el.textContent = text; el.className = `status status-${type}`; }
-}
-
 function showNotification(message, type = 'info') {
-  const details = document.getElementById('progress-details');
+  const details = document.getElementById('sync-compact-details');
   if (details) {
     const entry = document.createElement('p');
     entry.className = `notification notification-${type}`;

@@ -8,11 +8,12 @@
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>Legal Bot</h1>
-      <p class="status" id="header-status">Esperando conexión...</p>
-    </header>
-    
+    <!-- Banner global: visible solo durante sync -->
+    <div id="sync-wait-banner" class="card sync-wait-banner" style="display: none;">
+      <span class="sync-wait-icon">⚠️</span>
+      <span>Espere y no haga nada. Si cambia de pestaña o navega, se detendrá la sincronización.</span>
+    </div>
+
     <!-- Sección de Autenticación -->
     <div id="auth-section" class="card" style="display: none;">
       <div id="auth-status"><p>Verificando sesión...</p></div>
@@ -35,7 +36,7 @@
         <!-- ══════════════════════════════════════ -->
         <div id="tab-sync" class="tab-content active">
 
-          <!-- Detección de Causa (4.07) -->
+          <!-- Causa Detectada + Sincronizar -->
           <div id="causa-section" class="card">
             <h2>Causa Detectada</h2>
             <div id="causa-info" class="causa-info">
@@ -47,29 +48,14 @@
               <p class="preview-title" id="doc-count">0 documentos encontrados</p>
               <div id="doc-types" class="doc-types"></div>
             </div>
-            <button id="confirm-causa-btn" class="btn-primary btn-confirm" style="display: none;">
-              Confirmar Causa
-            </button>
-            <p id="causa-hint" class="hint">Navegue a una causa en pjud.cl para detectarla</p>
-          </div>
-
-          <!-- Botón Sincronizar -->
-          <div id="sync-section" class="card">
             <button id="sync-btn" class="btn-primary btn-sync" disabled>
               <span class="btn-icon">⚡</span>
               Sincronizar
             </button>
-            <p class="hint" id="sync-hint">Confirme la causa antes de sincronizar</p>
           </div>
 
-          <!-- Advertencias de Archivos Grandes -->
-          <div id="size-warnings" class="card" style="display: none;">
-            <div id="size-warnings-content"></div>
-          </div>
-
-          <!-- Progreso -->
-          <div id="sync-progress" class="card" style="display: none;">
-            <h2>Progreso</h2>
+          <!-- Bloque compacto: progreso y resultado (visible solo durante sync) -->
+          <div id="sync-compact" class="card sync-compact" style="display: none;">
             <div class="progress-container">
               <div id="progress-bar" class="progress-bar"></div>
             </div>
@@ -80,37 +66,9 @@
               </div>
               <div id="resumable-status" class="progress-status" style="font-size: 12px;"></div>
             </div>
-            <div id="progress-details" class="progress-details"></div>
-          </div>
-
-          <!-- Resumen de Batch -->
-          <div id="batch-summary" class="card" style="display: none;">
-            <div id="batch-summary-content"></div>
-          </div>
-
-          <!-- Resultados -->
-          <div id="sync-results" class="card" style="display: none;">
-            <h2>Resultados</h2>
-            <div id="results-content"></div>
-          </div>
-
-          <!-- Upload Manual (Layer 3) -->
-          <div id="manual-upload-section" class="card" style="display: none;">
-            <h2>Subida Manual</h2>
-            <p class="hint">Arrastre PDFs aquí o haga clic para seleccionar</p>
-            <div id="drop-zone" class="drop-zone">
-              <span class="drop-icon">📄</span>
-              <span class="drop-text">Soltar PDF aquí</span>
-              <input type="file" id="file-input" accept=".pdf" multiple style="display: none;">
-            </div>
-            <div id="upload-status" class="progress-status" style="display: none;"></div>
-          </div>
-
-          <!-- Diagnóstico -->
-          <div class="card">
-            <h2>Diagnóstico</h2>
-            <button id="analyze-btn" class="btn-secondary">Analizar Página</button>
-            <div id="analysis-output" class="output-area"></div>
+            <div id="sync-compact-result"></div>
+            <div id="sync-compact-details"></div>
+            <div id="size-warnings-content" style="display: none;"></div>
           </div>
         </div>
 

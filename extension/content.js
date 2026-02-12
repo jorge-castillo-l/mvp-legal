@@ -94,6 +94,103 @@ if (document.body) {
 }
 
 // ══════════════════════════════════════════════════════════
+// RE-DETECCIÓN POR EVENTOS (OJV modal, resize, visibilidad)
+// Soluciona: causa no se detecta hasta que el usuario abre DevTools
+// ══════════════════════════════════════════════════════════
+
+let redetectionDebounce = null;
+const REDETECTION_DEBOUNCE_MS = 800;
+
+function triggerRedetection() {
+  clearTimeout(redetectionDebounce);
+  redetectionDebounce = setTimeout(async () => {
+    if (!engine) await initializeEngine();
+    if (!engine) return;
+    const causa = engine.detectCausa();
+    chrome.runtime.sendMessage({
+      type: 'scraper_event',
+      event: 'content_updated',
+      data: { causa: causa },
+    }).catch(() => {});
+  }, REDETECTION_DEBOUNCE_MS);
+}
+
+// ══════════════════════════════════════════════════════════
+// CAPTURA CLIC EN TABLA DE RESULTADOS (caratulado/tribunal)
+// Al hacer clic en el ícono de detalle, guardamos la fila para
+// usarla cuando el modal cargue (donde el ROL es el mismo para
+// todas las causas pero caratulado/tribunal vienen de la fila).
+// ══════════════════════════════════════════════════════════
+
+const PJUD_LAST_CLICKED_KEY = '__pjudLastClickedRow';
+
+function capturePjudRowClick(e) {
+  const link = e.target.closest?.('a.toggle-modal, a[href="#modalDetalleCivil"]');
+  if (!link) return;
+
+  const row = link.closest?.('tr');
+  const tbody = row?.closest?.('#verDetalle');
+  if (!row || !tbody) return;
+
+  const cells = row.querySelectorAll('td');
+  if (cells.length < 5) return;
+
+  const data = {
+    rol: (cells[1]?.textContent || '').trim(),
+    fecha: (cells[2]?.textContent || '').trim(),
+    caratulado: (cells[3]?.textContent || '').trim(),
+    tribunal: (cells[4]?.textContent || '').trim(),
+    clickedAt: Date.now(),
+  };
+
+  if (!data.caratulado && !data.tribunal) return;
+
+  window[PJUD_LAST_CLICKED_KEY] = data;
+  try {
+    chrome.storage.session.set({ [PJUD_LAST_CLICKED_KEY]: data });
+  } catch (err) { /* ignorar */ }
+
+  console.log('[LegalBot] Fila capturada:', data.rol, '|', data.caratulado?.substring(0, 40) + '...');
+}
+
+if (/pjud\.cl/i.test(document.location.href)) {
+  document.addEventListener('click', capturePjudRowClick, true);
+}
+
+// Solo en el frame principal (evitar duplicados en iframes)
+if (window === window.top && /pjud\.cl/i.test(document.location.href)) {
+  // Si ya hay hash de modal al cargar, detectar tras breve espera (contenido puede cargar después)
+  if (/modalDetalle|detalle|modal/i.test(location.hash)) {
+    setTimeout(triggerRedetection, 1500);
+  }
+
+  // hashchange: OJV usa #modalDetalleCivil para abrir el modal de causa
+  window.addEventListener('hashchange', () => {
+    if (/modalDetalle|detalle|modal/i.test(location.hash)) {
+      console.log('[LegalBot] Hash cambiado (modal), re-detectando:', location.hash);
+      triggerRedetection();
+    }
+  });
+
+  // resize: abrir DevTools o redimensionar puede hacer visible contenido lazy
+  let resizeDebounce = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(triggerRedetection, 500);
+  });
+
+  // visibilitychange: cuando la pestaña vuelve a estar visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      triggerRedetection();
+    }
+  });
+
+  // Detección periódica cada 8s (fallback para lazy-load que no dispara eventos)
+  setInterval(triggerRedetection, 8000);
+}
+
+// ══════════════════════════════════════════════════════════
 // MESSAGE HANDLER
 // ══════════════════════════════════════════════════════════
 
@@ -143,6 +240,7 @@ async function handleMessage(request) {
       if (!engine) return { error: 'No se pudo inicializar el scraper' };
 
       const results = await engine.sync();
+      if (results?.error) return { error: results.error };
       return {
         status: 'sync_complete',
         results: {

@@ -4008,93 +4008,6 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 </file>
 
-<file path="src/app/api/cases/route.ts">
-/**
- * ============================================================
- * API ROUTE: /api/cases
- * ============================================================
- * Devuelve las causas del usuario autenticado con conteo
- * de documentos incluido. UNA SOLA QUERY — sin N+1.
- *
- * Supabase PostgREST permite contar relaciones embebidas:
- *   .select('*, documents(count)')
- * Esto genera un LEFT JOIN + COUNT en una sola ida al DB.
- *
- * Respuesta:
- *   { cases: [ { id, rol, tribunal, caratula, ..., document_count } ] }
- * ============================================================
- */
-
-import { createClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
-import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
-
-export async function GET(request: NextRequest) {
-  const corsHeaders = getCorsHeaders(request, { methods: 'GET, OPTIONS' })
-
-  try {
-    // === Auth ===
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Sesión inválida o expirada' },
-        { status: 401, headers: corsHeaders }
-      )
-    }
-
-    // === Query con conteo embebido (1 sola ida a DB) ===
-    // PostgREST traduce esto a:
-    //   SELECT cases.*, COUNT(documents.id) AS document_count
-    //   FROM cases LEFT JOIN documents ON ...
-    //   WHERE cases.user_id = $1
-    //   GROUP BY cases.id
-    //   ORDER BY cases.updated_at DESC
-    const { data: cases, error: queryError } = await supabase
-      .from('cases')
-      .select('*, documents(count)')
-      .eq('user_id', user.id)
-      .order('updated_at', { ascending: false })
-
-    if (queryError) {
-      console.error('Error consultando causas:', queryError)
-      return NextResponse.json(
-        { error: `Error al consultar causas: ${queryError.message}` },
-        { status: 500, headers: corsHeaders }
-      )
-    }
-
-    // Transformar la respuesta de PostgREST a un formato limpio.
-    // PostgREST devuelve: { ..., documents: [{ count: N }] }
-    // Nosotros devolvemos: { ..., document_count: N }
-    const cleanCases = (cases || []).map(c => {
-      const { documents, ...caseData } = c as Record<string, unknown>
-      const docArray = documents as Array<{ count: number }> | null
-      return {
-        ...caseData,
-        document_count: docArray?.[0]?.count ?? 0,
-      }
-    })
-
-    return NextResponse.json(
-      { cases: cleanCases },
-      { status: 200, headers: corsHeaders }
-    )
-  } catch (error) {
-    console.error('Error en /api/cases:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500, headers: corsHeaders }
-    )
-  }
-}
-
-export async function OPTIONS(request: NextRequest) {
-  return handleCorsOptions(request)
-}
-</file>
-
 <file path="src/app/auth/callback/route.ts">
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
@@ -5530,116 +5443,6 @@ function TooltipContent({
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
 </file>
 
-<file path="src/lib/cors.ts">
-/**
- * ============================================================
- * CORS - Configuración centralizada para API Routes
- * ============================================================
- * Resuelve el problema de 'chrome-extension://*' que NO es un
- * origin CORS válido. Los navegadores ignoran ese header.
- *
- * Estrategia:
- *   - Lee el header 'Origin' del request entrante.
- *   - Verifica si proviene de una extensión de Chrome permitida.
- *   - Si es válido, refleja el origin exacto en la respuesta.
- *   - En producción, restringe al ID específico de la extensión
- *     (variable de entorno CHROME_EXTENSION_ID).
- *   - En desarrollo, acepta cualquier chrome-extension:// origin.
- *
- * Uso en API Routes:
- *   import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
- *
- *   export async function GET(request: NextRequest) {
- *     const corsHeaders = getCorsHeaders(request)
- *     return NextResponse.json(data, { headers: corsHeaders })
- *   }
- *
- *   export async function OPTIONS(request: NextRequest) {
- *     return handleCorsOptions(request)
- *   }
- * ============================================================
- */
-
-import { NextRequest, NextResponse } from 'next/server'
-
-/**
- * Verifica si un origin está permitido para CORS.
- * Acepta:
- *   - chrome-extension://<ID> (la extensión)
- *   - http://localhost:3000 en desarrollo (para testing)
- */
-function isAllowedOrigin(origin: string | null): boolean {
-  if (!origin) return false
-
-  // Siempre permitir extensiones de Chrome
-  if (origin.startsWith('chrome-extension://')) {
-    const extensionId = process.env.CHROME_EXTENSION_ID
-
-    // En producción: solo el ID específico
-    if (extensionId) {
-      return origin === `chrome-extension://${extensionId}`
-    }
-
-    // Sin ID configurado (desarrollo): aceptar cualquier extensión
-    return true
-  }
-
-  // En desarrollo: permitir localhost
-  if (process.env.NODE_ENV === 'development') {
-    return origin === 'http://localhost:3000'
-  }
-
-  return false
-}
-
-/**
- * Genera los headers CORS para una respuesta.
- * Si el origin del request es válido, lo refleja exactamente.
- * Si no, no incluye Access-Control-Allow-Origin (el browser bloquea).
- */
-export function getCorsHeaders(
-  request: NextRequest,
-  options: {
-    methods?: string
-    headers?: string
-    credentials?: boolean
-  } = {}
-): Record<string, string> {
-  const origin = request.headers.get('Origin')
-  const {
-    methods = 'GET, POST, OPTIONS',
-    headers: allowHeaders = 'Content-Type, Authorization',
-    credentials = true,
-  } = options
-
-  const corsHeaders: Record<string, string> = {
-    'Access-Control-Allow-Methods': methods,
-    'Access-Control-Allow-Headers': allowHeaders,
-  }
-
-  if (isAllowedOrigin(origin)) {
-    // Reflejar el origin exacto (requerido para credentials)
-    corsHeaders['Access-Control-Allow-Origin'] = origin!
-    if (credentials) {
-      corsHeaders['Access-Control-Allow-Credentials'] = 'true'
-    }
-  }
-
-  return corsHeaders
-}
-
-/**
- * Handler estándar para preflight OPTIONS requests.
- * Uso: export async function OPTIONS(req) { return handleCorsOptions(req) }
- */
-export function handleCorsOptions(request: NextRequest): NextResponse {
-  return NextResponse.json({}, {
-    status: 200,
-    headers: getCorsHeaders(request),
-  })
-}
-</file>
-
 <file path="src/lib/utils.ts">
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
@@ -6250,7 +6053,6 @@ create policy "document_hashes_delete_own"
 
 <file path="docs/correcciones pendientes.md">
 - cambiar middleware por proxy.
--  la extensión capta los links de descarga pero no el rol y otros datos, al parecer hay que estudiar el HTML del pjud y cambiar el código del scraper en función del html del pjud, en cuanto a selectores, etc.
 - ghost card, que era una mejora propuesta por un chat de cursor para agregarle valo al producto.
 
 - actualizar cursorrules.:
@@ -6258,6 +6060,8 @@ create policy "document_hashes_delete_own"
 
 - evaluar si quiero que la IA tenga como funcionalidad generar escritos.
 - evaluar el modo juez y el modo defensor en lugar de tener un solo modo.
+
+- En "mis causas" aparece que tengo 8 documentes pero 16 document_hashes.
 </file>
 
 <file path="docs/TAREA_1.04_COMPLETADA.md">
@@ -6756,6 +6560,61 @@ const pageObserver = new MutationObserver((mutations) => {
 
 if (document.body) {
   pageObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+// ══════════════════════════════════════════════════════════
+// RE-DETECCIÓN POR EVENTOS (OJV modal, resize, visibilidad)
+// Soluciona: causa no se detecta hasta que el usuario abre DevTools
+// ══════════════════════════════════════════════════════════
+
+let redetectionDebounce = null;
+const REDETECTION_DEBOUNCE_MS = 800;
+
+function triggerRedetection() {
+  clearTimeout(redetectionDebounce);
+  redetectionDebounce = setTimeout(async () => {
+    if (!engine) await initializeEngine();
+    if (!engine) return;
+    const causa = engine.detectCausa();
+    chrome.runtime.sendMessage({
+      type: 'scraper_event',
+      event: 'content_updated',
+      data: { causa: causa },
+    }).catch(() => {});
+  }, REDETECTION_DEBOUNCE_MS);
+}
+
+// Solo en el frame principal (evitar duplicados en iframes)
+if (window === window.top && /pjud\.cl/i.test(document.location.href)) {
+  // Si ya hay hash de modal al cargar, detectar tras breve espera (contenido puede cargar después)
+  if (/modalDetalle|detalle|modal/i.test(location.hash)) {
+    setTimeout(triggerRedetection, 1500);
+  }
+
+  // hashchange: OJV usa #modalDetalleCivil para abrir el modal de causa
+  window.addEventListener('hashchange', () => {
+    if (/modalDetalle|detalle|modal/i.test(location.hash)) {
+      console.log('[LegalBot] Hash cambiado (modal), re-detectando:', location.hash);
+      triggerRedetection();
+    }
+  });
+
+  // resize: abrir DevTools o redimensionar puede hacer visible contenido lazy
+  let resizeDebounce = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(triggerRedetection, 500);
+  });
+
+  // visibilitychange: cuando la pestaña vuelve a estar visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      triggerRedetection();
+    }
+  });
+
+  // Detección periódica cada 8s (fallback para lazy-load que no dispara eventos)
+  setInterval(triggerRedetection, 8000);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -7443,7 +7302,20 @@ class CausaContext {
       estado: null,
     };
 
+    // Prioridad 1: table-titulos es la clase PJUD para la tabla de metadatos (ROL, Tribunal, etc.)
+    // table-responsive es demasiado genérica y puede tomar otra tabla distinta primero
+    let priorityText = '';
+    const metadataTables = document.querySelectorAll('table.table-titulos');
+    for (const table of metadataTables) {
+      const text = (table.textContent || '').trim();
+      if (text.length > 50) {
+        priorityText = text;
+        break;
+      }
+    }
+
     const bodyText = (document.body?.textContent || '').substring(0, 5000);
+    const searchText = priorityText || bodyText;
 
     // Tribunal
     const tribunalPatterns = [
@@ -7452,7 +7324,7 @@ class CausaContext {
       /Corte\s+(?:de\s+)?([^\n\r]{5,80})/i,
     ];
     for (const p of tribunalPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.tribunal = m[1].trim().substring(0, 80); break; }
     }
 
@@ -7462,7 +7334,7 @@ class CausaContext {
       /Partes\s*:?\s*([^\n\r]{5,120})/i,
     ];
     for (const p of caratulaPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.caratula = m[1].trim().substring(0, 120); break; }
     }
 
@@ -7472,7 +7344,7 @@ class CausaContext {
       /Tipo\s+de\s+Causa\s*:?\s*([^\n\r]{3,80})/i,
     ];
     for (const p of materiaPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.materia = m[1].trim().substring(0, 80); break; }
     }
 
@@ -7482,7 +7354,7 @@ class CausaContext {
       /Situaci[oó]n\s*:?\s*([^\n\r]{3,40})/i,
     ];
     for (const p of estadoPatterns) {
-      const m = bodyText.match(p);
+      const m = searchText.match(p);
       if (m) { metadata.estado = m[1].trim().substring(0, 40); break; }
     }
 
@@ -8675,6 +8547,97 @@ export async function OPTIONS(request: NextRequest) {
 }
 </file>
 
+<file path="src/app/api/cases/route.ts">
+/**
+ * ============================================================
+ * API ROUTE: /api/cases
+ * ============================================================
+ * Devuelve las causas del usuario autenticado con conteo
+ * de documentos incluido. UNA SOLA QUERY — sin N+1.
+ *
+ * Supabase PostgREST permite contar relaciones embebidas:
+ *   .select('*, documents(count)')
+ * Esto genera un LEFT JOIN + COUNT en una sola ida al DB.
+ *
+ * Respuesta:
+ *   { cases: [ { id, rol, tribunal, caratula, ..., document_count } ] }
+ * ============================================================
+ */
+
+import { createClient, createClientWithToken } from '@/lib/supabase/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+
+export async function GET(request: NextRequest) {
+  const corsHeaders = getCorsHeaders(request, { methods: 'GET, OPTIONS' })
+
+  try {
+    // === Auth === (Bearer para extensión, cookies para Dashboard)
+    const authHeader = request.headers.get('Authorization')
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Sesión inválida o expirada' },
+        { status: 401, headers: corsHeaders }
+      )
+    }
+
+    const supabase = token ? createClientWithToken(token) : supabaseAuth
+
+    // === Query con conteo embebido (1 sola ida a DB) ===
+    // PostgREST traduce esto a:
+    //   SELECT cases.*, COUNT(documents.id) AS document_count
+    //   FROM cases LEFT JOIN documents ON ...
+    //   WHERE cases.user_id = $1
+    //   GROUP BY cases.id
+    //   ORDER BY cases.updated_at DESC
+    const { data: cases, error: queryError } = await supabase
+      .from('cases')
+      .select('*, documents(count)')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+
+    if (queryError) {
+      console.error('Error consultando causas:', queryError)
+      return NextResponse.json(
+        { error: `Error al consultar causas: ${queryError.message}` },
+        { status: 500, headers: corsHeaders }
+      )
+    }
+
+    // Transformar la respuesta de PostgREST a un formato limpio.
+    // PostgREST devuelve: { ..., documents: [{ count: N }] }
+    // Nosotros devolvemos: { ..., document_count: N }
+    const cleanCases = (cases || []).map(c => {
+      const { documents, ...caseData } = c as Record<string, unknown>
+      const docArray = documents as Array<{ count: number }> | null
+      return {
+        ...caseData,
+        document_count: docArray?.[0]?.count ?? 0,
+      }
+    })
+
+    return NextResponse.json(
+      { cases: cleanCases },
+      { status: 200, headers: corsHeaders }
+    )
+  } catch (error) {
+    console.error('Error en /api/cases:', error)
+    return NextResponse.json(
+      { error: 'Error interno del servidor' },
+      { status: 500, headers: corsHeaders }
+    )
+  }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsOptions(request)
+}
+</file>
+
 <file path="src/app/api/scraper/config/route.ts">
 /**
  * ============================================================
@@ -8815,118 +8778,6 @@ export async function GET(request: NextRequest) {
       'Cache-Control': 'public, max-age=1800, stale-while-revalidate=3600',
     },
   })
-}
-
-export async function OPTIONS(request: NextRequest) {
-  return handleCorsOptions(request)
-}
-</file>
-
-<file path="src/app/api/upload/confirm-hash/route.ts">
-/**
- * ============================================================
- * API ROUTE: /api/upload/confirm-hash
- * ============================================================
- * Calcula el hash SHA-256 COMPLETO de un archivo ya subido en
- * Supabase Storage y confirma/reemplaza el hash parcial que
- * el PdfValidator (4.09) calculó client-side.
- *
- * Seguridad:
- *   - Requiere JWT válido
- *   - Solo accede a archivos del usuario autenticado (RLS path)
- *   - CORS restringido a la extensión de Chrome
- * ============================================================
- */
-
-import { createClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
-import { createHash } from 'crypto'
-import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
-
-const BUCKET_NAME = 'case-files'
-
-export async function POST(request: NextRequest) {
-  const corsHeaders = getCorsHeaders(request, { methods: 'POST, OPTIONS' })
-
-  try {
-    // === 1. Verificar autenticación ===
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'Token de autenticación requerido' },
-        { status: 401, headers: corsHeaders }
-      )
-    }
-
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Sesión inválida o expirada' },
-        { status: 401, headers: corsHeaders }
-      )
-    }
-
-    // === 2. Obtener path del archivo ===
-    const body = await request.json()
-    const { storagePath, partialHash, rol } = body
-
-    if (!storagePath) {
-      return NextResponse.json(
-        { error: 'storagePath es requerido' },
-        { status: 400, headers: corsHeaders }
-      )
-    }
-
-    // Seguridad: verificar que el path pertenece al usuario
-    if (!storagePath.startsWith(user.id + '/')) {
-      return NextResponse.json(
-        { error: 'No tiene permiso para acceder a este archivo' },
-        { status: 403, headers: corsHeaders }
-      )
-    }
-
-    // === 3. Descargar el archivo desde Supabase Storage ===
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .download(storagePath)
-
-    if (downloadError || !fileData) {
-      return NextResponse.json(
-        { error: `Error descargando archivo: ${downloadError?.message || 'no encontrado'}` },
-        { status: 404, headers: corsHeaders }
-      )
-    }
-
-    // === 4. Calcular hash SHA-256 completo ===
-    const arrayBuffer = await fileData.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    const hash = createHash('sha256').update(buffer).digest('hex')
-
-    // === 5. Responder con el hash completo ===
-    return NextResponse.json(
-      {
-        success: true,
-        hash,
-        storagePath,
-        fileSize: buffer.length,
-        partialHash: partialHash || null,
-        hashType: 'full',
-        rol: rol || null,
-        message: partialHash?.startsWith('p:')
-          ? 'Hash parcial reemplazado por hash completo'
-          : 'Hash completo calculado',
-      },
-      { status: 200, headers: corsHeaders }
-    )
-  } catch (error) {
-    console.error('Error en /api/upload/confirm-hash:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500, headers: corsHeaders }
-    )
-  }
 }
 
 export async function OPTIONS(request: NextRequest) {
@@ -9083,6 +8934,118 @@ export default function Home() {
       </div>
     </div>
   )
+}
+</file>
+
+<file path="src/lib/cors.ts">
+/**
+ * ============================================================
+ * CORS - Configuración centralizada para API Routes
+ * ============================================================
+ * Resuelve el problema de 'chrome-extension://*' que NO es un
+ * origin CORS válido. Los navegadores ignoran ese header.
+ *
+ * Estrategia:
+ *   - Lee el header 'Origin' del request entrante.
+ *   - Verifica si proviene de una extensión de Chrome permitida.
+ *   - Si es válido, refleja el origin exacto en la respuesta.
+ *   - En producción, restringe al ID específico de la extensión
+ *     (variable de entorno CHROME_EXTENSION_ID).
+ *   - En desarrollo, acepta cualquier chrome-extension:// origin.
+ *
+ * Uso en API Routes:
+ *   import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+ *
+ *   export async function GET(request: NextRequest) {
+ *     const corsHeaders = getCorsHeaders(request)
+ *     return NextResponse.json(data, { headers: corsHeaders })
+ *   }
+ *
+ *   export async function OPTIONS(request: NextRequest) {
+ *     return handleCorsOptions(request)
+ *   }
+ * ============================================================
+ */
+
+import { NextRequest, NextResponse } from 'next/server'
+
+/**
+ * Verifica si un origin está permitido para CORS.
+ * Acepta:
+ *   - chrome-extension://<ID> (la extensión)
+ *   - http://localhost:3000 en desarrollo (para testing)
+ */
+function isAllowedOrigin(origin: string | null): boolean {
+  if (!origin) return false
+
+  // Siempre permitir extensiones de Chrome
+  if (origin.startsWith('chrome-extension://')) {
+    const extensionId = process.env.CHROME_EXTENSION_ID
+
+    // En producción: solo el ID específico
+    if (extensionId) {
+      return origin === `chrome-extension://${extensionId}`
+    }
+
+    // Sin ID configurado (desarrollo): aceptar cualquier extensión
+    return true
+  }
+
+  // En desarrollo: permitir localhost
+  if (process.env.NODE_ENV === 'development') {
+    if (origin === 'http://localhost:3000') return true
+    // Content scripts en iframes de PJud envían origin de la página (ej. oficinajudicialvirtual.pjud.cl)
+    if (/^https:\/\/[^/]*pjud\.cl(\/|$)/.test(origin)) return true
+  }
+
+  return false
+}
+
+/**
+ * Genera los headers CORS para una respuesta.
+ * Si el origin del request es válido, lo refleja exactamente.
+ * Si no, no incluye Access-Control-Allow-Origin (el browser bloquea).
+ */
+export function getCorsHeaders(
+  request: NextRequest,
+  options: {
+    methods?: string
+    headers?: string
+    credentials?: boolean
+  } = {}
+): Record<string, string> {
+  const origin = request.headers.get('Origin')
+  const {
+    methods = 'GET, POST, OPTIONS',
+    headers: allowHeaders = 'Content-Type, Authorization',
+    credentials = true,
+  } = options
+
+  const corsHeaders: Record<string, string> = {
+    'Access-Control-Allow-Methods': methods,
+    'Access-Control-Allow-Headers': allowHeaders,
+  }
+
+  if (isAllowedOrigin(origin)) {
+    // Reflejar el origin exacto (requerido para credentials)
+    corsHeaders['Access-Control-Allow-Origin'] = origin!
+    if (credentials) {
+      corsHeaders['Access-Control-Allow-Credentials'] = 'true'
+    }
+  }
+
+  return corsHeaders
+}
+
+/**
+ * Handler estándar para preflight OPTIONS requests.
+ * Uso: export async function OPTIONS(req) { return handleCorsOptions(req) }
+ */
+export function handleCorsOptions(request: NextRequest): NextResponse {
+  return NextResponse.json({}, {
+    status: 200,
+    headers: getCorsHeaders(request),
+  })
 }
 </file>
 
@@ -9682,39 +9645,6 @@ export async function updateSession(request: NextRequest) {
   }
 
   return supabaseResponse
-}
-</file>
-
-<file path="src/lib/supabase/server.ts">
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import type { Database } from '@/lib/database.types'
-
-export async function createClient() {
-  const cookieStore = await cookies()
-
-  return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            )
-          } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
-          }
-        },
-      },
-    }
-  )
 }
 </file>
 
@@ -10423,6 +10353,370 @@ Asegúrate de ejecutar el script completo, no solo partes.
 Verifica que tengas permisos de superadmin en Supabase.
 </file>
 
+<file path="extension/service-worker.js">
+/**
+ * ============================================================
+ * SERVICE WORKER - "El Sistema Nervioso"
+ * ============================================================
+ * Coordina la comunicación entre content scripts y sidepanel.
+ * También monitorea descargas para captura de PDFs (Layer 1 extra).
+ * 
+ * Responsabilidades:
+ *   1. Abrir SidePanel al click del icono
+ *   2. Monitorear webRequest para detectar PDFs del PJUD
+ *   3. Monitorear descargas (chrome.downloads) para PDFs
+ *   4. Reenviar mensajes entre content script ↔ sidepanel
+ *   5. Cachear configuración remota
+ * ============================================================
+ */
+
+// Cargar configuración centralizada (MV3 Service Workers requieren importScripts al top-level)
+importScripts('lib/config.js');
+
+// ══════════════════════════════════════════════════════════
+// SETUP: SidePanel behavior
+// ══════════════════════════════════════════════════════════
+
+chrome.sidePanel
+  .setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((error) => console.error('[ServiceWorker] Error sidePanel:', error));
+
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('[ServiceWorker] Legal Bot Extension instalada v1.1');
+});
+
+// ══════════════════════════════════════════════════════════
+// NETWORK MONITOR: Detectar respuestas PDF del PJUD
+// ══════════════════════════════════════════════════════════
+// Capa adicional de detección a nivel de service worker.
+// Complementa al page-interceptor (que opera en la página).
+
+// Almacén temporal de URLs de PDF detectadas
+const detectedPdfUrls = new Map(); // url -> { timestamp, tabId, type }
+
+// Monitorear respuestas HTTP que parecen ser PDFs
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    // Filtrar por content-type PDF
+    const isPdf = details.responseHeaders?.some(header => {
+      const name = header.name.toLowerCase();
+      const value = (header.value || '').toLowerCase();
+      return name === 'content-type' && (
+        value.includes('application/pdf') ||
+        value.includes('application/octet-stream')
+      );
+    });
+
+    // O por URL con patrón PDF
+    const urlIsPdf = /\.pdf|download|documento|getdoc|verdoc/i.test(details.url);
+
+    if (isPdf || urlIsPdf) {
+      console.log('[ServiceWorker] PDF detectado en red:', details.url);
+
+      detectedPdfUrls.set(details.url, {
+        timestamp: Date.now(),
+        tabId: details.tabId,
+        type: details.type,
+        statusCode: details.statusCode,
+        contentType: isPdf ? 'application/pdf' : 'url_pattern',
+      });
+
+      // Notificar al sidepanel
+      chrome.runtime.sendMessage({
+        type: 'scraper_event',
+        event: 'network_pdf_detected',
+        data: {
+          url: details.url,
+          tabId: details.tabId,
+        },
+      }).catch(() => {});
+
+      // Limpiar entradas antiguas (>5 min)
+      const cutoff = Date.now() - 5 * 60 * 1000;
+      for (const [url, info] of detectedPdfUrls) {
+        if (info.timestamp < cutoff) detectedPdfUrls.delete(url);
+      }
+    }
+  },
+  { urls: ['*://*.pjud.cl/*'] },
+  ['responseHeaders']
+);
+
+// ══════════════════════════════════════════════════════════
+// DOWNLOAD MONITOR: Capturar descargas de PDFs
+// ══════════════════════════════════════════════════════════
+// Cuando el navegador inicia una descarga desde pjud.cl,
+// la detectamos aquí como señal adicional para Layer 1.
+
+chrome.downloads.onCreated.addListener((downloadItem) => {
+  const isPjud = /pjud\.cl/i.test(downloadItem.url || '') ||
+                 /pjud\.cl/i.test(downloadItem.referrer || '');
+  const isPdf = (downloadItem.mime || '').includes('pdf') ||
+                (downloadItem.filename || '').endsWith('.pdf');
+
+  if (isPjud && isPdf) {
+    console.log('[ServiceWorker] Descarga PDF del PJUD detectada:', downloadItem.filename);
+
+    chrome.runtime.sendMessage({
+      type: 'scraper_event',
+      event: 'download_detected',
+      data: {
+        id: downloadItem.id,
+        url: downloadItem.url,
+        filename: downloadItem.filename,
+        fileSize: downloadItem.fileSize,
+        mime: downloadItem.mime,
+      },
+    }).catch(() => {});
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+// MESSAGE ROUTER: Comunicación entre componentes
+// ══════════════════════════════════════════════════════════
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Reenviar eventos del scraper al sidepanel (y vice versa)
+  if (message.type === 'scraper_event' || message.type === 'scraper_ready') {
+    // Los mensajes del content script se reenvían a todos los listeners
+    // (el sidepanel escucha estos mensajes)
+    // No necesitamos hacer nada especial, chrome.runtime.sendMessage
+    // ya los distribuye a todos los listeners
+    return;
+  }
+
+  // Solicitud de URLs de PDF detectadas por el service worker
+  if (message.type === 'get_detected_pdfs') {
+    const pdfs = Array.from(detectedPdfUrls.entries()).map(([url, info]) => ({
+      url,
+      ...info,
+    }));
+    sendResponse({ pdfs });
+    return true;
+  }
+
+  // Enviar mensaje al content script de la pestaña activa
+  if (message.type === 'forward_to_content') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        chrome.tabs.sendMessage(tabs[0].id, message.payload)
+          .then(response => sendResponse(response))
+          .catch(error => sendResponse({ error: error.message }));
+      } else {
+        sendResponse({ error: 'No hay pestaña activa' });
+      }
+    });
+    return true;
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+// CONFIG CACHE: Pre-cargar configuración remota
+// ══════════════════════════════════════════════════════════
+
+// Intentar pre-cachear la config al instalar/actualizar
+chrome.runtime.onInstalled.addListener(async () => {
+  try {
+    const response = await fetch(CONFIG.API.SCRAPER_CONFIG);
+    if (response.ok) {
+      const config = await response.json();
+      await chrome.storage.local.set({
+        'legalbot_scraper_config': config,
+        'legalbot_scraper_config_ts': Date.now(),
+      });
+      console.log('[ServiceWorker] Config pre-cacheada v' + config.version);
+    }
+  } catch (e) {
+    console.warn('[ServiceWorker] No se pudo pre-cachear config:', e.message);
+  }
+});
+</file>
+
+<file path="src/app/api/upload/confirm-hash/route.ts">
+/**
+ * ============================================================
+ * API ROUTE: /api/upload/confirm-hash
+ * ============================================================
+ * Calcula el hash SHA-256 COMPLETO de un archivo ya subido en
+ * Supabase Storage y confirma/reemplaza el hash parcial que
+ * el PdfValidator (4.09) calculó client-side.
+ *
+ * Seguridad:
+ *   - Requiere JWT válido
+ *   - Solo accede a archivos del usuario autenticado (RLS path)
+ *   - CORS restringido a la extensión de Chrome
+ * ============================================================
+ */
+
+import { createClient, createClientWithToken } from '@/lib/supabase/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'crypto'
+import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+
+const BUCKET_NAME = 'case-files'
+
+export async function POST(request: NextRequest) {
+  const corsHeaders = getCorsHeaders(request, { methods: 'POST, OPTIONS' })
+
+  try {
+    // === 1. Verificar autenticación ===
+    const authHeader = request.headers.get('Authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Token de autenticación requerido' },
+        { status: 401, headers: corsHeaders }
+      )
+    }
+
+    const token = authHeader.slice(7)
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Sesión inválida o expirada' },
+        { status: 401, headers: corsHeaders }
+      )
+    }
+
+    const supabase = createClientWithToken(token)
+
+    // === 2. Obtener path del archivo ===
+    const body = await request.json()
+    const { storagePath, partialHash, rol } = body
+
+    if (!storagePath) {
+      return NextResponse.json(
+        { error: 'storagePath es requerido' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+
+    // Seguridad: verificar que el path pertenece al usuario
+    if (!storagePath.startsWith(user.id + '/')) {
+      return NextResponse.json(
+        { error: 'No tiene permiso para acceder a este archivo' },
+        { status: 403, headers: corsHeaders }
+      )
+    }
+
+    // === 3. Descargar el archivo desde Supabase Storage ===
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .download(storagePath)
+
+    if (downloadError || !fileData) {
+      return NextResponse.json(
+        { error: `Error descargando archivo: ${downloadError?.message || 'no encontrado'}` },
+        { status: 404, headers: corsHeaders }
+      )
+    }
+
+    // === 4. Calcular hash SHA-256 completo ===
+    const arrayBuffer = await fileData.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const hash = createHash('sha256').update(buffer).digest('hex')
+
+    // === 5. Responder con el hash completo ===
+    return NextResponse.json(
+      {
+        success: true,
+        hash,
+        storagePath,
+        fileSize: buffer.length,
+        partialHash: partialHash || null,
+        hashType: 'full',
+        rol: rol || null,
+        message: partialHash?.startsWith('p:')
+          ? 'Hash parcial reemplazado por hash completo'
+          : 'Hash completo calculado',
+      },
+      { status: 200, headers: corsHeaders }
+    )
+  } catch (error) {
+    console.error('Error en /api/upload/confirm-hash:', error)
+    return NextResponse.json(
+      { error: 'Error interno del servidor' },
+      { status: 500, headers: corsHeaders }
+    )
+  }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return handleCorsOptions(request)
+}
+</file>
+
+<file path="src/lib/supabase/server.ts">
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import type { Database } from '@/lib/database.types'
+
+/**
+ * Cliente admin (service role) - bypassa RLS.
+ * SOLO para operaciones server-side donde ya validamos al usuario.
+ * NUNCA exponer esta clave al cliente.
+ */
+export function createAdminClient() {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY no configurada. Añádela en .env.local (Dashboard → Settings → API → service_role)')
+  }
+  return createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    key,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  )
+}
+
+/**
+ * Cliente con token Bearer - para requests de la extensión.
+ * RLS usa auth.uid() que requiere el JWT del usuario en cada request.
+ * Sin esto, las operaciones fallan con "violates row-level security policy".
+ */
+export function createClientWithToken(accessToken: string) {
+  return createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    }
+  )
+}
+
+export async function createClient() {
+  const cookieStore = await cookies()
+
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        },
+      },
+    }
+  )
+}
+</file>
+
 <file path="extension/scraper/strategy-engine.js">
 /**
  * ╔══════════════════════════════════════════════════════════════╗
@@ -10834,19 +11128,28 @@ class StrategyEngine {
   }
 
   /**
-   * Intentar descargar un PDF simulando click en un elemento
-   * Usa el throttle humano + espera captura por red
+   * Intentar descargar un PDF.
+   * PJud usa <a onclick="$(this).closest('form').submit();"> - form.submit() hace navegación,
+   * el interceptor nunca lo ve. Si detectamos form trigger, hacemos fetch manual.
    */
   async _attemptDownload(candidate) {
     try {
       return await this.humanThrottle.executeThrottled(async () => {
-        // Preparar escucha de captura por red
+        const element = candidate.element;
+
+        // PJud: elementos que disparan form.submit() - evitar navegación, usar fetch
+        const formPdf = await this._fetchViaForm(element);
+        if (formPdf) {
+          return {
+            ...formPdf,
+            source: 'form_fetch',
+            confidence: candidate.confidence || candidate.score,
+          };
+        }
+
+        // Path original: click + esperar captura por red (fetch/XHR)
         const capturePromise = this.networkInterceptor.waitForCapture(12000);
-
-        // Simular click humano en el elemento
-        this._simulateHumanClick(candidate.element);
-
-        // Esperar a que el interceptor de red capture el PDF
+        this._simulateHumanClick(element);
         const captured = await capturePromise;
 
         if (captured) {
@@ -10863,6 +11166,71 @@ class StrategyEngine {
       console.warn('[StrategyEngine] Error al descargar:', error.message);
       return null;
     }
+  }
+
+  /**
+   * Si el elemento dispara un form submit (ej. PJud <a onclick="form.submit()">),
+   * extrae datos del form y hace fetch manual. El servidor responde con el PDF.
+   */
+  async _fetchViaForm(element) {
+    const form = element?.closest?.('form');
+    if (!form) return null;
+
+    try {
+      const url = new URL(form.action || '', window.location.href).href;
+      const method = (form.method || 'get').toUpperCase();
+
+      let options = { method, credentials: 'include' };
+
+      if (method === 'GET') {
+        const params = new URLSearchParams(new FormData(form));
+        const separator = url.includes('?') ? '&' : '?';
+        const fullUrl = `${url}${separator}${params.toString()}`;
+        const response = await fetch(fullUrl, options);
+        return await this._parsePdfResponse(response, fullUrl);
+      }
+
+      const enctype = (form.enctype || 'application/x-www-form-urlencoded').toLowerCase();
+      if (enctype.includes('multipart')) {
+        options.body = new FormData(form);
+      } else {
+        options.body = new URLSearchParams(new FormData(form)).toString();
+        options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      }
+
+      const response = await fetch(url, options);
+      return await this._parsePdfResponse(response, url);
+    } catch (e) {
+      console.warn('[StrategyEngine] _fetchViaForm falló:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * Parsea respuesta fetch: si es PDF, retorna objeto compatible con el flujo de captura.
+   */
+  _parsePdfResponse(response, url) {
+    if (!response.ok) return null;
+
+    const contentType = response.headers.get('content-type') || '';
+    const isPdf = contentType.includes('application/pdf') ||
+      contentType.includes('application/octet-stream') ||
+      /\.pdf(\?|$)/i.test(url || '');
+
+    if (!isPdf) return null;
+
+    return response.blob().then((blob) => {
+      if (blob.size < 1024) return null; // Muy pequeño, probablemente no es PDF real
+      return {
+        url: url,
+        contentType: contentType,
+        blobUrl: URL.createObjectURL(blob),
+        size: blob.size,
+        method: 'form_fetch',
+        timestamp: Date.now(),
+        capturedAt: new Date().toISOString(),
+      };
+    }).catch(() => null);
   }
 
   /**
@@ -11247,183 +11615,49 @@ class StrategyEngine {
 }
 </file>
 
-<file path="extension/service-worker.js">
-/**
- * ============================================================
- * SERVICE WORKER - "El Sistema Nervioso"
- * ============================================================
- * Coordina la comunicación entre content scripts y sidepanel.
- * También monitorea descargas para captura de PDFs (Layer 1 extra).
- * 
- * Responsabilidades:
- *   1. Abrir SidePanel al click del icono
- *   2. Monitorear webRequest para detectar PDFs del PJUD
- *   3. Monitorear descargas (chrome.downloads) para PDFs
- *   4. Reenviar mensajes entre content script ↔ sidepanel
- *   5. Cachear configuración remota
- * ============================================================
- */
-
-// Cargar configuración centralizada (MV3 Service Workers requieren importScripts al top-level)
-importScripts('lib/config.js');
-
-// ══════════════════════════════════════════════════════════
-// SETUP: SidePanel behavior
-// ══════════════════════════════════════════════════════════
-
-chrome.sidePanel
-  .setPanelBehavior({ openPanelOnActionClick: true })
-  .catch((error) => console.error('[ServiceWorker] Error sidePanel:', error));
-
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('[ServiceWorker] Legal Bot Extension instalada v1.1');
-});
-
-// ══════════════════════════════════════════════════════════
-// NETWORK MONITOR: Detectar respuestas PDF del PJUD
-// ══════════════════════════════════════════════════════════
-// Capa adicional de detección a nivel de service worker.
-// Complementa al page-interceptor (que opera en la página).
-
-// Almacén temporal de URLs de PDF detectadas
-const detectedPdfUrls = new Map(); // url -> { timestamp, tabId, type }
-
-// Monitorear respuestas HTTP que parecen ser PDFs
-chrome.webRequest.onCompleted.addListener(
-  (details) => {
-    // Filtrar por content-type PDF
-    const isPdf = details.responseHeaders?.some(header => {
-      const name = header.name.toLowerCase();
-      const value = (header.value || '').toLowerCase();
-      return name === 'content-type' && (
-        value.includes('application/pdf') ||
-        value.includes('application/octet-stream')
-      );
-    });
-
-    // O por URL con patrón PDF
-    const urlIsPdf = /\.pdf|download|documento|getdoc|verdoc/i.test(details.url);
-
-    if (isPdf || urlIsPdf) {
-      console.log('[ServiceWorker] PDF detectado en red:', details.url);
-
-      detectedPdfUrls.set(details.url, {
-        timestamp: Date.now(),
-        tabId: details.tabId,
-        type: details.type,
-        statusCode: details.statusCode,
-        contentType: isPdf ? 'application/pdf' : 'url_pattern',
-      });
-
-      // Notificar al sidepanel
-      chrome.runtime.sendMessage({
-        type: 'scraper_event',
-        event: 'network_pdf_detected',
-        data: {
-          url: details.url,
-          tabId: details.tabId,
-        },
-      }).catch(() => {});
-
-      // Limpiar entradas antiguas (>5 min)
-      const cutoff = Date.now() - 5 * 60 * 1000;
-      for (const [url, info] of detectedPdfUrls) {
-        if (info.timestamp < cutoff) detectedPdfUrls.delete(url);
-      }
-    }
+<file path="package.json">
+{
+  "name": "mvp-legal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
   },
-  { urls: ['*://*.pjud.cl/*'] },
-  ['responseHeaders']
-);
-
-// ══════════════════════════════════════════════════════════
-// DOWNLOAD MONITOR: Capturar descargas de PDFs
-// ══════════════════════════════════════════════════════════
-// Cuando el navegador inicia una descarga desde pjud.cl,
-// la detectamos aquí como señal adicional para Layer 1.
-
-chrome.downloads.onCreated.addListener((downloadItem) => {
-  const isPjud = /pjud\.cl/i.test(downloadItem.url || '') ||
-                 /pjud\.cl/i.test(downloadItem.referrer || '');
-  const isPdf = (downloadItem.mime || '').includes('pdf') ||
-                (downloadItem.filename || '').endsWith('.pdf');
-
-  if (isPjud && isPdf) {
-    console.log('[ServiceWorker] Descarga PDF del PJUD detectada:', downloadItem.filename);
-
-    chrome.runtime.sendMessage({
-      type: 'scraper_event',
-      event: 'download_detected',
-      data: {
-        id: downloadItem.id,
-        url: downloadItem.url,
-        filename: downloadItem.filename,
-        fileSize: downloadItem.fileSize,
-        mime: downloadItem.mime,
-      },
-    }).catch(() => {});
+  "dependencies": {
+    "@radix-ui/react-avatar": "^1.1.11",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.94.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.562.0",
+    "next": "16.1.4",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.4",
+    "shadcn": "^3.7.0",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5"
   }
-});
-
-// ══════════════════════════════════════════════════════════
-// MESSAGE ROUTER: Comunicación entre componentes
-// ══════════════════════════════════════════════════════════
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Reenviar eventos del scraper al sidepanel (y vice versa)
-  if (message.type === 'scraper_event' || message.type === 'scraper_ready') {
-    // Los mensajes del content script se reenvían a todos los listeners
-    // (el sidepanel escucha estos mensajes)
-    // No necesitamos hacer nada especial, chrome.runtime.sendMessage
-    // ya los distribuye a todos los listeners
-    return;
-  }
-
-  // Solicitud de URLs de PDF detectadas por el service worker
-  if (message.type === 'get_detected_pdfs') {
-    const pdfs = Array.from(detectedPdfUrls.entries()).map(([url, info]) => ({
-      url,
-      ...info,
-    }));
-    sendResponse({ pdfs });
-    return true;
-  }
-
-  // Enviar mensaje al content script de la pestaña activa
-  if (message.type === 'forward_to_content') {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]?.id) {
-        chrome.tabs.sendMessage(tabs[0].id, message.payload)
-          .then(response => sendResponse(response))
-          .catch(error => sendResponse({ error: error.message }));
-      } else {
-        sendResponse({ error: 'No hay pestaña activa' });
-      }
-    });
-    return true;
-  }
-});
-
-// ══════════════════════════════════════════════════════════
-// CONFIG CACHE: Pre-cargar configuración remota
-// ══════════════════════════════════════════════════════════
-
-// Intentar pre-cachear la config al instalar/actualizar
-chrome.runtime.onInstalled.addListener(async () => {
-  try {
-    const response = await fetch(CONFIG.API.SCRAPER_CONFIG);
-    if (response.ok) {
-      const config = await response.json();
-      await chrome.storage.local.set({
-        'legalbot_scraper_config': config,
-        'legalbot_scraper_config_ts': Date.now(),
-      });
-      console.log('[ServiceWorker] Config pre-cacheada v' + config.version);
-    }
-  } catch (e) {
-    console.warn('[ServiceWorker] No se pudo pre-cachear config:', e.message);
-  }
-});
+}
 </file>
 
 <file path="src/app/api/upload/route.ts">
@@ -11457,7 +11691,7 @@ chrome.runtime.onInstalled.addListener(async () => {
  * ============================================================
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { createHash } from 'crypto'
@@ -11482,8 +11716,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const token = authHeader.slice(7)
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
 
     if (authError || !user) {
       return NextResponse.json(
@@ -11491,6 +11726,9 @@ export async function POST(request: NextRequest) {
         { status: 401, headers: corsHeaders }
       )
     }
+
+    // Cliente con token para que RLS (auth.uid()) funcione en inserts/updates
+    const supabase = createClientWithToken(token)
 
     // ══════════════════════════════════════════════════════
     // PASO 2: EXTRAER Y VALIDAR FORMDATA
@@ -11635,13 +11873,20 @@ export async function POST(request: NextRequest) {
     const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
     const storagePath = `${user.id}/${yearMonth}/${uniqueId}_${sanitizedName}`
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    // Storage: usar admin client (bypassa RLS). El usuario ya fue validado arriba.
+    const supabaseAdmin = createAdminClient()
+    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
       .from(BUCKET_NAME)
       .upload(storagePath, buffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',
         upsert: false,
         duplex: 'half',
+        metadata: {
+          owner: user.id,
+          plan_type: 'free',
+          uploaded_at: new Date().toISOString(),
+        },
       })
 
     if (uploadError) {
@@ -11686,34 +11931,35 @@ export async function POST(request: NextRequest) {
         documentId = createdDoc.id
       }
 
-      // Actualizar document_count en la causa
-      // (usamos RPC o query directa)
-      await supabase.rpc('increment_counter', {
-        user_id: user.id,
-        counter_type: 'case',
-      }).catch(() => {
-        // No crítico si falla el counter
-      })
+      // Actualizar document_count en la causa (no crítico si falla)
+      try {
+        await supabase.rpc('increment_counter', {
+          user_id: user.id,
+          counter_type: 'case',
+        })
+      } catch {
+        // Ignorar — puede fallar si la función no existe
+      }
     }
 
     // ══════════════════════════════════════════════════════
     // PASO 7: REGISTRAR HASH PARA DEDUPLICACIÓN
+    // Solo si el documento se registró — evita hashes huérfanos.
     // ══════════════════════════════════════════════════════
-    const newHash: DocumentHashInsert = {
-      user_id: user.id,
-      rol: caseRol || 'sin_rol',
-      hash: fileHash,
-      filename: sanitizedName,
-      document_type: documentType,
-    }
+    if (documentId) {
+      const newHash: DocumentHashInsert = {
+        user_id: user.id,
+        rol: caseRol || 'sin_rol',
+        hash: fileHash,
+        filename: sanitizedName,
+        document_type: documentType,
+      }
 
-    const { error: hashError } = await supabase
-      .from('document_hashes')
-      .insert(newHash)
+      const { error: hashError } = await supabase
+        .from('document_hashes')
+        .insert(newHash)
 
-    if (hashError) {
-      // Si es constraint violation (duplicado por race condition), no es error
-      if (!hashError.message.includes('unique') && !hashError.message.includes('duplicate')) {
+      if (hashError && !hashError.message.includes('unique') && !hashError.message.includes('duplicate')) {
         console.error('Error registrando hash:', hashError)
       }
     }
@@ -11755,51 +12001,6 @@ export async function POST(request: NextRequest) {
 
 export async function OPTIONS(request: NextRequest) {
   return handleCorsOptions(request)
-}
-</file>
-
-<file path="package.json">
-{
-  "name": "mvp-legal",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
-  },
-  "dependencies": {
-    "@radix-ui/react-avatar": "^1.1.11",
-    "@radix-ui/react-collapsible": "^1.1.12",
-    "@radix-ui/react-dialog": "^1.1.15",
-    "@radix-ui/react-dropdown-menu": "^2.1.16",
-    "@radix-ui/react-separator": "^1.1.8",
-    "@radix-ui/react-slot": "^1.2.4",
-    "@radix-ui/react-tooltip": "^1.2.8",
-    "@supabase/ssr": "^0.8.0",
-    "@supabase/supabase-js": "^2.94.1",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.562.0",
-    "next": "16.1.4",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "tailwind-merge": "^3.4.0"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^9",
-    "eslint-config-next": "16.1.4",
-    "shadcn": "^3.7.0",
-    "tailwindcss": "^4",
-    "tw-animate-css": "^1.4.0",
-    "typescript": "^5"
-  }
 }
 </file>
 
@@ -11855,6 +12056,9 @@ export async function OPTIONS(request: NextRequest) {
             </div>
             <button id="confirm-causa-btn" class="btn-primary btn-confirm" style="display: none;">
               Confirmar Causa
+            </button>
+            <button id="refresh-detect-btn" class="btn-secondary" style="margin-top: 8px;">
+              🔄 Refrescar detección
             </button>
             <p id="causa-hint" class="hint">Navegue a una causa en pjud.cl para detectarla</p>
           </div>
@@ -12147,6 +12351,7 @@ function setupEventListeners() {
   document.getElementById('confirm-causa-btn')?.addEventListener('click', handleConfirmCausa);
   document.getElementById('sync-btn')?.addEventListener('click', handleSync);
   document.getElementById('analyze-btn')?.addEventListener('click', handleAnalyze);
+  document.getElementById('refresh-detect-btn')?.addEventListener('click', handleRefreshDetection);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -12159,7 +12364,29 @@ async function requestCausaDetection() {
     if (!tab?.id) return;
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'detect_causa' });
     if (response?.causa) displayDetectedCausa(response.causa);
+    else if (response && !response.error) displayDetectedCausa(null);
   } catch (e) { /* Content script no cargado */ }
+}
+
+async function handleRefreshDetection() {
+  updateHeaderStatus('Buscando causa...', 'info');
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      updateHeaderStatus('Sin pestaña activa', 'warning');
+      return;
+    }
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'detect_causa' });
+    if (response?.causa) displayDetectedCausa(response.causa);
+    else if (response?.error) {
+      updateHeaderStatus('Error: ' + response.error, 'error');
+      displayDetectedCausa(null);
+    } else {
+      displayDetectedCausa(null);
+    }
+  } catch (_e) {
+    updateHeaderStatus('Sin conexión. ¿Está la pestaña activa en pjud.cl?', 'error');
+  }
 }
 
 function displayDetectedCausa(causa) {
@@ -12178,7 +12405,7 @@ function displayDetectedCausa(causa) {
 
   document.getElementById('causa-rol').textContent = `ROL: ${causa.rol}`;
   document.getElementById('causa-tribunal').textContent =
-    causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource} (confianza: ${Math.round(causa.rolConfidence * 100)}%)`;
+    causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource}`;
   document.getElementById('causa-caratula').textContent =
     causa.caratula ? `Carátula: ${causa.caratula}` : '';
 
@@ -13408,6 +13635,7 @@ footer {
       "matches": ["*://*.pjud.cl/*"],
       "js": [
         "lib/config.js",
+        "lib/supabase.js",
         "lib/resumable-upload.js",
         "scraper/remote-config.js",
         "scraper/network-interceptor.js",
