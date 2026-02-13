@@ -34,8 +34,9 @@ class CausaContext {
   /**
    * DETECCIÓN PRINCIPAL: Analiza la página y extrae el contexto de la causa.
    * Retorna null si no se detecta una causa válida.
+   * Es async para poder leer chrome.storage.session y chrome.storage.local.
    */
-  detect() {
+  async detect() {
     this.isConfirmed = false;
     this.detectedCausa = null;
     this.documentZone = null;
@@ -63,8 +64,11 @@ class CausaContext {
     // Identificar la zona de documentos de esta causa
     this.documentZone = this._identifyDocumentZone();
 
-    // Extraer metadata adicional de la causa (pasamos rol para validar caché)
-    const metadata = this._extractCausaMetadata(rolResult.rol);
+    // Pre-cargar datos de chrome.storage (session + local) para el fallback de metadata
+    const storageCache = await this._loadStorageCache(rolResult.rol);
+
+    // Extraer metadata adicional de la causa (pasamos rol y caché de storage)
+    const metadata = this._extractCausaMetadata(rolResult.rol, storageCache);
 
     // Generar preview de documentos
     const documentPreview = this._generateDocumentPreview();
@@ -87,9 +91,45 @@ class CausaContext {
 
     console.log('[CausaContext] Causa detectada:', this.detectedCausa.rol,
       '| Tribunal:', this.detectedCausa.tribunal,
+      '| Carátula:', this.detectedCausa.caratula,
       '| Documentos:', this.detectedCausa.totalDocuments);
 
     return this.detectedCausa;
+  }
+
+  /**
+   * Pre-cargar datos de chrome.storage para completar tribunal/carátula.
+   * Lee de: (1) chrome.storage.session (fila clickeada), (2) chrome.storage.local (registro de sync previo).
+   */
+  async _loadStorageCache(rol) {
+    const cache = { sessionRow: null, syncedCausa: null };
+    try {
+      // 1. chrome.storage.session: fila clickeada en tabla de búsqueda (persiste hasta cerrar navegador)
+      if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+        const sessionData = await new Promise(resolve => {
+          chrome.storage.session.get(['__pjudLastClickedRow'], result => resolve(result?.__pjudLastClickedRow));
+        });
+        if (sessionData?.rol) {
+          const rolMatch = String(sessionData.rol).replace(/\s/g, '') === String(rol).replace(/\s/g, '');
+          if (rolMatch) cache.sessionRow = sessionData;
+        }
+      }
+      // 2. chrome.storage.local: registro de causas sincronizadas (persiste siempre)
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const registryData = await new Promise(resolve => {
+          chrome.storage.local.get(['synced_causas_registry'], result => resolve(result?.synced_causas_registry));
+        });
+        if (registryData && Array.isArray(registryData)) {
+          // Buscar causa por ROL (puede haber varias; se usa tribunal para desambiguar después)
+          cache.syncedCausa = registryData.filter(
+            c => String(c.rol).replace(/\s/g, '') === String(rol).replace(/\s/g, '')
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[CausaContext] Error cargando storage cache:', e.message);
+    }
+    return cache;
   }
 
   /**
@@ -429,7 +469,7 @@ class CausaContext {
   // METADATA DE LA CAUSA
   // ════════════════════════════════════════════════════════
 
-  _extractCausaMetadata(detectedRol) {
+  _extractCausaMetadata(detectedRol, storageCache = {}) {
     const metadata = {
       tribunal: null,
       caratula: null,
@@ -463,7 +503,7 @@ class CausaContext {
       if (m) { metadata.tribunal = m[1].trim().substring(0, 80); break; }
     }
 
-    // Carátula
+    // Carátula (el modal de PJUD NO la muestra completa; depende del fallback)
     const caratulaPatterns = [
       /Car[áa]tula\s*:?\s*([^\n\r]{5,120})/i,
       /Partes\s*:?\s*([^\n\r]{5,120})/i,
@@ -493,8 +533,9 @@ class CausaContext {
       if (m) { metadata.estado = m[1].trim().substring(0, 40); break; }
     }
 
-    // Fallback: caratulado/tribunal de la fila clickeada en tabla de resultados (content.js)
-    // Solo usamos el caché si: (1) ROL coincide, (2) no expiró, (3) faltan datos en la página
+    // ══════════════════════════════════════════════════════════
+    // FALLBACK A: window.__pjudLastClickedRow (5 min, legacy)
+    // ══════════════════════════════════════════════════════════
     try {
       const cached = typeof window !== 'undefined' && window.__pjudLastClickedRow;
       const rolMatches = detectedRol && cached?.rol &&
@@ -506,6 +547,55 @@ class CausaContext {
         }
         if (!metadata.tribunal && cached.tribunal) {
           metadata.tribunal = cached.tribunal.substring(0, 80);
+        }
+      }
+    } catch (e) { /* ignorar */ }
+
+    // ══════════════════════════════════════════════════════════
+    // FALLBACK B: chrome.storage.session (persiste hasta cerrar navegador)
+    // ══════════════════════════════════════════════════════════
+    try {
+      const sessionRow = storageCache?.sessionRow;
+      if (sessionRow) {
+        if (!metadata.caratula && sessionRow.caratulado) {
+          metadata.caratula = sessionRow.caratulado.substring(0, 120);
+          console.log('[CausaContext] Carátula recuperada de chrome.storage.session');
+        }
+        if (!metadata.tribunal && sessionRow.tribunal) {
+          metadata.tribunal = sessionRow.tribunal.substring(0, 80);
+          console.log('[CausaContext] Tribunal recuperado de chrome.storage.session');
+        }
+      }
+    } catch (e) { /* ignorar */ }
+
+    // ══════════════════════════════════════════════════════════
+    // FALLBACK C: Registro de causas sincronizadas (chrome.storage.local, persistente)
+    // Busca por ROL + Tribunal para mayor precisión
+    // ══════════════════════════════════════════════════════════
+    try {
+      const syncedList = storageCache?.syncedCausa;
+      if (syncedList && syncedList.length > 0 && (!metadata.caratula || !metadata.tribunal)) {
+        // Si tenemos tribunal del DOM, usarlo para desambiguar
+        const tribunalForMatch = metadata.tribunal || '';
+        let match = null;
+        if (tribunalForMatch) {
+          match = syncedList.find(c =>
+            (c.tribunal || '').toLowerCase().trim() === tribunalForMatch.toLowerCase().trim()
+          );
+        }
+        // Si solo hay una causa con ese ROL, usarla directamente
+        if (!match && syncedList.length === 1) {
+          match = syncedList[0];
+        }
+        if (match) {
+          if (!metadata.caratula && match.caratula) {
+            metadata.caratula = match.caratula.substring(0, 120);
+            console.log('[CausaContext] Carátula recuperada de registro de sync previo');
+          }
+          if (!metadata.tribunal && match.tribunal) {
+            metadata.tribunal = match.tribunal.substring(0, 80);
+            console.log('[CausaContext] Tribunal recuperado de registro de sync previo');
+          }
         }
       }
     } catch (e) { /* ignorar */ }

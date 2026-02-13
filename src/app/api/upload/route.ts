@@ -151,13 +151,17 @@ export async function POST(request: NextRequest) {
     let caseId: string | null = null
 
     if (caseRol) {
-      // Buscar si la causa ya existe para este usuario
-      const { data: existingCase } = await supabase
+      // Buscar causa por user + rol + tribunal + carátula (mismo ROL puede existir en distintos tribunales)
+      const tribunalNorm = tribunal || ''
+      const caratulaNorm = caratula || ''
+      const { data: candidates } = await supabase
         .from('cases')
-        .select('id')
+        .select('id, tribunal, caratula')
         .eq('user_id', user.id)
         .eq('rol', caseRol)
-        .maybeSingle()
+      const existingCase = candidates?.find(
+        (c) => (c.tribunal || '') === tribunalNorm && (c.caratula || '') === caratulaNorm
+      )
 
       if (existingCase) {
         caseId = existingCase.id
@@ -287,6 +291,9 @@ export async function POST(request: NextRequest) {
       const newHash: DocumentHashInsert = {
         user_id: user.id,
         rol: caseRol || 'sin_rol',
+        case_id: caseId || null,
+        tribunal: tribunal || null,
+        caratula: caratula || null,
         hash: fileHash,
         filename: sanitizedName,
         document_type: documentType,

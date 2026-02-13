@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     // === 2. Obtener path del archivo ===
     const body = await request.json()
-    const { storagePath, partialHash, rol } = body
+    const { storagePath, partialHash, rol, tribunal, caratula } = body
 
     if (!storagePath) {
       return NextResponse.json(
@@ -92,6 +92,8 @@ export async function POST(request: NextRequest) {
         partialHash: partialHash || null,
         hashType: 'full',
         rol: rol || null,
+        tribunal: tribunal || null,
+        caratula: caratula || null,
         message: partialHash?.startsWith('p:')
           ? 'Hash parcial reemplazado por hash completo'
           : 'Hash completo calculado',

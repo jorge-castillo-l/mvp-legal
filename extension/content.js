@@ -36,7 +36,7 @@ async function initializeEngine() {
     console.log('[LegalBot] Strategy Engine inicializado');
 
     // Detección automática de causa al cargar la página
-    const causa = engine.detectCausa();
+    const causa = await engine.detectCausa();
 
     // Notificar al sidepanel
     chrome.runtime.sendMessage({
@@ -79,12 +79,13 @@ const pageObserver = new MutationObserver((mutations) => {
     if (hasNewContent) {
       console.log('[LegalBot] Contenido nuevo detectado (AJAX)');
       // Re-detectar causa con el nuevo contenido
-      const causa = engine.detectCausa();
-      chrome.runtime.sendMessage({
-        type: 'scraper_event',
-        event: 'content_updated',
-        data: { causa: causa },
-      }).catch(() => {});
+      engine.detectCausa().then(causa => {
+        chrome.runtime.sendMessage({
+          type: 'scraper_event',
+          event: 'content_updated',
+          data: { causa: causa },
+        }).catch(() => {});
+      });
     }
   }, 1500);
 });
@@ -106,7 +107,7 @@ function triggerRedetection() {
   redetectionDebounce = setTimeout(async () => {
     if (!engine) await initializeEngine();
     if (!engine) return;
-    const causa = engine.detectCausa();
+    const causa = await engine.detectCausa();
     chrome.runtime.sendMessage({
       type: 'scraper_event',
       event: 'content_updated',
@@ -219,7 +220,7 @@ async function handleMessage(request) {
       if (!engine) await initializeEngine();
       if (!engine) return { error: 'No se pudo inicializar' };
 
-      const causa = engine.detectCausa();
+      const causa = await engine.detectCausa();
       return { status: 'detected', causa: causa };
     }
 
@@ -245,6 +246,8 @@ async function handleMessage(request) {
         status: 'sync_complete',
         results: {
           rol: results.rol,
+          tribunal: results.tribunal || '',
+          caratula: results.caratula || '',
           layer1Count: results.layer1?.length || 0,
           layer2Count: results.layer2?.length || 0,
           totalFound: results.totalFound,

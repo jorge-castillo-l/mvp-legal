@@ -116,9 +116,9 @@ class StrategyEngine {
    * Se llama automáticamente al cargar y bajo demanda.
    * Retorna el contexto detectado (o null).
    */
-  detectCausa() {
+  async detectCausa() {
     if (!this.causaContext) return null;
-    const result = this.causaContext.detect();
+    const result = await this.causaContext.detect();
     if (result) {
       this._emit('causa_detected', result);
     }
@@ -182,6 +182,8 @@ class StrategyEngine {
 
     const results = {
       rol: confirmedCausa.rol,
+      tribunal: confirmedCausa.tribunal || '',
+      caratula: confirmedCausa.caratula || '',
       layer1: [],
       layer2: [],
       validated: [],
@@ -229,6 +231,15 @@ class StrategyEngine {
       results.totalFound = allCaptured.length;
 
       if (allCaptured.length > 0) {
+        // 4.12: Cargar hashes existentes desde document_hashes (Supabase) antes de validar
+        const session = await supabase.getSession();
+        if (session?.user?.id && this.pdfValidator) {
+          await this.pdfValidator.loadExistingHashes(
+            supabase, session.user.id, confirmedCausa.rol,
+            confirmedCausa.tribunal || '', confirmedCausa.caratula || ''
+          );
+        }
+
         this._emit('status', {
           phase: 'validating',
           message: `Validando ${allCaptured.length} documento(s)...`,
@@ -278,7 +289,7 @@ class StrategyEngine {
             estimatedTime: validation.batchSummary?.estimatedTotalUploadFormatted,
           });
 
-          const uploaded = await this._uploadValidated(validation.approved);
+          const uploaded = await this._uploadValidated(validation.approved, confirmedCausa);
           results.totalUploaded = uploaded;
 
           this._emit('status', {
@@ -694,8 +705,9 @@ class StrategyEngine {
   //   - resumable (>50MB): Supabase TUS protocol directo
   //
 
-  async _uploadValidated(validatedPdfs) {
+  async _uploadValidated(validatedPdfs, confirmedCausa) {
     let uploadedCount = 0;
+    const confirmedRol = confirmedCausa?.rol || '';
 
     for (let i = 0; i < validatedPdfs.length; i++) {
       const pdf = validatedPdfs[i];
@@ -706,7 +718,8 @@ class StrategyEngine {
         const blob = await response.blob();
 
         const timestamp = Date.now();
-        const rolPart = pdf.rol ? pdf.rol.replace(/[^a-zA-Z0-9-]/g, '_') : 'doc';
+        const rolToUse = pdf.rol || confirmedRol;
+        const rolPart = rolToUse ? rolToUse.replace(/[^a-zA-Z0-9-]/g, '_') : 'doc';
         const typePart = pdf.documentType || 'doc';
         const filename = `${rolPart}_${typePart}_${timestamp}.pdf`;
 
@@ -718,11 +731,13 @@ class StrategyEngine {
         // Determinar estrategia de upload según sizeTier
         const uploadStrategy = pdf._sizeTier?.uploadStrategy || 'standard';
 
+        const tri = pdf.tribunal || confirmedCausa?.tribunal || '';
+        const car = pdf.caratula || confirmedCausa?.caratula || '';
         let result;
         if (uploadStrategy === 'resumable') {
-          result = await this._uploadResumable(blob, filename, pdf, session);
+          result = await this._uploadResumable(blob, filename, pdf, session, confirmedRol, tri, car);
         } else {
-          result = await this._uploadStandard(blob, filename, pdf, session);
+          result = await this._uploadStandard(blob, filename, pdf, session, confirmedRol, tri, car);
         }
 
         // Si el servidor detectó duplicado, no contar como upload nuevo
@@ -736,7 +751,7 @@ class StrategyEngine {
         const hashToRegister = result.hash || pdf._hash;
         if (hashToRegister && this.pdfValidator) {
           await this.pdfValidator.registerUploadedHash(
-            hashToRegister, session?.user?.id, pdf.rol
+            hashToRegister, session?.user?.id, rolToUse, tri, car
           );
         }
 
@@ -746,7 +761,7 @@ class StrategyEngine {
           path: result.path,
           case_id: result.case_id,
           document_id: result.document_id,
-          rol: pdf.rol,
+          rol: rolToUse,
           type: pdf.documentType,
           uploadStrategy,
           index: i + 1,
@@ -773,14 +788,15 @@ class StrategyEngine {
    *   file, case_rol, tribunal, caratula, materia, document_type,
    *   file_hash, source, source_url, captured_at
    */
-  async _uploadStandard(blob, filename, pdf, session) {
+  async _uploadStandard(blob, filename, pdf, session, confirmedRol = '', tribunal = '', caratula = '') {
     const formData = new FormData();
     formData.append('file', blob, filename);
 
     // Campos de causa (para upsert en tabla cases)
-    formData.append('case_rol', pdf.rol || '');
-    formData.append('tribunal', pdf.tribunal || '');
-    formData.append('caratula', pdf.caratula || '');
+    const rolToUse = pdf.rol || confirmedRol || '';
+    formData.append('case_rol', rolToUse);
+    formData.append('tribunal', pdf.tribunal || tribunal || '');
+    formData.append('caratula', pdf.caratula || caratula || '');
     formData.append('materia', pdf.materia || '');
 
     // Campos de documento
@@ -821,12 +837,15 @@ class StrategyEngine {
    * Flujo: Extension → Supabase Storage TUS endpoint directo.
    * Usa chunks de 6MB con retry automático y progreso en tiempo real.
    */
-  async _uploadResumable(blob, filename, pdf, session) {
-    // Construir path en storage: userId/YYYY-MM/uniqueId_filename
+  async _uploadResumable(blob, filename, pdf, session, confirmedRol = '', tribunal = '', caratula = '') {
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const objectPath = `${session.user?.id || 'anonymous'}/${yearMonth}/${uniqueId}_${filename}`;
+
+    const rolToUse = pdf.rol || confirmedRol || '';
+    const triToUse = pdf.tribunal || tribunal || '';
+    const carToUse = pdf.caratula || caratula || '';
 
     return new Promise((resolve, reject) => {
       const upload = new ResumableUpload({
@@ -837,9 +856,9 @@ class StrategyEngine {
         file: blob,
         metadata: {
           source: pdf.source || 'scraper',
-          rol: pdf.rol || '',
-          tribunal: pdf.tribunal || '',
-          caratula: pdf.caratula || '',
+          rol: rolToUse,
+          tribunal: triToUse,
+          caratula: carToUse,
           documentType: pdf.documentType || 'otro',
           capturedAt: pdf.capturedAt || new Date().toISOString(),
         },
@@ -856,10 +875,9 @@ class StrategyEngine {
           });
         },
         onSuccess: async (result) => {
-          // Para archivos grandes: confirmar hash completo server-side
           if (pdf._hash?.startsWith('p:')) {
             try {
-              await this._confirmHashServerSide(result.path, pdf._hash, pdf.rol, session);
+              await this._confirmHashServerSide(result.path, pdf._hash, rolToUse, session, triToUse, carToUse);
             } catch (e) {
               console.warn('[StrategyEngine] Hash confirm fallido (no crítico):', e.message);
             }
@@ -884,23 +902,22 @@ class StrategyEngine {
    * El servidor descarga el archivo, calcula el hash real
    * y retorna el hash completo para registrar en la BD.
    */
-  async _confirmHashServerSide(storagePath, partialHash, rol, session) {
+  async _confirmHashServerSide(storagePath, partialHash, rol, session, tribunal = '', caratula = '') {
     const response = await fetch(CONFIG.API.UPLOAD_CONFIRM, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ storagePath, partialHash, rol }),
+      body: JSON.stringify({ storagePath, partialHash, rol, tribunal, caratula }),
     });
 
     if (!response.ok) return;
 
     const data = await response.json();
     if (data.hash && this.pdfValidator) {
-      // Reemplazar hash parcial por hash completo en la BD
       await this.pdfValidator.registerUploadedHash(
-        data.hash, session?.user?.id, rol
+        data.hash, session?.user?.id, rol, tribunal, caratula
       );
       console.log(`[StrategyEngine] Hash parcial reemplazado: ${partialHash.substring(0, 14)}... → ${data.hash.substring(0, 14)}...`);
     }

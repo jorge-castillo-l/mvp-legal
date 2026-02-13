@@ -234,22 +234,56 @@ class PdfValidator {
 
   /**
    * Cargar hashes de documentos ya subidos para deduplicación.
-   * Se llama antes de iniciar la validación de un batch.
+   * Busca el case por user_id + rol y carga hashes por case_id (FK estable).
+   * No depende de coincidencia exacta de strings scrapeados.
    */
-  async loadExistingHashes(supabaseClient, userId, rol) {
+  async loadExistingHashes(supabaseClient, userId, rol, tribunal = '', caratula = '') {
     try {
       const session = await supabaseClient.getSession();
       if (!session?.access_token) return;
 
-      // En producción, consulta tabla 'document_hashes' en Supabase (4.12)
-      const cacheKey = `pdf_hashes_${userId}_${rol}`;
-      const cached = await new Promise(resolve => {
-        chrome.storage.local.get([cacheKey], result => resolve(result[cacheKey]));
-      });
+      const rolClean = (rol || '').trim();
 
+      // 1. Buscar case(s) por user_id + rol
+      const casesEndpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal`;
+      const casesResponse = await supabaseClient.fetch(casesEndpoint);
+
+      if (casesResponse.ok) {
+        const cases = await casesResponse.json();
+        if (Array.isArray(cases) && cases.length > 0) {
+          // Desambiguar si hay >1 case con mismo ROL
+          let targetCaseId = cases[0].id;
+          if (cases.length > 1 && tribunal) {
+            const tri = tribunal.trim().toLowerCase();
+            const match = cases.find(c => (c.tribunal || '').trim().toLowerCase() === tri);
+            if (match) targetCaseId = match.id;
+          }
+
+          // 2. Cargar hashes por case_id
+          const hashesEndpoint = `/rest/v1/document_hashes?case_id=eq.${targetCaseId}&select=hash`;
+          const hashesResponse = await supabaseClient.fetch(hashesEndpoint);
+
+          if (hashesResponse.ok) {
+            const rows = await hashesResponse.json();
+            if (Array.isArray(rows) && rows.length > 0) {
+              rows.forEach((row) => {
+                if (row.hash) this.uploadedHashes.add(row.hash);
+              });
+              console.log(`[PdfValidator] ${this.uploadedHashes.size} hashes cargados desde Supabase (case_id: ${targetCaseId})`);
+              return;
+            }
+          }
+        }
+      }
+
+      // 3. Fallback: chrome.storage.local (cache offline / primera sync)
+      const cacheKey = `pdf_hashes_${userId}_${rol}`;
+      const cached = await new Promise((resolve) => {
+        chrome.storage.local.get([cacheKey], (result) => resolve(result?.[cacheKey]));
+      });
       if (cached && Array.isArray(cached)) {
-        cached.forEach(h => this.uploadedHashes.add(h));
-        console.log(`[PdfValidator] ${this.uploadedHashes.size} hashes existentes cargados`);
+        cached.forEach((h) => this.uploadedHashes.add(h));
+        console.log(`[PdfValidator] ${this.uploadedHashes.size} hashes cargados desde cache local`);
       }
     } catch (e) {
       console.warn('[PdfValidator] No se pudieron cargar hashes existentes:', e.message);
@@ -259,13 +293,13 @@ class PdfValidator {
   /**
    * Registrar un hash como subido (tras upload exitoso)
    */
-  async registerUploadedHash(hash, userId, rol) {
+  async registerUploadedHash(hash, userId, rol, tribunal = '', caratula = '') {
     this.uploadedHashes.add(hash);
 
     try {
       const cacheKey = `pdf_hashes_${userId}_${rol}`;
       const existing = await new Promise(resolve => {
-        chrome.storage.local.get([cacheKey], result => resolve(result[cacheKey] || []));
+        chrome.storage.local.get([cacheKey], result => resolve(result?.[cacheKey] || []));
       });
       existing.push(hash);
       await new Promise(resolve => {

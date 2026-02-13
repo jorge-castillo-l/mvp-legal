@@ -23,6 +23,7 @@ let currentUser = null;
 let currentSession = null;
 let isSyncing = false;
 let lastDetectedCausa = null;
+let lastSyncState = null;  // { count, rol, tribunal, caratula, pageTotal } — clave: rol+tribunal+caratula
 let activeTab = 'sync';
 let casesLoaded = false;
 
@@ -166,13 +167,178 @@ async function requestCausaDetection() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'detect_causa' });
-    if (response?.causa) displayDetectedCausa(response.causa);
-    else if (response && !response.error) displayDetectedCausa(null);
+    if (response?.causa) {
+      await displayDetectedCausa(response.causa);
+    } else if (response && !response.error) {
+      await displayDetectedCausa(null);
+    }
   } catch (e) { /* Content script no cargado */ }
 }
 
-function displayDetectedCausa(causa) {
-  // Preservar caratulado/tribunal ante re-detecciones (ej. durante sync) que los pierdan
+/**
+ * 4.13: Consulta sync state buscando el case por ROL y contando hashes por case_id.
+ * No depende de coincidencia exacta de strings scrapeados (tribunal/carátula).
+ *
+ * Flujo:
+ *   1. Buscar en tabla `cases` por user_id + rol → obtener case_id(s)
+ *   2. Contar `document_hashes` por case_id (FK estable)
+ *   3. Si hay >1 case con mismo ROL, intentar desambiguar por tribunal
+ */
+async function fetchSyncState(userId, rol, tribunal = '', caratula = '') {
+  if (!userId || !rol || typeof supabase?.fetch !== 'function') return { count: 0 };
+  try {
+    const rolClean = (rol || '').trim();
+
+    // Paso 1: Buscar case(s) por user_id + rol
+    const casesEndpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,caratula`;
+    const casesResponse = await supabase.fetch(casesEndpoint);
+    if (!casesResponse.ok) return { count: 0 };
+    const cases = await casesResponse.json();
+    if (!Array.isArray(cases) || cases.length === 0) return { count: 0 };
+
+    // Paso 2: Si hay >1 case con mismo ROL, desambiguar por tribunal
+    let targetCaseId = cases[0].id;
+    if (cases.length > 1 && tribunal) {
+      const tri = tribunal.trim().toLowerCase();
+      const match = cases.find(c => (c.tribunal || '').trim().toLowerCase() === tri);
+      if (match) targetCaseId = match.id;
+    }
+
+    // Paso 3: Contar document_hashes por case_id
+    const hashesEndpoint = `/rest/v1/document_hashes?case_id=eq.${targetCaseId}&select=id`;
+    const hashesResponse = await supabase.fetch(hashesEndpoint);
+    if (!hashesResponse.ok) return { count: 0 };
+    const hashes = await hashesResponse.json();
+    const count = Array.isArray(hashes) ? hashes.length : 0;
+
+    console.log('[4.13] fetchSyncState:', { rol, caseId: targetCaseId, total: count });
+    return { count };
+  } catch (e) {
+    console.error('[4.13] fetchSyncState error:', e);
+    return { count: 0 };
+  }
+}
+
+/**
+ * Capa 2: Guardar causa sincronizada en registro persistente (chrome.storage.local).
+ * Permite recuperar tribunal/carátula al re-entrar a la causa aunque no estén en el DOM.
+ */
+async function saveSyncedCausaRegistry(causa) {
+  if (!causa?.rol) return;
+  try {
+    const result = await new Promise(resolve => {
+      chrome.storage.local.get(['synced_causas_registry'], r => resolve(r.synced_causas_registry || []));
+    });
+    const registry = Array.isArray(result) ? result : [];
+    const key = `${causa.rol}|${(causa.tribunal || '').trim()}|${(causa.caratula || '').trim()}`;
+    // No duplicar entradas iguales
+    const exists = registry.some(c =>
+      `${c.rol}|${(c.tribunal || '').trim()}|${(c.caratula || '').trim()}` === key
+    );
+    if (!exists) {
+      registry.push({
+        rol: causa.rol,
+        tribunal: (causa.tribunal || '').trim(),
+        caratula: (causa.caratula || '').trim(),
+        savedAt: Date.now(),
+      });
+      // Limitar a 500 entradas (FIFO)
+      if (registry.length > 500) registry.splice(0, registry.length - 500);
+      await new Promise(resolve => {
+        chrome.storage.local.set({ synced_causas_registry: registry }, resolve);
+      });
+      console.log('[SyncRegistry] Causa registrada:', key);
+    }
+  } catch (e) {
+    console.warn('[SyncRegistry] Error guardando:', e.message);
+  }
+}
+
+/**
+ * 4.13: Aplica UI contextual según estado de sincronización.
+ */
+function applySyncStateUI(causa, syncState) {
+  const sameCausa = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
+    ? CAUSA_IDENTITY.isSameCausa(causa, lastDetectedCausa)
+    : (causa && lastDetectedCausa && lastDetectedCausa.rol === causa.rol &&
+        (lastDetectedCausa.tribunal || '') === (causa.tribunal || '') &&
+        (lastDetectedCausa.caratula || '') === (causa.caratula || ''));
+  if (!causa || !sameCausa) return;
+  const docPreview = document.getElementById('doc-preview');
+  const docCount = document.getElementById('doc-count');
+  const docTypes = document.getElementById('doc-types');
+  const syncBtn = document.getElementById('sync-btn');
+  const syncStateBanner = document.getElementById('sync-state-banner');
+  if (!docPreview || !docCount || !syncBtn) return;
+
+  const count = syncState?.count ?? 0;
+  const preview = causa.documentPreview;
+  const pageTotal = preview?.total ?? 0;
+
+  if (count > 0) {
+    docPreview.style.display = 'block';
+    docPreview.classList.add('sync-state-synced');
+    docPreview.classList.remove('sync-state-new');
+    const hasNewDocs = pageTotal > count;
+    const fullySynced = !hasNewDocs && pageTotal > 0;
+    docCount.textContent = fullySynced
+      ? `Causa sincronizada ✓ (${count} documento${count !== 1 ? 's' : ''}). Todo al día.`
+      : `Causa sincronizada ✓ (${count} documento${count !== 1 ? 's' : ''}). ${pageTotal - count} documento(s) nuevo(s).`;
+    docCount.classList.add('sync-badge-synced');
+    if (docTypes) {
+      docTypes.innerHTML = hasNewDocs
+        ? '<span class="doc-type-badge">Hay documentos nuevos disponibles.</span>'
+        : '<span class="doc-type-badge">Todo al día.</span>';
+    }
+    if (fullySynced) {
+      syncBtn.innerHTML = '<span class="btn-icon">✓</span> Causa sincronizada';
+      syncBtn.disabled = true;
+      syncBtn.setAttribute('data-fully-synced', '1');
+    } else {
+      syncBtn.innerHTML = '<span class="btn-icon">↻</span> Sincronizar documentos nuevos';
+      syncBtn.disabled = false;
+      syncBtn.removeAttribute('data-fully-synced');
+    }
+    if (syncStateBanner) {
+      syncStateBanner.style.display = 'block';
+      syncStateBanner.className = 'sync-state-banner sync-state-banner-info';
+      syncStateBanner.textContent = fullySynced ? 'Esta causa está completamente sincronizada.' : 'Hay documentos nuevos.';
+    }
+    const warn = document.getElementById('sync-context-warning');
+    if (warn && hasNewDocs) {
+      warn.style.display = 'block';
+      warn.innerHTML = `⚠️ ${pageTotal - count} documento(s) nuevo(s). Sincronice antes de consultar a la IA.`;
+    } else if (warn) warn.style.display = 'none';
+  } else {
+    docPreview.classList.remove('sync-state-synced');
+    docPreview.classList.add('sync-state-new');
+    docCount.classList.remove('sync-badge-synced');
+    if (preview && preview.total > 0) {
+      docPreview.style.display = 'block';
+      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos de la causa`;
+      if (docTypes) {
+        docTypes.innerHTML = (Object.entries(preview.byType || {}).filter(([, c]) => c > 0)
+          .map(([type, c]) => `<span class="doc-type-badge">${type}: ${c}</span>`).join('')) || '';
+      }
+    }
+    syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
+    syncBtn.disabled = false;
+    syncBtn.removeAttribute('data-fully-synced');
+    if (syncStateBanner) syncStateBanner.style.display = 'none';
+    const warn = document.getElementById('sync-context-warning');
+    if (warn) warn.style.display = 'none';
+  }
+  lastSyncState = {
+    count,
+    rol: causa.rol,
+    tribunal: causa.tribunal || '',
+    caratula: causa.caratula || '',
+    pageTotal
+  };
+}
+
+async function displayDetectedCausa(causa) {
+  // Preservar tribunal/carátula ante re-detecciones que los pierdan (misma causa: rol+tribunal+caratula)
   if (causa && lastDetectedCausa && causa.rol === lastDetectedCausa.rol) {
     if (!causa.caratula && lastDetectedCausa.caratula) {
       causa = { ...causa, caratula: lastDetectedCausa.caratula };
@@ -191,10 +357,15 @@ function displayDetectedCausa(causa) {
   const docTypes = document.getElementById('doc-types');
 
   if (!causa) {
+    lastSyncState = null;
     causaRol.textContent = '--';
     causaTribunal.textContent = 'No se detectó una causa en esta página';
     causaCaratula.textContent = '';
     docPreview.style.display = 'none';
+    const banner = document.getElementById('sync-state-banner');
+    const warn = document.getElementById('sync-context-warning');
+    if (banner) banner.style.display = 'none';
+    if (warn) warn.style.display = 'none';
     if (syncBtn) syncBtn.disabled = true;
     return;
   }
@@ -205,20 +376,37 @@ function displayDetectedCausa(causa) {
   causaCaratula.textContent =
     causa.caratula ? `Carátula: ${causa.caratula}` : '';
 
-  const preview = causa.documentPreview;
-  if (preview && preview.total > 0) {
-    docPreview.style.display = 'block';
-    docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos de la causa`;
-    const typesHtml = Object.entries(preview.byType)
-      .filter(([, count]) => count > 0)
-      .map(([type, count]) => `<span class="doc-type-badge">${type}: ${count}</span>`)
-      .join('');
-    docTypes.innerHTML = typesHtml;
-  } else {
-    docPreview.style.display = 'none';
-  }
-
   if (syncBtn) syncBtn.disabled = false;
+
+  // 4.13 diagnóstico (paso 1)
+  console.log('[4.13] Diagnóstico:', {
+    tieneUsuario: !!currentUser,
+    userId: currentUser?.id,
+    rol: causa?.rol
+  });
+
+  if (currentUser?.id && causa.rol) {
+    const syncState = await fetchSyncState(
+      currentUser.id, causa.rol,
+      causa.tribunal || '', causa.caratula || ''
+    );
+    applySyncStateUI(causa, syncState);
+  } else {
+    const preview = causa.documentPreview;
+    if (preview && preview.total > 0) {
+      docPreview.style.display = 'block';
+      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos de la causa`;
+      if (docTypes) {
+        docTypes.innerHTML = Object.entries(preview.byType || {})
+          .filter(([, c]) => c > 0)
+          .map(([type, c]) => `<span class="doc-type-badge">${type}: ${c}</span>`)
+          .join('');
+      }
+      syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
+    } else {
+      docPreview.style.display = 'none';
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -228,6 +416,9 @@ function displayDetectedCausa(causa) {
 async function handleSync() {
   if (isSyncing || !lastDetectedCausa) return;
   if (!currentUser) { showNotification('Debe iniciar sesión primero', 'error'); return; }
+  // Si está completamente sincronizada, no hacer nada
+  if (document.getElementById('sync-btn')?.getAttribute('data-fully-synced') === '1') return;
+  if (lastSyncState?.count >= lastSyncState?.pageTotal && lastSyncState?.pageTotal > 0) return;
 
   isSyncing = true;
   const syncBtn = document.getElementById('sync-btn');
@@ -259,6 +450,18 @@ async function handleSync() {
       loadCases();
     }
 
+    // 4.13: Actualizar estado de sync tras sincronización exitosa
+    if (lastDetectedCausa?.rol && currentUser?.id) {
+      const syncState = await fetchSyncState(
+        currentUser.id, lastDetectedCausa.rol,
+        lastDetectedCausa.tribunal || '', lastDetectedCausa.caratula || ''
+      );
+      applySyncStateUI(lastDetectedCausa, syncState);
+
+      // Capa 2: Guardar registro persistente de causa sincronizada
+      await saveSyncedCausaRegistry(lastDetectedCausa);
+    }
+
     syncBtn.innerHTML = '<span class="btn-icon">✓</span> Sincronizado';
   } catch (error) {
     updateProgress(100, `Error: ${error.message}`, 'error');
@@ -267,7 +470,7 @@ async function handleSync() {
   }
 
   isSyncing = false;
-  syncBtn.disabled = lastDetectedCausa ? false : true;
+  syncBtn.disabled = !lastDetectedCausa || syncBtn.getAttribute('data-fully-synced') === '1';
   if (waitBanner) waitBanner.style.display = 'none';
 
   // Mantener el resultado visible (éxito o error) hasta la próxima sincronización
@@ -361,7 +564,7 @@ function setupScraperEventListener() {
       handleScraperEvent(message.event, message.data);
     }
     if (message.type === 'scraper_ready') {
-      if (message.causa) displayDetectedCausa(message.causa);
+      if (message.causa) displayDetectedCausa(message.causa).catch(() => {});
     }
   });
 }
@@ -369,13 +572,13 @@ function setupScraperEventListener() {
 function handleScraperEvent(event, data) {
   switch (event) {
     case 'status': handleStatusUpdate(data); break;
-    case 'causa_detected': displayDetectedCausa(data); break;
+    case 'causa_detected': displayDetectedCausa(data).catch(() => {}); break;
     case 'pdf_captured': showNotification(`PDF capturado: ${formatSize(data?.size)}`, 'success'); break;
     case 'pdf_uploaded': handlePdfUploaded(data); break;
     case 'upload_progress': handleUploadProgress(data); break;
     case 'upload_error': handleUploadError(data); break;
     case 'batch_summary': displayBatchSummary(data); break;
-    case 'content_updated': if (data?.causa) displayDetectedCausa(data.causa); break;
+    case 'content_updated': if (data?.causa) displayDetectedCausa(data.causa).catch(() => {}); break;
   }
 }
 
@@ -434,6 +637,14 @@ function renderCompactResult(results, errorMsg, type) {
 function showSyncResults(results) {
   if (!results) return;
   renderCompactResult(results);
+
+  // Mantener lastDetectedCausa con tribunal/caratula de results si vienen más completos
+  if (lastDetectedCausa && results.rol === lastDetectedCausa.rol) {
+    const updates = {};
+    if (results.tribunal && !lastDetectedCausa.tribunal) updates.tribunal = results.tribunal;
+    if (results.caratula && !lastDetectedCausa.caratula) updates.caratula = results.caratula;
+    if (Object.keys(updates).length) lastDetectedCausa = { ...lastDetectedCausa, ...updates };
+  }
 
   // Actualizar "documentos encontrados" con el total real capturado (incl. anexos)
   if (typeof results.totalFound === 'number' && results.totalFound >= 0) {
