@@ -195,13 +195,39 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (caseError) {
-          console.error('Error creando caso:', caseError)
-          return NextResponse.json(
-            { error: `Error al registrar causa: ${caseError.message}` },
-            { status: 500, headers: corsHeaders }
-          )
+          // Race condition: otro request del scraper creó la misma causa simultáneamente.
+          // El UNIQUE INDEX (user_id, rol, COALESCE(tribunal,''), COALESCE(caratula,''))
+          // protege contra duplicados. Recuperamos la causa existente.
+          if (caseError.message.includes('unique') || caseError.message.includes('duplicate')) {
+            const tribunalNormRetry = tribunal || ''
+            const caratulaNormRetry = caratula || ''
+            const { data: retryCandidate } = await supabase
+              .from('cases')
+              .select('id, tribunal, caratula')
+              .eq('user_id', user.id)
+              .eq('rol', caseRol)
+            const raceCase = retryCandidate?.find(
+              (c) => (c.tribunal || '') === tribunalNormRetry && (c.caratula || '') === caratulaNormRetry
+            )
+            if (raceCase) {
+              caseId = raceCase.id
+            } else {
+              console.error('Error creando caso (constraint violation pero no se encontró duplicado):', caseError)
+              return NextResponse.json(
+                { error: `Error al registrar causa: ${caseError.message}` },
+                { status: 500, headers: corsHeaders }
+              )
+            }
+          } else {
+            console.error('Error creando caso:', caseError)
+            return NextResponse.json(
+              { error: `Error al registrar causa: ${caseError.message}` },
+              { status: 500, headers: corsHeaders }
+            )
+          }
+        } else {
+          caseId = createdCase.id
         }
-        caseId = createdCase.id
       }
     }
 
