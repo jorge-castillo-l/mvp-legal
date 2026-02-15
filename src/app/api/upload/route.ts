@@ -11,8 +11,9 @@
  *   4. Upsert Case: Crear/actualizar causa en tabla cases
  *   5. Upload Storage: Subir PDF al bucket case-files
  *   6. Insert Document: Registrar en tabla documents
- *   7. Insert Hash: Registrar en tabla document_hashes
- *   8. Update Count: Incrementar document_count en case
+ *   7. Extract Text: Extraer texto nativo (pdf-parse) y guardar en extracted_texts
+ *   8. Insert Hash: Registrar en tabla document_hashes
+ *   9. Response: Devolver metadata + estado de extracción
  *
  * Contrato FormData (campos que envía la extensión):
  *   - file          (File)   REQUERIDO
@@ -32,7 +33,8 @@ import { createAdminClient, createClient, createClientWithToken } from '@/lib/su
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { createHash } from 'crypto'
-import type { CaseInsert, DocumentInsert, DocumentHashInsert } from '@/types/supabase'
+import { extractNativePdfText } from '@/lib/pdf-extract'
+import type { CaseInsert, DocumentInsert, DocumentHashInsert, ExtractedTextInsert } from '@/types/supabase'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
 const ALLOWED_TYPES = ['application/pdf', 'application/octet-stream']
@@ -268,6 +270,13 @@ export async function POST(request: NextRequest) {
     // PASO 6: REGISTRAR DOCUMENTO EN DB
     // ══════════════════════════════════════════════════════
     let documentId: string | null = null
+    let textExtraction: {
+      status: 'completed' | 'needs_ocr' | 'failed'
+      method: 'pdf-parse'
+      chars_per_page: number
+      page_count: number
+      persisted: boolean
+    } | null = null
 
     if (caseId) {
       const newDocument: DocumentInsert = {
@@ -298,6 +307,41 @@ export async function POST(request: NextRequest) {
         documentId = createdDoc.id
       }
 
+      // PASO 7: Extracción nativa con pdf-parse
+      // Si chars/página < 50, marcamos needs_ocr para fallback en 7.04.
+      if (documentId) {
+        const extraction = await extractNativePdfText(buffer)
+        const extractedTextPayload: ExtractedTextInsert = {
+          document_id: documentId,
+          case_id: caseId,
+          user_id: user.id,
+          full_text: extraction.fullText,
+          extraction_method: extraction.extractionMethod,
+          page_count: extraction.pageCount,
+          status: extraction.status,
+        }
+
+        const { error: extractedTextError } = await supabase
+          .from('extracted_texts')
+          .upsert(extractedTextPayload, { onConflict: 'document_id' })
+
+        if (extractedTextError) {
+          console.error('Error guardando extracted_texts:', extractedTextError)
+        }
+
+        if (extraction.status === 'failed') {
+          console.error('Fallo extracción nativa pdf-parse:', extraction.errorMessage)
+        }
+
+        textExtraction = {
+          status: extractedTextError ? 'failed' : extraction.status,
+          method: extraction.extractionMethod,
+          chars_per_page: extraction.charsPerPage,
+          page_count: extraction.pageCount,
+          persisted: !extractedTextError,
+        }
+      }
+
       // Actualizar document_count en la causa (no crítico si falla)
       try {
         await supabase.rpc('increment_counter', {
@@ -310,7 +354,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════
-    // PASO 7: REGISTRAR HASH PARA DEDUPLICACIÓN
+    // PASO 8: REGISTRAR HASH PARA DEDUPLICACIÓN
     // Solo si el documento se registró — evita hashes huérfanos.
     // ══════════════════════════════════════════════════════
     if (documentId) {
@@ -335,7 +379,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════
-    // PASO 8: RESPUESTA EXITOSA
+    // PASO 9: RESPUESTA EXITOSA
     // ══════════════════════════════════════════════════════
     return NextResponse.json(
       {
@@ -356,6 +400,7 @@ export async function POST(request: NextRequest) {
           source,
           capturedAt,
           uploadedAt: now.toISOString(),
+          textExtraction,
         },
       },
       { status: 200, headers: corsHeaders }
