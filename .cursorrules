@@ -1,24 +1,130 @@
 # PROYECTO: ASISTENTE LEGAL IA (EXTENSION FIRST)
 
 ## Contexto Global (2026)
-Este proyecto es una **Extensión de Navegador** para abogados basada en Chromium (Manifest V3).
-- **Core Product:** La experiencia principal vive en el Sidepanel de la extensión.
+Este proyecto es una **Extensión de Navegador** para abogados chilenos basada en Chromium (Manifest V3).
+- **Core Product:** La experiencia principal vive en el Sidepanel de la extensión, activado en pjud.cl.
 - **Web Dashboard:** (`/app/dashboard`) es SOLO un panel administrativo satélite (Billing, Historial, Settings). NO es el espacio de trabajo.
-- **Backend:** Supabase (Auth, Database, Edge Functions).
+- **Backend:** Supabase (Auth, Database, Storage, Edge Functions).
+- **IA:** Google Gemini 3 (Flash + Pro) via `@google/generative-ai`. NO usar Vercel AI SDK.
+- **Extracción PDF:** `pdf-parse` v2.4.5 (wrapper de `pdfjs-dist`). Fallback OCR: Google Document AI.
 
-## Reglas de Desarrollo
-1. **Arquitectura Híbrida:** - El Auth debe funcionar mediante **Cookies Particionadas** o Tokens seguros que persistan entre la Extensión (`chrome-extension://`) y la Web (`https://...`).
-   - Priorizar el uso de `chrome.storage.local` para cache en la extensión.
+## Tech Stack (versiones reales)
+- Framework: Next.js 16.1 (App Router + Turbopack)
+- Lenguaje: TypeScript (strict) en Next.js, JavaScript puro en extensión
+- Estilos: Tailwind CSS 4+ (variables nativas)
+- UI: Shadcn/UI v2 con tema legal (Slate/Gray)
+- Auth: Supabase SSR (`@supabase/ssr`)
+- DB: PostgreSQL via Supabase (con RLS obligatorio)
+- Storage: Supabase Storage (bucket `case-files`)
 
-2. **UI/UX (Shadcn/UI v2+):**
-   - Mantener estética "Legal/Sobria" (Slate/Gray).
-   - Los componentes deben ser ligeros para no ralentizar el navegador.
+## Estructura de Archivos
+```
+src/
+  app/
+    api/{recurso}/route.ts    # API Routes (Node.js runtime, NUNCA Edge)
+    dashboard/                 # Panel web (satélite)
+    login/                     # Auth pages
+  lib/
+    supabase/server.ts         # createClient, createClientWithToken, createAdminClient
+    supabase/client.ts         # Browser client
+    supabase/middleware.ts      # Session refresh
+    database.types.ts           # Re-exports de tipos + PLAN_LIMITS + aliases
+    cors.ts                     # CORS para chrome-extension://
+    profile-helpers.ts          # checkUserLimits, incrementCounter
+    pdf-extract.ts              # extractNativePdfText (pdf-parse v2)
+  types/
+    supabase.ts                # FUENTE DE VERDAD de tipos DB (generado por CLI)
+extension/
+  lib/config.js                # CONFIG global (URLs, Supabase keys)
+  lib/supabase.js              # Cliente Supabase para extensión
+  scraper/                     # Módulos del scraper resiliente
+  sidepanel.{html,js}          # UI principal del producto
+  manifest.json                # Manifest V3
+supabase/
+  migrations/                  # Migraciones SQL con timestamp
+```
 
-3. **Tech Stack Objetivo:**
-   - Framework: Next.js 16 (App Router)
-   - Estilos: Tailwind CSS 4+ (Variables nativas)
-   - IA: Gemini 2.0/3.0 via Vercel AI SDK o Direct Fetch.
+## Esquema de Base de Datos (tablas actuales)
+```
+profiles         → auth.users (1:1). plan_type, contadores, fingerprint, RLS por id.
+cases            → Causas judiciales. UNIQUE(user_id, rol, tribunal, caratula). RLS por user_id.
+documents        → PDFs. FK a cases. storage_path, file_hash. RLS por user_id.
+document_hashes  → Deduplicación SHA-256. UNIQUE(user_id, hash). FK a cases. RLS por user_id.
+extracted_texts  → Texto extraído de PDFs. UNIQUE(document_id). FK a documents + cases. RLS por user_id.
+document_chunks  → Fragmentos para RAG. UNIQUE(extracted_text_id, chunk_index). FK a extracted_texts + documents + cases. RLS por user_id.
+```
+Relaciones: cases 1:N documents 1:1 extracted_texts 1:N document_chunks.
 
-## Restricciones
-- NO crear páginas complejas en el Dashboard si esa función puede ir en el Sidepanel.
+## Convenciones de Migraciones SQL
+- Archivo: `supabase/migrations/YYYYMMDDHHMMSS_nombre_descriptivo.sql`
+- Usar `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` (idempotente).
+- TODA tabla con datos de usuario DEBE tener:
+  - `user_id uuid references auth.users(id) on delete cascade not null`
+  - `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
+  - 4 policies: `{tabla}_select_own`, `{tabla}_insert_own`, `{tabla}_update_own`, `{tabla}_delete_own` usando `auth.uid() = user_id`
+- Usar `COMMENT ON TABLE/COLUMN` para documentar.
+- Reutilizar `public.handle_updated_at()` para triggers de `updated_at`.
+- Validar con `CHECK` constraints para campos con valores acotados.
+- Tras crear migración: `npx supabase db push` para aplicar.
+- Tras aplicar: `npx supabase gen types typescript --project-id jszpfokzybhpngmqdezd > src/types/supabase.ts` y actualizar aliases en `src/lib/database.types.ts`.
+
+## Flujo de Autenticación (Extension ↔ Web)
+1. Usuario hace login en Dashboard web (Supabase Auth SSR).
+2. Extensión obtiene token via `/api/auth/session`.
+3. Extensión envía `Authorization: Bearer {token}` en cada request a API Routes.
+4. API Route valida con `supabaseAuth.auth.getUser(token)`.
+5. Operaciones DB usan `createClientWithToken(token)` para que `auth.uid()` funcione en RLS.
+6. Operaciones Storage usan `createAdminClient()` (admin bypassa RLS, usuario ya validado).
+- NUNCA exponer `createAdminClient` al cliente.
+- NUNCA enviar SERVICE_ROLE_KEY fuera de server-side.
+
+## Pipeline de Procesamiento de Documentos
+```
+Extension (scraper/manual) → /api/upload → Storage + DB
+  1. Auth (Bearer token)
+  2. Validar PDF (tipo, tamaño, magic bytes)
+  3. SHA-256 dedup (document_hashes)
+  4. Upsert causa (cases, con manejo de UNIQUE constraint)
+  5. Upload a Storage (bucket case-files)
+  6. Insert en documents
+  7. Extracción nativa pdf-parse → extracted_texts (status: completed | needs_ocr | failed)
+  8. Insert hash en document_hashes
+  9. Respuesta con metadata + estado extracción
+```
+- Si chars/página < 50 → status='needs_ocr' (fallback OCR en tarea 7.04).
+- Extracción NO bloquea upload: si falla, se registra status='failed' para reintento.
+
+## Reglas de Seguridad
+- `SUPABASE_SERVICE_ROLE_KEY` SOLO en `.env.local`. NUNCA en código, extensión ni commits.
+- `SUPABASE_ANON_KEY` está en `extension/lib/config.js` (inevitable en MV3, es pública por diseño).
+- CORS configurado en `src/lib/cors.ts`: solo acepta `chrome-extension://` y localhost en dev.
+- En producción: configurar `CHROME_EXTENSION_ID` en env para restringir CORS.
+
+## Runtime y Restricciones Técnicas
+- TODAS las API Routes corren en **Node.js runtime**. NUNCA agregar `export const runtime = 'edge'`.
+  Razón: `pdf-parse`, `crypto.createHash`, `Buffer` requieren Node.js.
+- Extensión usa JS puro (NO TypeScript, NO ES modules). Variable global `CONFIG` desde `lib/config.js`.
+- NO usar `import/export` en archivos de la extensión (incompatible con MV3 content scripts).
 - NO usar librerías pesadas que inflen el bundle de la extensión.
+- NO crear páginas complejas en Dashboard si esa función puede ir en el Sidepanel.
+
+## Tipos TypeScript
+- Fuente de verdad: `src/types/supabase.ts` (generado por Supabase CLI).
+- Re-exports + constantes de negocio: `src/lib/database.types.ts`.
+- Aliases de Insert disponibles: `CaseInsert`, `DocumentInsert`, `DocumentHashInsert`, `ExtractedTextInsert`, `DocumentChunkInsert`.
+- Importar tipos desde `@/types/supabase` o `@/lib/database.types` (ambos válidos).
+- PLAN_LIMITS y PlanType/ActionType viven en `@/lib/database.types`.
+
+## UI/UX
+- Estética "Legal/Sobria" (Slate/Gray). Shadcn/UI v2.
+- Componentes ligeros para no ralentizar el navegador.
+- Sidepanel es responsive (ancho limitado ~400px).
+- Dashboard es secundario: billing, historial, settings.
+
+## Mantenimiento de este archivo
+Actualizar `.cursorrules` cuando:
+- Se cree una nueva tabla en la base de datos (agregar al esquema DB).
+- Se agregue un nuevo módulo en `src/lib/` (agregar a estructura de archivos).
+- Cambie una convención técnica (runtime, auth, seguridad).
+- Se modifique el pipeline de procesamiento.
+NO es necesario actualizar por cambios menores (bugfixes, UI, refactors internos).

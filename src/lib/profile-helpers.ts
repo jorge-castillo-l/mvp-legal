@@ -12,7 +12,44 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { PLAN_LIMITS } from './database.types'
-import type { ActionType, Profile } from './database.types'
+import type { ActionType, PlanType, Profile } from './database.types'
+
+/**
+ * Resultado tipado de la RPC check_user_limits.
+ * Supabase lo devuelve como Json genérico; validamos en runtime antes de usar.
+ */
+export interface CheckUserLimitsResult {
+  allowed: boolean
+  error?: string
+  message?: string
+  current_count: number
+  monthly_count?: number
+  monthly_remaining?: number
+  limit?: number
+  remaining?: number
+  plan: PlanType
+  upgrade_required?: boolean
+  fair_use_throttle?: boolean
+  throttle_ms?: number
+}
+
+const FALLBACK_DENIED: CheckUserLimitsResult = {
+  allowed: false,
+  error: 'Respuesta inesperada del servidor al verificar límites',
+  current_count: 0,
+  plan: 'free',
+}
+
+function isCheckUserLimitsResult(value: unknown): value is CheckUserLimitsResult {
+  if (value === null || value === undefined || typeof value !== 'object') return false
+  const obj = value as Record<string, unknown>
+  return (
+    typeof obj.allowed === 'boolean' &&
+    typeof obj.current_count === 'number' &&
+    typeof obj.plan === 'string' &&
+    (obj.plan === 'free' || obj.plan === 'pro')
+  )
+}
 
 /**
  * Obtiene el perfil del usuario actual
@@ -50,22 +87,9 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 export async function checkUserLimits(
   userId: string,
   actionType: ActionType
-): Promise<{
-  allowed: boolean
-  error?: string
-  message?: string
-  current_count: number
-  monthly_count?: number
-  monthly_remaining?: number
-  limit?: number
-  remaining?: number
-  plan: 'free' | 'pro'
-  upgrade_required?: boolean
-  fair_use_throttle?: boolean
-  throttle_ms?: number
-}> {
+): Promise<CheckUserLimitsResult> {
   const supabase = await createClient()
-  
+
   const { data, error } = await supabase.rpc('check_user_limits', {
     user_id: userId,
     action_type: actionType,
@@ -79,6 +103,11 @@ export async function checkUserLimits(
       current_count: 0,
       plan: 'free',
     }
+  }
+
+  if (!isCheckUserLimitsResult(data)) {
+    console.error('check_user_limits devolvió forma inesperada:', data)
+    return FALLBACK_DENIED
   }
 
   return data

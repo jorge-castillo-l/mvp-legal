@@ -11,7 +11,7 @@
  *   4. Upsert Case: Crear/actualizar causa en tabla cases
  *   5. Upload Storage: Subir PDF al bucket case-files
  *   6. Insert Document: Registrar en tabla documents
- *   7. Extract Text: Extraer texto nativo (pdf-parse) y guardar en extracted_texts
+ *   7. Extract Text: Extraer texto (pdf-parse + fallback OCR Document AI) y guardar en extracted_texts
  *   8. Insert Hash: Registrar en tabla document_hashes
  *   9. Response: Devolver metadata + estado de extracción
  *
@@ -33,7 +33,7 @@ import { createAdminClient, createClient, createClientWithToken } from '@/lib/su
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { createHash } from 'crypto'
-import { extractNativePdfText } from '@/lib/pdf-extract'
+import { extractPdfTextWithFallback } from '@/lib/pdf-processing'
 import type { CaseInsert, DocumentInsert, DocumentHashInsert, ExtractedTextInsert } from '@/types/supabase'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
@@ -272,10 +272,13 @@ export async function POST(request: NextRequest) {
     let documentId: string | null = null
     let textExtraction: {
       status: 'completed' | 'needs_ocr' | 'failed'
-      method: 'pdf-parse'
+      method: 'pdf-parse' | 'document-ai'
       chars_per_page: number
       page_count: number
       persisted: boolean
+      ocr_attempted: boolean
+      ocr_batches: number
+      native_status: 'completed' | 'needs_ocr' | 'failed'
     } | null = null
 
     if (caseId) {
@@ -307,10 +310,9 @@ export async function POST(request: NextRequest) {
         documentId = createdDoc.id
       }
 
-      // PASO 7: Extracción nativa con pdf-parse
-      // Si chars/página < 50, marcamos needs_ocr para fallback en 7.04.
+      // PASO 7: Extracción de texto con fallback (pdf-parse -> Document AI OCR)
       if (documentId) {
-        const extraction = await extractNativePdfText(buffer)
+        const extraction = await extractPdfTextWithFallback(buffer)
         const extractedTextPayload: ExtractedTextInsert = {
           document_id: documentId,
           case_id: caseId,
@@ -329,8 +331,8 @@ export async function POST(request: NextRequest) {
           console.error('Error guardando extracted_texts:', extractedTextError)
         }
 
-        if (extraction.status === 'failed') {
-          console.error('Fallo extracción nativa pdf-parse:', extraction.errorMessage)
+        if (extraction.errorMessage) {
+          console.error('Extracción PDF con fallback reportó incidencia:', extraction.errorMessage)
         }
 
         textExtraction = {
@@ -339,6 +341,9 @@ export async function POST(request: NextRequest) {
           chars_per_page: extraction.charsPerPage,
           page_count: extraction.pageCount,
           persisted: !extractedTextError,
+          ocr_attempted: extraction.ocrAttempted,
+          ocr_batches: extraction.ocrBatchCount,
+          native_status: extraction.nativeStatus,
         }
       }
 

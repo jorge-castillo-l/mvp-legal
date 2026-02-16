@@ -20,6 +20,25 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## OCR con Google Document AI (Tarea 7.04)
+
+Para procesar PDFs escaneados (fallback cuando `pdf-parse` no extrae texto útil), configura estas variables en `.env.local`:
+
+```bash
+GOOGLE_DOCUMENT_AI_PROJECT_ID=tu-project-id
+GOOGLE_DOCUMENT_AI_LOCATION=us
+GOOGLE_DOCUMENT_AI_PROCESSOR_ID=tu-processor-id
+
+# Opcional: credenciales en base64 para entornos sin GOOGLE_APPLICATION_CREDENTIALS
+# GOOGLE_DOCUMENT_AI_CREDENTIALS_BASE64=...
+```
+
+Notas:
+
+- Crea en GCP un procesador OCR de Document AI.
+- Si no configuras estas variables, el sistema seguirá usando extracción nativa y marcará documentos escaneados como `needs_ocr`.
+- El fallback OCR divide automáticamente PDFs grandes en lotes de 15 páginas.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
