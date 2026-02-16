@@ -52,8 +52,9 @@ documents        → PDFs. FK a cases. storage_path, file_hash. RLS por user_id.
 document_hashes  → Deduplicación SHA-256. UNIQUE(user_id, hash). FK a cases. RLS por user_id.
 extracted_texts  → Texto extraído de PDFs. UNIQUE(document_id). FK a documents + cases. RLS por user_id.
 document_chunks  → Fragmentos para RAG. UNIQUE(extracted_text_id, chunk_index). FK a extracted_texts + documents + cases. RLS por user_id.
+document_embeddings → Embeddings vectoriales por chunk. UNIQUE(chunk_id). FK a document_chunks + cases. RLS por user_id.
 ```
-Relaciones: cases 1:N documents 1:1 extracted_texts 1:N document_chunks.
+Relaciones: cases 1:N documents 1:1 extracted_texts 1:N document_chunks 1:1 document_embeddings.
 
 ## Convenciones de Migraciones SQL
 - Archivo: `supabase/migrations/YYYYMMDDHHMMSS_nombre_descriptivo.sql`

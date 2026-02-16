@@ -126,7 +126,7 @@ export async function incrementCounter(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient()
   
-  const { data, error } = await supabase.rpc('increment_counter', {
+  const { error } = await supabase.rpc('increment_counter', {
     user_id: userId,
     counter_type: counterType,
   })
@@ -235,7 +235,7 @@ export async function checkFingerprintExists(
  * Incluye lógica de Fair Use para usuarios PRO y
  * notificaciones de expiración para FREE.
  */
-export async function getProfileStats(userId: string): Promise<{
+export async function getProfileStats(_userId: string): Promise<{
   plan: 'free' | 'pro'
   price: string
   chats: {

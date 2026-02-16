@@ -120,6 +120,51 @@ export type Database = {
           },
         ]
       }
+      document_embeddings: {
+        Row: {
+          case_id: string
+          chunk_id: string
+          created_at: string
+          embedding: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          chunk_id: string
+          created_at?: string
+          embedding: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          chunk_id?: string
+          created_at?: string
+          embedding?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_embeddings_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_embeddings_chunk_id_fkey"
+            columns: ["chunk_id"]
+            isOneToOne: false
+            referencedRelation: "document_chunks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_hashes: {
         Row: {
           caratula: string | null
@@ -279,52 +324,52 @@ export type Database = {
       }
       processing_queue: {
         Row: {
-          id: string
-          document_id: string
-          case_id: string
-          user_id: string
-          status: string
           attempts: number
-          max_attempts: number
-          last_error: string | null
-          started_at: string | null
+          case_id: string
           completed_at: string | null
-          next_retry_at: string | null
-          metadata: Json
           created_at: string
+          document_id: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          metadata: Json
+          next_retry_at: string | null
+          started_at: string | null
+          status: string
           updated_at: string
+          user_id: string
         }
         Insert: {
-          id?: string
-          document_id: string
-          case_id: string
-          user_id: string
-          status?: string
           attempts?: number
-          max_attempts?: number
-          last_error?: string | null
-          started_at?: string | null
+          case_id: string
           completed_at?: string | null
-          next_retry_at?: string | null
-          metadata?: Json
           created_at?: string
+          document_id: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          metadata?: Json
+          next_retry_at?: string | null
+          started_at?: string | null
+          status?: string
           updated_at?: string
+          user_id: string
         }
         Update: {
-          id?: string
-          document_id?: string
-          case_id?: string
-          user_id?: string
-          status?: string
           attempts?: number
-          max_attempts?: number
-          last_error?: string | null
-          started_at?: string | null
+          case_id?: string
           completed_at?: string | null
-          next_retry_at?: string | null
-          metadata?: Json
           created_at?: string
+          document_id?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          metadata?: Json
+          next_retry_at?: string | null
+          started_at?: string | null
+          status?: string
           updated_at?: string
+          user_id?: string
         }
         Relationships: [
           {
@@ -337,7 +382,7 @@ export type Database = {
           {
             foreignKeyName: "processing_queue_document_id_fkey"
             columns: ["document_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "documents"
             referencedColumns: ["id"]
           },
@@ -547,5 +592,7 @@ export type DocumentInsert = TablesInsert<'documents'>
 export type DocumentHashInsert = TablesInsert<'document_hashes'>
 export type ExtractedTextInsert = TablesInsert<'extracted_texts'>
 export type DocumentChunkInsert = TablesInsert<'document_chunks'>
+export type DocumentEmbeddingInsert = TablesInsert<'document_embeddings'>
+export type DocumentEmbeddingRow = Tables<'document_embeddings'>
 export type ProcessingQueueInsert = TablesInsert<'processing_queue'>
 export type ProcessingQueueRow = Tables<'processing_queue'>
