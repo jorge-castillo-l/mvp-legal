@@ -24,6 +24,8 @@ export type DocumentInsert = TablesInsert<'documents'>
 export type DocumentHashInsert = TablesInsert<'document_hashes'>
 export type ExtractedTextInsert = TablesInsert<'extracted_texts'>
 export type DocumentChunkInsert = TablesInsert<'document_chunks'>
+export type ProcessingQueueInsert = TablesInsert<'processing_queue'>
+export type ProcessingQueueRow = Tables<'processing_queue'>
 
 /**
  * Plan Limits Constants

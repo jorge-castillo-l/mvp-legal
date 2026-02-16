@@ -11,9 +11,10 @@
  *   4. Upsert Case: Crear/actualizar causa en tabla cases
  *   5. Upload Storage: Subir PDF al bucket case-files
  *   6. Insert Document: Registrar en tabla documents
- *   7. Extract Text: Extraer texto (pdf-parse + fallback OCR Document AI) y guardar en extracted_texts
+ *   7. Placeholder + Trigger Async: extracted_texts pending + fire-and-forget a pipeline
+ *      (trigger SQL auto-encola en processing_queue — Tarea 7.05)
  *   8. Insert Hash: Registrar en tabla document_hashes
- *   9. Response: Devolver metadata + estado de extracción
+ *   9. Response: Devolver metadata + estado de cola
  *
  * Contrato FormData (campos que envía la extensión):
  *   - file          (File)   REQUERIDO
@@ -33,7 +34,6 @@ import { createAdminClient, createClient, createClientWithToken } from '@/lib/su
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { createHash } from 'crypto'
-import { extractPdfTextWithFallback } from '@/lib/pdf-processing'
 import type { CaseInsert, DocumentInsert, DocumentHashInsert, ExtractedTextInsert } from '@/types/supabase'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
@@ -270,16 +270,6 @@ export async function POST(request: NextRequest) {
     // PASO 6: REGISTRAR DOCUMENTO EN DB
     // ══════════════════════════════════════════════════════
     let documentId: string | null = null
-    let textExtraction: {
-      status: 'completed' | 'needs_ocr' | 'failed'
-      method: 'pdf-parse' | 'document-ai'
-      chars_per_page: number
-      page_count: number
-      persisted: boolean
-      ocr_attempted: boolean
-      ocr_batches: number
-      native_status: 'completed' | 'needs_ocr' | 'failed'
-    } | null = null
 
     if (caseId) {
       const newDocument: DocumentInsert = {
@@ -310,40 +300,48 @@ export async function POST(request: NextRequest) {
         documentId = createdDoc.id
       }
 
-      // PASO 7: Extracción de texto con fallback (pdf-parse -> Document AI OCR)
+      // ══════════════════════════════════════════════════════
+      // PASO 7: PLACEHOLDER + TRIGGER ASYNC (Tarea 7.05)
+      // ══════════════════════════════════════════════════════
+      // La extracción ya NO ocurre aquí de forma síncrona.
+      // 1) Se inserta un placeholder en extracted_texts con status='pending'
+      // 2) El trigger SQL en documents ya creó la entrada en processing_queue
+      // 3) Se dispara el procesamiento async (best-effort, la cola es la fuente de verdad)
       if (documentId) {
-        const extraction = await extractPdfTextWithFallback(buffer)
-        const extractedTextPayload: ExtractedTextInsert = {
+        const placeholder: ExtractedTextInsert = {
           document_id: documentId,
           case_id: caseId,
           user_id: user.id,
-          full_text: extraction.fullText,
-          extraction_method: extraction.extractionMethod,
-          page_count: extraction.pageCount,
-          status: extraction.status,
+          status: 'pending',
         }
 
-        const { error: extractedTextError } = await supabase
+        const { error: placeholderError } = await supabase
           .from('extracted_texts')
-          .upsert(extractedTextPayload, { onConflict: 'document_id' })
+          .upsert(placeholder, { onConflict: 'document_id' })
 
-        if (extractedTextError) {
-          console.error('Error guardando extracted_texts:', extractedTextError)
+        if (placeholderError) {
+          console.error('Error creando placeholder extracted_texts:', placeholderError)
         }
 
-        if (extraction.errorMessage) {
-          console.error('Extracción PDF con fallback reportó incidencia:', extraction.errorMessage)
-        }
+        // Fire-and-forget: disparar procesamiento async
+        // Si falla, la cola (processing_queue) asegura el reprocesamiento
+        const pipelineKey = process.env.PIPELINE_SECRET_KEY
+        const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
-        textExtraction = {
-          status: extractedTextError ? 'failed' : extraction.status,
-          method: extraction.extractionMethod,
-          chars_per_page: extraction.charsPerPage,
-          page_count: extraction.pageCount,
-          persisted: !extractedTextError,
-          ocr_attempted: extraction.ocrAttempted,
-          ocr_batches: extraction.ocrBatchCount,
-          native_status: extraction.nativeStatus,
+        if (pipelineKey) {
+          fetch(`${appUrl}/api/pipeline/process-document`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Pipeline-Key': pipelineKey,
+            },
+            body: JSON.stringify({ document_id: documentId }),
+          }).catch((triggerError) => {
+            console.warn(
+              `[upload] Trigger async falló para document_id=${documentId}. La cola lo reintentará.`,
+              triggerError instanceof Error ? triggerError.message : triggerError
+            )
+          })
         }
       }
 
@@ -405,7 +403,10 @@ export async function POST(request: NextRequest) {
           source,
           capturedAt,
           uploadedAt: now.toISOString(),
-          textExtraction,
+        },
+        processing: {
+          status: 'queued',
+          message: 'Documento encolado para extracción de texto. El procesamiento ocurre en segundo plano.',
         },
       },
       { status: 200, headers: corsHeaders }

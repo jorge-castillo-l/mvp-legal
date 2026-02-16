@@ -277,6 +277,72 @@ export type Database = {
           },
         ]
       }
+      processing_queue: {
+        Row: {
+          id: string
+          document_id: string
+          case_id: string
+          user_id: string
+          status: string
+          attempts: number
+          max_attempts: number
+          last_error: string | null
+          started_at: string | null
+          completed_at: string | null
+          next_retry_at: string | null
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          document_id: string
+          case_id: string
+          user_id: string
+          status?: string
+          attempts?: number
+          max_attempts?: number
+          last_error?: string | null
+          started_at?: string | null
+          completed_at?: string | null
+          next_retry_at?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          document_id?: string
+          case_id?: string
+          user_id?: string
+          status?: string
+          attempts?: number
+          max_attempts?: number
+          last_error?: string | null
+          started_at?: string | null
+          completed_at?: string | null
+          next_retry_at?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "processing_queue_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "processing_queue_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: true
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           case_count: number
@@ -481,3 +547,5 @@ export type DocumentInsert = TablesInsert<'documents'>
 export type DocumentHashInsert = TablesInsert<'document_hashes'>
 export type ExtractedTextInsert = TablesInsert<'extracted_texts'>
 export type DocumentChunkInsert = TablesInsert<'document_chunks'>
+export type ProcessingQueueInsert = TablesInsert<'processing_queue'>
+export type ProcessingQueueRow = Tables<'processing_queue'>
