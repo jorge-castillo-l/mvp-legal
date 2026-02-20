@@ -1,0 +1,503 @@
+<div class="modal-dialog modal-lg">
+    <!-- Modal content-->
+      <div class="modal-content">
+          <div class="modal-header">
+                                      <button type="button" class="close" data-dismiss="modal">×</button>
+                          <h4 class="modal-title" style="color:#337ab7;">Detalle Causa Civil</h4>
+          </div>
+      
+          <div class="modal-body">
+          
+              <div class="panel with-nav-tabs">
+              
+                  <div class="panel panel-default">
+                      <table class="table table-responsive table-titulos">
+                          <tbody>
+                              <tr>
+                                  <td><strong>ROL:</strong> C-1-2025 <span title="Causa LTE" class="label label-primary topTool"></span></td>//aquí encontramos el rol de la causa
+                                  <td colspan="2"><strong>F. Ing.:</strong> 15/01/2025</td>//aquí encontramos la fecha de ingreso de la causa
+                                  <td>BANCO DE CRÉDITO E INVERSI</td>
+                              </tr>
+                              <tr>
+                                  <td>
+                                      <strong>Est. Adm.: </strong>
+                                      <span class="topTool" data-toggle="tooltip">
+                                        Sin archivar                  																					</span>
+                                  </td>//aquí encontramos el estado de la causa
+                                  <td><strong>Proc.:</strong> Ejecutivo Obligación de Dar</td>//aquí encontramos el procedimiento de la causa
+                                  <td colspan="2"><strong>Ubicación:</strong> Digital                       </td>//aquí encontramos la ubicación de la causa
+                              </tr>
+                              <tr>
+                                  <td><strong>Estado Proc.:</strong> Tramitación                   </td>//aquí encontramos el estado del procedimiento de la causa
+                                  <td><strong>Etapa:</strong> 1 Notificación demanda y su proveído      </td>//aquí encontramos la etapa de la causa
+                                  <td colspan="2"><strong>Tribunal:</strong> Juzgado de Letras y Gar.de María Elena            </td>//aquí encontramos el tribunal de la causa
+                              </tr>
+                              <input type="hidden" value="string(42) " 1="" notificaci�n="" demanda="" y="" su="" prove�do="" "="">
+                          </tbody>
+                      </table>
+                              
+                      <table class="table table-responsive table-titulos">
+                          <tbody>
+                              <tr>
+                                  <td>
+                                      <strong>Texto Demanda:</strong>
+                                      <form name="form" action="ADIR_871/civil/documentos/docu.php" method="get" target="txtD">
+                                          <input type="hidden" name="valorEncTxtDmda" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9GN3NoR3ZGcGdab1dPUXlFVmZqSVpWUVF5NHBaWVRKejBWMVpCMFwvaVwvMUV6Nm94djhXYkp3TEtMZlZlbSs5NGR4NDFXZlJpUXpGQ1RuQUI1bktBN1Z3PSJ9.DzbUR6mkcUF83zE93M5D11nn03nPLHoBtEdy_vD5jXw">
+                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Archivo Texto Demanda" role="img">
+                                              <i title="Texto Demanda" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Texto Demanda</span>
+                                          </a>
+                                      </form>
+                                  </td>//aquí encontramos el texto de la demanda, aquí suele haber un pdf
+                                  <td>
+                                      <strong>Anexos de la causa:</strong>
+                                      <br>
+                                      <a data-toggle="modal" href="#modalAnexoCausaCivil" title="Ver Anexos de la causa" role="img" onclick="anexoCausaCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoielNnV3RuSmJsR2lvekhmOEF2RGsrcHdoeVFSVEljWW5rVERqSEhVQmhCN2p3bEd6QzRpR3JpYThtRUI4dkJxbSJ9.TC6T7MvoW1_m6wARjCIjNnU4vyko9zHiXj0lGZiLO0M');"><i class="fa fa-folder-open fa-lg" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>//aquí encontramos el enlace a la carpeta de los anexos, lo que nos lleva a un DOM3
+                                  </td>//aquí encontramos los anexos de la causa, aquí suele haber una carpeta con los anexos, los cuales pueden ser pdfs, word, excel, etc. Suelen ser pdfs
+                                  
+                                    
+                                    <!-- Bloque boton Certificado -->
+                                  <td>
+                                      <strong>Certificado de Envío:</strong>
+                                      <form name="certCivil" action="ADIR_871/civil/documentos/docCertificadoDemanda.php" method="get" target="cert">
+                                          <input type="hidden" name="dtaCert" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiYzlPZUIxa2NmTHpEaGN6TnRsY0NxNEZpbnQ1NkRlVTNLUnh2WStpaE9OYz0ifQ._PNohz2n7S9KaMvaYKyMZpbpZyxXlLwRrKlapGrdWz4">
+                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Certificado" role="img">
+                                              <i title="Descargar Certificado" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Certificado</span>
+                                          </a>
+                                          
+                                      </form>
+                                  </td>//aquí encontramos el certificado de envío de la demanda, aquí suele haber un pdf
+                              <!-- Fin Bloque boton Certificado -->
+
+                                  <td id="boton">
+                              <!-- Bloque boton ebook -->
+                                      <strong>Ebook:</strong>
+                                      <form name="form" action="ADIR_871/civil/documentos/newebookcivil.php" method="get" target="_blank">
+                                          <input type="hidden" name="dtaEbook" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoielNnV3RuSmJsR2lvekhmOEF2RGsrbFhPWEhBS1FpckhBcGNsWlNyMTVDdURtcVlnR1lvR2pvUytPRmZXdEN2ViJ9.qVXS1o-y-dP-WDCVk_DEiTkA1T3KoVrUm6SYfcN1jvw">
+                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Ebook" role="img">
+                                          <i title="Descargar Ebook" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Ebook</span>
+                                          </a>
+                                      </form>
+                                  </td>//aquí encontramos el ebook de la causa, aquí suele haber un pdf
+                              <!-- Fin Bloque boton ebook -->
+                              </tr>
+                          </tbody>
+                      </table>
+                      
+                      <!-- Bloque Piezas Exhorto -->
+                                  <!-- Fin Bloque Piezas Exhorto -->
+                              
+                          
+                      
+                  </div>
+                  
+                  <div class="panel panel-default">
+                      <table class="table table-responsive table-titulos">
+                          <tbody>
+                              <tr>
+                                  <td>
+                                      <strong>Historia Causa Cuaderno</strong><br>//aquí encontramos el título de la tabla, aquí suele haber un select con los cuadernos de la causa
+                                      <select id="selCuaderno" class="form-control form-control-sm">
+                                              <option value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNa2dIN0thTjdmRTZieTZzRkFOV0QwMVwvQ1wvVHRkMkNVMzQrZDErQW05M0hFVTZvVmt2Z09OVCtrMlBPa0t4dEFWVmhVazA5K0R2aUIrWmNDODZmSUZzTGxYendhYVR0TWpvY2RCMUdpWkN1UWxxZlZlazBsWFdVXC9qbDB6YjZUMW5xaStUMHNDYUVRNHI2TUpSOGJqc1hBPSJ9.p_KDasB6dEpyhNCJI7yzU8P7BfEo-m64ix1CpNBwWWM" selected="selected">1 - Principal</option>//aquí encontramos el primer cuaderno de la causa y su nombre
+                                              <option value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNa2dIN0thTjdmRTZieTZzRkFOV0QwMVwvQ1wvVHRkMkNVMzQrZDErQW05M0hFVTZvVmt2Z09OVCtrMlBPa0t4dEFWUW5UTHFyOWdhRnpGNHZcL09pbXV2V1FNdzY3NUNUcU11OGZMMWN4azhTVTRsRWt6R2pBeFhocmZUSzNYcmdxWm5oT0YzTnZueTExMDZSMXRHUUJDWlVNPSJ9.aopOo6Fd-Pqa2gn108IZXHP3gtCu1LnfplZJ2rZKalY">2 - Apremio Ejecutivo Obligación de Dar</option>//aquí encontramos el segundo cuaderno de la causa y su nombre
+  
+                                      </select>//aquí encontramos el select con los cuadernos de la causa, pueden ser varios cuadernos, cada uno con su nombre y su valor, cada cuaderno nos lleva a un DOM4, con otra tabla y más archivos.
+                                      <!--
+                                      14 32588666 42259705 19 1 C 2025										-->
+                                  </td>
+                                  <td>
+                                      <strong>Información notificaciones receptor:</strong>
+                                      <br>
+                                      <a data-toggle="modal" href="#modalReceptorCivil" title="Ver Receptor" role="img" onclick="receptorCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoic1dCRmw3Mm15TEtaeU5samZQc3FuVkRKZmtpdUJ2anZFUWs1UkhsQk83YWNVNW1Ja253TDJZRmlSdTBHT3M4QUJzaGE4MTRwNFlXZ3ByMTZ3NnpYMWdDbk00VWNzV2VVM2FYNW5NT0UzalNUajNXV0Y1Smh2TENXSlc2dytqYXk1YTN1R3Nvb2pkMWQ4amZ4ZjJQRkRzZmFJdmY2ZVhGXC9aZzlSZmQrbjBJdElKNUFUM2N4R2crYVc3XC9vREE1UjUifQ.yv80DnIeTKceTOz5G9VdeqR-3vAgldW58rHXzpk4CcU');"><i class="fa fa-folder fa-2x" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+                                  </td>//aquí encontramos el enlace a la carpeta de los receptores, lo que nos lleva a un DOM5, con otra tabla y más Información.
+                              </tr>
+                          </tbody>//aquí encontramos el cuerpo de la tabla, aquí suele haber un select con las etapas de la causa
+                      </table>
+                  </div>
+                  
+                  <div class="panel-heading">
+                      <ul class="nav nav-tabs" style="display:inline-block">
+                          <li class="active"><a data-toggle="tab" href="#historiaCiv" aria-expanded="true">Historia</a></li>//DOM6.1
+                          <li class=""><a data-toggle="tab" href="#litigantesCiv" aria-expanded="false">Litigantes</a></li>//DOM6.2
+                          <li class=""><a data-toggle="tab" href="#notificacionesCiv" aria-expanded="false">Notificaciones</a></li>//DOM6.3
+                          <li class=""><a data-toggle="tab" href="#escritosCiv" aria-expanded="false">Escritos por Resolver</a></li>//DOM6.4
+                          <li class=""><a data-toggle="tab" href="#exhortosCiv" aria-expanded="false">Exhortos</a></li>//DOM6.5
+                      </ul>//aquí encontramos los enlaces a las pestañas de la causa, cada pestaña nos lleva a un DOM6, con otra tabla y más Información.
+                  </div>
+                  
+                  <div class="tab-content" id="loadHistCuadernoCiv">
+                      
+                      <div class="tab-pane fade active in" id="historiaCiv"> <!-- INICIO PANEL -->
+                      
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+                                  
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Folio</th>
+                                              <th>Doc.</th>
+                                              <th>Anexo</th>
+                                              <th>Etapa</th>
+                                              <th>Trámite</th>
+                                              <th>Desc. Trámite</th>
+                                              <th>Fec. Trámite</th>
+                                              <th>Foja</th>
+                                              <th>Georref.</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                          <tr>
+                                              <td>
+                                                  8 
+                                              </td>//aquí encontramos el folio del cuaderno actual
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="p1">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9PY3duZ2lVVU1rWWtiREgrUTRkbVJJSm5WVnpzUzVPZzVEcUVwNTFFVzNQS0dsOXgrMzJ6ZmZIaHNOMUd5RVwva0R3a0lLZ0twNWRtXC9JREY3Tkx6aUNVR3pCNFhDMExQWjZvN3FWaUhOd1A5b09va3VWN3JYQnhMT29EOEY4bzZCUT09In0.VXJltj0w0h7nYA5BgHheLYYXbTtHOZPTFgv-C8GQ-T0">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                              <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                          </a>
+                                                          
+                                                      </form>
+                                                  </td>//aquí encontramos el documento del folio, aquí suele haber un pdf o más pdfs o arc, quizas otro tipo de documento como word, excel, etc.
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Notificación demanda y su proveído      </td>//aquí encontramos la etapa del folio
+                                              <td>Resolución</td>//aquí encontramos el trámite del folio
+                                              <!--<td><span title="Mero trámite" class="topToolNom"></span></td>-->
+                                              <td>
+Mero trámite												</td>//aquí encontramos la descripción del trámite
+                                              <td>02/04/2025</td>//aquí encontramos la fecha del trámite
+                                              <td>4</td>//aquí encontramos la foja del trámite
+                                              <td align="center">
+                                              </td>//aquí encontramos la georreferencia del folio, omitiremos descargar algun archivo de aca por ahora.
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  7 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w2" style="display: inline-block;">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9NQXByZ2dxYlI4RnVZY0c4N2lhXC9sUFpwcmw4RUVacVJjWjB2UHVQZnl2RENvMFgyODJBcTg4d3dIbHZMc0M1cUxcL2tJSGM3NVo1RklwXC9WeW1pNDdWTFVcLzdlR0xWSlFXZUZhZjNYbU83QUoifQ.cMxYr4JJAo3tAKAD8yY7i9WrU3ariwe7nwSAB3RqSdo">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                              <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                          </a>
+                                                      </form>
+                                                                                                                        <form name="certCivil" action="ADIR_871/civil/documentos/docCertificadoEscrito.php" method="get" target="cert" style="display: inline-block;">
+                                                              <input type="hidden" name="dtaCert" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTUZSZXhEOXd6UjA2cWJPSzlpcWFBYWNMQUdmQWNuTzVyN0kxSXFadjg1RT0ifQ._8tW2hRpcYcGZRPDN9lWzFrvmMjiuycDQ8ktfgmtzfI">
+                                                              <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Certificado de envio escrito" role="img" style="display: inline-block;">
+                                                                  <i class="far fa-file-pdf fa-lg" aria-hidden="true" style="color:#2693FF; cursor:pointer; display: inline-block;"></i>
+                                                              </a>
+                                                              </form>
+                                                                                                            </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Notificación demanda y su proveído      </td>
+                                              <td>Escrito</td>
+                                              <!--<td><span title="Custodia" class="topToolNom"></span></td>-->
+                                              <td>
+Custodia												</td>
+                                              <td>01/04/2025</td>
+                                              <td>3</td>
+                                              <td align="center">
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  6 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w3" style="display: inline-block;">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9CczNDWnZqd29VTDhUZzg5dVFnVWpsdGRnc3BZV0FaOUhuVmtaQTBUenprOW11RGxiTzgwS0tQRFwva001dllLZGVMRjc4MUhKRmNQT1VTTEFQZFFDREY4M2toUk1hUFgzRHNhZzlTcGlVWTB5ZGVPUzVOK3lvWmxoaGgrRUp1d1BRPT0ifQ.2M_iBncmQeMCY1W0LuiKzcZKKqCEvN1MekjDjnh1eSc">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                              <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                          </a>
+                                                      </form>
+                                                                                                            </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Notificación demanda y su proveído      </td>
+                                              <td>Actuación Receptor</td>
+                                              <!--<td><span title="Certificación (Realizada) Diligencia:06/03/2025 16:38" class="topToolNom"></span></td>-->
+                                              <td>
+Certificación (Realizada) Diligencia:06/03/2025 16:38												</td>
+                                              <td>06/03/2025 (06/03/2025)</td>
+                                              <td>0</td>
+                                              <td align="center">
+                                                      <a data-toggle="modal" href="#modalGeoReferenciaCivil" title="Georreferencia" role="img" onclick="geoReferencia('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoibERBTFMxU01vcStrRHhVVjNiSFZmUW5xb3Nkc055ZXRXTGpFeVJyeG5Ubz0ifQ.61SCMsS6lRr7jlc2dSkIBvw22Z6EBE7k-cZu6jfAaAg');"><i class="fa fa-globe fa-lg" aria-hidden="true" style="cursor:pointer; color:#2FB083"></i></a>
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  5 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w4" style="display: inline-block;">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9LZ21UR09odTZxcjlMbXdqSFB1ZTlIb3N6K3F0S2JnU2dJNmcxYWpkYTdleGNCZG05MzVHQnJrS202RGFWNDNZQWphNVNiXC9GZHYwdVZqeTNuVmsyNTErT1FBeXVBT3d4QTFkbWYyTnF4d2Q0SXBPd1FcL0R6RTBmTE9yRVdxUkdJQT09In0.znRu8L9Alb3GqJvAH-GKqzURQUu4HVYimSKhoca7AA4">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                              <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                          </a>
+                                                      </form>
+                                                                                                            </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Notificación demanda y su proveído      </td>
+                                              <td>Actuación Receptor</td>
+                                              <!--<td><span title="NOTIFICACIÓN DE DEMANDA (Exitosa) Diligencia:04/03/2025 14:45" class="topToolNom"></span></td>-->
+                                              <td>
+NOTIFICACIÓN DE DEMANDA (Exitosa) Diligencia:04/03/2025 14:45												</td>
+                                              <td>06/03/2025 (04/03/2025)</td>
+                                              <td>0</td>
+                                              <td align="center">
+                                                      <a data-toggle="modal" href="#modalGeoReferenciaCivil" title="Georreferencia" role="img" onclick="geoReferencia('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoibERBTFMxU01vcStrRHhVVjNiSFZmUWczXC91YUpYY0dwXC9STnEzVExUU2dRPSJ9.MFDtDUrwVcEu6LD9e1L4h503tUS9u_72bTQkM85T1wQ');"><i class="fa fa-globe fa-lg" aria-hidden="true" style="cursor:pointer; color:#2FB083"></i></a>
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  4 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w5" style="display: inline-block;">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9PVTdTMUJiVGxqUXoxUGMwaTN1SFNLVkZnSXpFckVDYmlESzdLK2lJa3VYYkZOR1F6aWVaYkNkY21NZjRUMUdWRTkwV2MrK093ellHQWhlc1dUaVlLV09VWWl1REFRV0xzeHVxT0luSmNMY0xaOW4zM291NEhwUTlVR1BKaGdHdlE9PSJ9.zh0Vd1C55K2lt6FGsB4RuAvdTCECZf245ZyxyJVhgW8">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                              <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                          </a>
+                                                      </form>
+                                                                                                            </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Notificación demanda y su proveído      </td>
+                                              <td>Actuación Receptor</td>
+                                              <!--<td><span title="CERTIFICACIÓN BÚSQUEDAS (Búsqueda positiva) Diligencia:03/03/2025 17:59" class="topToolNom"></span></td>-->
+                                              <td>
+CERTIFICACIÓN BÚSQUEDAS (Búsqueda positiva) Diligencia:03/03/2025 17:59												</td>
+                                              <td>06/03/2025 (03/03/2025)</td>
+                                              <td>0</td>
+                                              <td align="center">
+                                                      <a data-toggle="modal" href="#modalGeoReferenciaCivil" title="Georreferencia" role="img" onclick="geoReferencia('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoibERBTFMxU01vcStrRHhVVjNiSFZmWGZwdFlHeW9paEVEaGVINFwveHhtdEU9In0.LbbKFproX6GvaoACUnqp7-e2FywgMEqG7y6EbyEcsIc');"><i class="fa fa-globe fa-lg" aria-hidden="true" style="cursor:pointer; color:#2FB083"></i></a>
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  3 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="p6">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9BenZ2MFFDeUY0MEJ2QVVXOXQ0dHQ3NWhJUnhDT1BaVzk1ZzhsZkZIU2FjdjVuclN0VWQyVWdXbVE5N1pIR0trTTlOREltMEcwQUE0WEhDYkVcL3lCNHdsQ0VWeUI1azFlNm1oSmlNMjlaVlMifQ.CO7OnomSEUJz7gN7wNEaD5JnrxW24pu4XA69MTFwUzI">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                              <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                          </a>
+                                                          
+                                                      </form>
+                                                  </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Inicio de la Tramitación                </td>
+                                              <td></td>
+                                              <!--<td><span title="Acredita Poder" class="topToolNom"></span></td>-->
+                                              <td>
+Acredita Poder												</td>
+                                              <td>16/01/2025</td>
+                                              <td>0</td>
+                                              <td align="center">
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  2 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="p7">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9BVlhuaU5hU09ZMVdDV3VnSU9vbWxOWUdzNnljYnFwK0tSTVJ0VGNvWEl3KzNDZ2lYbzVFXC9QN1NWejZTXC9pbXd0bkF3REVKeHhSV2Z0MnUrZlVMYnNQOEN4V2x3WnpPdXNqTVlBNlFRVUkwTmtIYXdUeExqQlk5RVwvb0FMRXI4MXc9PSJ9.IZnb3iMkcXF-Jl7cgDT1NgiAwle_MBTW8saz9UZYSw0">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                              <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                          </a>
+                                                          
+                                                      </form>
+                                                  </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Inicio de la Tramitación                </td>
+                                              <td>Resolución</td>
+                                              <!--<td><span title="Ordena despachar mandamiento" class="topToolNom"></span></td>-->
+                                              <td>
+Ordena despachar mandamiento												</td>
+                                              <td>16/01/2025</td>
+                                              <td>2</td>
+                                              <td align="center">
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  1 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w8" style="display: inline-block;">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MTQ2MDIyNywiZXhwIjoxNzcxNDYzODI3LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9OVG1wNkpFWkZZU3djOW04T2JoQTlFbmdnRGFRK1wvYTlBcGV5R0kxalFaSjA4YkdDUmVUQ244bThpZXZQdzMzSXE1b29PTVRKQlFUY0s3Q3QzeDY4dFQyNVpjaHFGNXVIZ1V5amF0emFjVm4ifQ.y2Q6gBBVLQevazMsKU7aDotTVekrBnv_q18Dkx4M4uY">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                              <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                          </a>
+                                                      </form>
+                                                                                                            </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Inicio de la Tramitación                </td>
+                                              <td>Escrito</td>
+                                              <!--<td><span title="Ingreso demanda" class="topToolNom"></span></td>-->
+                                              <td>
+Ingreso demanda												</td>
+                                              <td>15/01/2025</td>
+                                              <td>1</td>
+                                              <td align="center">
+                                              </td>
+                                          </tr>
+                                      </tbody>
+                                  </table>
+
+                              </div>
+                          </div>
+
+                      </div> <!-- FIN PANEL -->
+
+
+                      <div class="tab-pane fade" id="litigantesCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Participante</th>
+                                              <th>Rut</th>
+                                              <th>Persona</th>
+                                              <th>Nombre o Razón Social</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                          <tr>
+                                              <td>DDO.  </td>
+                                              <td>6820279-5</td>
+                                              <td>NATURAL                       </td>
+                                              <td>LUIS ALEJANDRO MENA LÓPEZ </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>AB.DTE</td>
+                                              <td>10313786-1</td>
+                                              <td>NATURAL                       </td>
+                                              <td>FÉLIX ROLANDO SOTO TORRIJOS (Poder Amplio)</td>				
+                                          </tr>
+                                          <tr>
+                                              <td>DTE.  </td>
+                                              <td>97006000-6</td>
+                                              <td>JURIDICA                      </td>
+                                              <td>BANCO DE CRÉDITO E INVERSIONES   </td>				
+                                          </tr>
+                                      </tbody>
+                                  </table>
+                                      
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+
+
+                      <div class="tab-pane fade" id="notificacionesCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>ROL</th>
+                                              <th>Est. Notif.</th>
+                                              <th>Tipo Notif.</th>
+                                              <th>Fecha Trámite</th>
+                                              <th>Tipo Part.</th>
+                                              <th>Nombre</th>
+                                              <th>Trámite</th>
+                                              <th>Obs. Fallida</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                      </tbody>
+                                  </table>
+                                      
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+
+
+                      <div class="tab-pane fade" id="escritosCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                              
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Doc.</th>
+                                              <th>Anexo</th>
+                                              <th>Fecha de Ingreso</th>
+                                              <th>Tipo Escrito</th>
+                                              <th>Solicitante</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                      </tbody>
+                                  </table>
+                                              
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+                      
+                      
+                      <div class="tab-pane fade" id="exhortosCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Rol Origen</th>
+                                              <th>Tipo Exhorto</th>
+                                              <th>Rol Destino</th>
+                                              <th>Fecha Ordena Exhorto</th>
+                                              <th>Fecha Ingreso Exhorto</th>
+                                              <th>Tribunal Destino</th>
+                                              <th>Estado Exhorto</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                      </tbody>
+                                  </table>
+                                      
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+                      
+                      
+                  </div>
+                  
+              </div>
+              
+
+          
+          </div>
+          
+      
+          <div class="modal-footer">
+                          <button type="button" class="btn btn-default" data-dismiss="modal">Cerrar</button>
+                      </div>
+          
+      </div>
+  </div>
