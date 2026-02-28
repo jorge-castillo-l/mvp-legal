@@ -11,8 +11,8 @@
  *   4. Solo entonces permite sync
  *
  * Los módulos se cargan vía manifest.json en este orden:
- *   remote-config → network-interceptor → dom-analyzer →
- *   human-throttle → causa-context → pdf-validator →
+ *   remote-config → network-interceptor →
+ *   human-throttle → jwt-extractor → pdf-validator →
  *   strategy-engine → content.js (este archivo)
  * ============================================================
  */
@@ -230,12 +230,22 @@ async function handleMessage(request) {
 
       const confirmed = engine.confirmCausa();
       if (confirmed) {
-        return { status: 'confirmed', causa: engine.causaContext.getConfirmedCausa() };
+        return { status: 'confirmed', causa: engine.jwtExtractor.getConfirmedCausa() };
       }
       return { error: 'No hay causa detectada para confirmar' };
     }
 
-    // ── SYNC: Sincronizar (requiere causa confirmada) ──
+    // ── EXTRACT: 4.16 — Full CausaPackage extraction ──
+    case 'extract_causa_package': {
+      if (!engine) await initializeEngine();
+      if (!engine) return { error: 'No se pudo inicializar' };
+
+      const pkg = await engine.extractCausaPackage();
+      if (!pkg) return { error: 'No se pudo extraer el paquete. ¿Está abierto el detalle de la causa?' };
+      return { status: 'extracted', causaPackage: pkg };
+    }
+
+    // ── SYNC: Sincronizar (requiere causa detectada) ──
     case 'sync': {
       if (!engine) await initializeEngine();
       if (!engine) return { error: 'No se pudo inicializar el scraper' };
@@ -248,37 +258,35 @@ async function handleMessage(request) {
           rol: results.rol,
           tribunal: results.tribunal || '',
           caratula: results.caratula || '',
-          layer1Count: results.layer1?.length || 0,
-          layer2Count: results.layer2?.length || 0,
           totalFound: results.totalFound,
-          totalValidated: results.totalValidated,
           totalUploaded: results.totalUploaded,
-          totalRejected: results.rejected?.length || 0,
-          rejectedReasons: (results.rejected || []).map(r => r.reason),
           needsManual: results.needsManual,
           errors: results.errors,
           duration: results.duration,
+          hasCausaPackage: !!results.causaPackage,
         },
       };
     }
 
-    // ── ANALYZE: Solo analizar sin descargar ──
+    // ── ANALYZE: Analyze without downloading ──
     case 'analyze': {
       if (!engine) await initializeEngine();
       if (!engine) return { error: 'No se pudo inicializar' };
 
       const causa = engine.getDetectedCausa();
-      const downloads = engine.domAnalyzer.findDownloadElements();
+      const pkg = await engine.extractCausaPackage();
 
       return {
         status: 'analysis_complete',
         causa: causa,
-        downloadElements: downloads.length,
-        topDownloads: downloads.slice(0, 5).map(d => ({
-          text: d.element.textContent?.trim().substring(0, 50),
-          confidence: d.confidence,
-          source: d.source,
-        })),
+        cuadernos: pkg?.cuadernos?.length || 0,
+        folios: pkg?.folios?.length || 0,
+        hasTextoDemanda: !!pkg?.jwt_texto_demanda,
+        hasCertificado: !!pkg?.jwt_certificado_envio,
+        hasEbook: !!pkg?.jwt_ebook,
+        hasAnexos: !!pkg?.jwt_anexos,
+        procedimiento: pkg?.procedimiento || null,
+        libro_tipo: pkg?.libro_tipo || null,
       };
     }
 
@@ -304,8 +312,8 @@ async function handleMessage(request) {
         engineReady: isInitialized,
         configVersion: engine?.config?.version || 'N/A',
         causa: engine?.getDetectedCausa() || null,
-        causaConfirmed: engine?.causaContext?.isConfirmed || false,
-        capturedFiles: engine?.networkInterceptor?.getCapturedFiles()?.length || 0,
+        causaConfirmed: engine?.jwtExtractor?.isConfirmed || false,
+        hasCausaPackage: !!engine?.jwtExtractor?.getLastPackage(),
       };
     }
 

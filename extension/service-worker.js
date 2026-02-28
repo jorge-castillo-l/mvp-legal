@@ -116,17 +116,72 @@ chrome.downloads.onCreated.addListener((downloadItem) => {
 });
 
 // ══════════════════════════════════════════════════════════
+// CAUSA PACKAGE STORE (4.16)
+// Stores the latest CausaPackage per tab for API sync (4.17)
+// ══════════════════════════════════════════════════════════
+
+const causaPackageStore = new Map(); // tabId -> { package, timestamp }
+
+// ══════════════════════════════════════════════════════════
 // MESSAGE ROUTER: Comunicación entre componentes
 // ══════════════════════════════════════════════════════════
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Reenviar eventos del scraper al sidepanel (y vice versa)
   if (message.type === 'scraper_event' || message.type === 'scraper_ready') {
-    // Los mensajes del content script se reenvían a todos los listeners
-    // (el sidepanel escucha estos mensajes)
-    // No necesitamos hacer nada especial, chrome.runtime.sendMessage
-    // ya los distribuye a todos los listeners
     return;
+  }
+
+  // 4.16: CausaPackage from JWT Extractor → store + forward to API (4.17)
+  if (message.type === 'causa_package') {
+    const tabId = sender?.tab?.id || 'unknown';
+    const pkg = message.package;
+
+    if (pkg?.rol) {
+      causaPackageStore.set(tabId, { package: pkg, timestamp: Date.now() });
+
+      console.log(
+        '[ServiceWorker] CausaPackage recibido:',
+        pkg.rol, '|', pkg.tribunal,
+        `| ${pkg.cuadernos?.length || 0} cuadernos, ${pkg.folios?.length || 0} folios`
+      );
+
+      // Notify sidepanel about the extracted package
+      chrome.runtime.sendMessage({
+        type: 'scraper_event',
+        event: 'causa_package_ready',
+        data: {
+          rol: pkg.rol,
+          tribunal: pkg.tribunal,
+          procedimiento: pkg.procedimiento,
+          libro_tipo: pkg.libro_tipo,
+          cuadernos: pkg.cuadernos?.length || 0,
+          folios: pkg.folios?.length || 0,
+          tabId: tabId,
+        },
+      }).catch(() => {});
+
+      // API sync will be implemented in 4.17
+      // For now, acknowledge receipt and store
+      sendResponse({ status: 'api_unavailable', message: 'CausaPackage almacenado. API sync pendiente (4.17).' });
+
+      // Clean stale entries (>10 min)
+      const cutoff = Date.now() - 10 * 60 * 1000;
+      for (const [id, entry] of causaPackageStore) {
+        if (entry.timestamp < cutoff) causaPackageStore.delete(id);
+      }
+    } else {
+      sendResponse({ status: 'error', error: 'CausaPackage inválido: falta ROL' });
+    }
+    return true;
+  }
+
+  // Retrieve stored CausaPackage (for sidepanel or API)
+  if (message.type === 'get_causa_package') {
+    const tabId = message.tabId || 'unknown';
+    const entry = causaPackageStore.get(tabId);
+    sendResponse(entry ? { status: 'found', package: entry.package } : { status: 'not_found' });
+    return true;
   }
 
   // Solicitud de URLs de PDF detectadas por el service worker

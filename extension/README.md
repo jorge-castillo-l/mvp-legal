@@ -86,10 +86,21 @@ extension/
 ├── sidepanel.html        # Interfaz del SidePanel
 ├── sidepanel.js          # Lógica del SidePanel (auth + UI)
 ├── styles.css            # Estilos profesionales
-├── content.js            # Script inyectado en pjud.cl (futuro scraper)
+├── content.js            # Script inyectado en pjud.cl (orquestador)
 ├── service-worker.js     # Background service worker
 ├── lib/
-│   └── supabase.js      # Cliente de Supabase para extensión
+│   ├── config.js         # Configuración centralizada
+│   ├── supabase.js       # Cliente de Supabase para extensión
+│   ├── causa-identity.js # Identidad de causa
+│   └── resumable-upload.js # Upload TUS para archivos grandes
+├── scraper/
+│   ├── jwt-extractor.js     # 4.16: Lectura pasiva DOM → JWTs + metadata (CausaPackage)
+│   ├── remote-config.js     # Selectores y config desde el servidor
+│   ├── network-interceptor.js # Layer 1: Captura de PDFs a nivel de red
+│   ├── human-throttle.js    # Anti-WAF: delays gaussianos
+│   ├── pdf-validator.js     # Validación + deduplicación SHA-256
+│   ├── strategy-engine.js   # Orquestador principal del scraper
+│   └── page-interceptor.js  # Interceptor inyectado en la página
 └── icons/
     └── (iconos de la extensión)
 ```

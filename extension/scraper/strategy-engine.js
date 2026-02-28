@@ -36,15 +36,15 @@
  * ║                                                              ║
  * ╚══════════════════════════════════════════════════════════════╝
  * 
- * FLUJO DEL USUARIO (ACTUALIZADO con 4.07 + 4.09):
+ * FLUJO DEL USUARIO (ACTUALIZADO con 4.16 JWT Extractor):
  *   1. Abogado navega a pjud.cl y busca su causa
- *   2. CausaContext detecta el ROL automáticamente → se muestra en Sidepanel
+ *   2. JwtExtractor detecta el ROL automáticamente → se muestra en Sidepanel
  *   3. Abogado CONFIRMA la causa detectada
  *   4. Presiona "Sincronizar" (UN SOLO CLICK)
- *   5. Layers 1 & 2 capturan PDFs SOLO de la zona de documentos confirmada
- *   6. PdfValidator filtra basura (tamaño, URL, magic bytes, duplicados)
- *   7. PDFs aprobados se etiquetan con ROL y se suben a Supabase
- *   8. Si todo falla, se muestra opción de upload manual
+ *   5. JwtExtractor extrae CausaPackage (JWTs + metadata) del DOM visible
+ *   6. CausaPackage se envía al service-worker → API /api/scraper/sync (4.17)
+ *   7. El servidor descarga los PDFs usando los JWTs
+ *   8. Upload manual disponible como fallback
  *
  * REGLA DE ORO: Sin ROL confirmado = sin scraping. Punto.
  */
@@ -53,14 +53,16 @@ class StrategyEngine {
   constructor() {
     this.remoteConfig = new RemoteConfig();
     this.networkInterceptor = new NetworkInterceptor();
-    this.causaContext = null;    // 4.07 - Detector de causa
+    this.jwtExtractor = null;    // 4.16 - JWT Extractor (replaces CausaContext + DOMAnalyzer)
     this.pdfValidator = null;    // 4.09 - Validador de PDFs
-    this.domAnalyzer = null;
     this.humanThrottle = null;
     this.config = null;
     this.status = 'idle'; // idle | initializing | syncing | error
     this.listeners = [];
     this._initialized = false;
+
+    // Backward-compat alias
+    this.causaContext = null;
   }
 
   /**
@@ -78,10 +80,10 @@ class StrategyEngine {
       this.config = await this.remoteConfig.getConfig();
 
       // Inicializar módulos con la config
-      this.domAnalyzer = new DOMAnalyzer(this.config);
       this.humanThrottle = new HumanThrottle(this.config.throttle);
-      this.causaContext = new CausaContext(this.config);
-      this.pdfValidator = new PdfValidator(this.causaContext);
+      this.jwtExtractor = new JwtExtractor(this.config);
+      this.causaContext = this.jwtExtractor; // Backward-compat alias for PdfValidator
+      this.pdfValidator = new PdfValidator(this.jwtExtractor);
 
       // Activar interceptación de red (Layer 1) - SIEMPRE activa
       this.networkInterceptor.setupPageInterception();
@@ -108,17 +110,16 @@ class StrategyEngine {
   }
 
   // ════════════════════════════════════════════════════════
-  // 4.07 - DETECCIÓN Y CONFIRMACIÓN DE CAUSA
+  // 4.16 - DETECCIÓN, CONFIRMACIÓN Y EXTRACCIÓN
   // ════════════════════════════════════════════════════════
 
   /**
    * Detectar la causa en la página actual.
    * Se llama automáticamente al cargar y bajo demanda.
-   * Retorna el contexto detectado (o null).
    */
   async detectCausa() {
-    if (!this.causaContext) return null;
-    const result = await this.causaContext.detect();
+    if (!this.jwtExtractor) return null;
+    const result = await this.jwtExtractor.detect();
     if (result) {
       this._emit('causa_detected', result);
     }
@@ -130,10 +131,10 @@ class StrategyEngine {
    * GATE: Sin esto, sync() se niega a ejecutar.
    */
   confirmCausa() {
-    if (!this.causaContext) return false;
-    const confirmed = this.causaContext.confirm();
+    if (!this.jwtExtractor) return false;
+    const confirmed = this.jwtExtractor.confirm();
     if (confirmed) {
-      this._emit('causa_confirmed', this.causaContext.getConfirmedCausa());
+      this._emit('causa_confirmed', this.jwtExtractor.getConfirmedCausa());
     }
     return confirmed;
   }
@@ -142,15 +143,53 @@ class StrategyEngine {
    * Obtener la causa detectada (confirmada o no)
    */
   getDetectedCausa() {
-    return this.causaContext?.detectedCausa || null;
+    return this.jwtExtractor?.detectedCausa || null;
+  }
+
+  /**
+   * 4.16: Full extraction — CausaPackage with all JWTs + metadata.
+   * Called before sync to prepare the package for the API.
+   */
+  async extractCausaPackage() {
+    if (!this.jwtExtractor) return null;
+
+    this._emit('status', { phase: 'extracting', message: 'Extrayendo datos del expediente...' });
+
+    const pkg = await this.jwtExtractor.extract();
+    if (!pkg) {
+      this._emit('status', {
+        phase: 'extract_failed',
+        message: 'No se pudo extraer la información de la causa. ¿Está el modal abierto?',
+      });
+      return null;
+    }
+
+    this._emit('causa_package_extracted', {
+      rol: pkg.rol,
+      tribunal: pkg.tribunal,
+      procedimiento: pkg.procedimiento,
+      cuadernos: pkg.cuadernos.length,
+      folios: pkg.folios.length,
+      hasTextoDemanda: !!pkg.jwt_texto_demanda,
+      hasCertificado: !!pkg.jwt_certificado_envio,
+      hasEbook: !!pkg.jwt_ebook,
+      hasAnexos: !!pkg.jwt_anexos,
+    });
+
+    return pkg;
   }
 
   /**
    * ════════════════════════════════════════════════════════
    * SYNC - El flujo principal del "botón único"
    * ════════════════════════════════════════════════════════
-   * REGLA: Requiere causa confirmada. Sin excepción.
-   * Ejecuta las 3 capas → valida → sube.
+   * REGLA: Requiere causa detectada. Sin excepción.
+   *
+   * FLUJO 4.16+:
+   *   1. JwtExtractor extrae CausaPackage (JWTs + metadata) del DOM
+   *   2. CausaPackage se envía al service-worker
+   *   3. service-worker → API /api/scraper/sync (4.17) descarga PDFs server-side
+   *   4. Fallback: upload manual si la extracción falla
    */
   async sync() {
     if (this.status === 'syncing') {
@@ -162,8 +201,8 @@ class StrategyEngine {
       await this.initialize();
     }
 
-    // ──── GATE: Verificar causa detectada; auto-confirmar si hay detección (flujo simplificado) ────
-    const detected = this.causaContext.detectedCausa;
+    // ──── GATE: Verificar causa detectada; auto-confirmar ────
+    const detected = this.jwtExtractor.detectedCausa;
     if (!detected) {
       this._emit('status', {
         phase: 'no_causa',
@@ -171,148 +210,110 @@ class StrategyEngine {
       });
       return { error: 'Causa no detectada', needsManual: false, totalFound: 0, totalUploaded: 0 };
     }
-    // Auto-confirmar: el clic en Sincronizar cuenta como confirmación implícita
-    if (!this.causaContext.hasConfirmedCausa()) {
-      this.causaContext.confirm();
+    if (!this.jwtExtractor.hasConfirmedCausa()) {
+      this.jwtExtractor.confirm();
     }
 
-    const confirmedCausa = this.causaContext.getConfirmedCausa();
     this.status = 'syncing';
     const startTime = Date.now();
 
     const results = {
-      rol: confirmedCausa.rol,
-      tribunal: confirmedCausa.tribunal || '',
-      caratula: confirmedCausa.caratula || '',
-      layer1: [],
-      layer2: [],
-      validated: [],
-      rejected: [],
+      rol: detected.rol,
+      tribunal: detected.tribunal || '',
+      caratula: detected.caratula || '',
+      causaPackage: null,
       needsManual: false,
       totalFound: 0,
-      totalValidated: 0,
       totalUploaded: 0,
       errors: [],
       duration: 0,
     };
 
     try {
+      // ──── FASE 1: Extract CausaPackage (4.16) ────
       this._emit('status', {
         phase: 'starting',
-        message: `Sincronizando causa ${confirmedCausa.rol}...`,
+        message: `Sincronizando causa ${detected.rol}...`,
       });
 
-      // ──── FASE 1: LAYER 1 - Network Interception ────
-      this._emit('status', { phase: 'layer1', message: 'Verificando documentos interceptados...' });
+      const causaPackage = await this.extractCausaPackage();
 
-      const intercepted = this.networkInterceptor.getCapturedFiles();
-      if (intercepted.length > 0) {
-        results.layer1 = intercepted;
-        this._emit('status', {
-          phase: 'layer1_success',
-          message: `Layer 1: ${intercepted.length} documento(s) capturado(s) de la red`,
-          count: intercepted.length,
-        });
-      } else {
-        this._emit('status', {
-          phase: 'layer1_empty',
-          message: 'Layer 1: Sin capturas en red. Buscando en el DOM...',
-        });
-      }
-
-      // ──── FASE 2: LAYER 2 - Smart DOM Scraping (acotado a zona de documentos) ────
-      this._emit('status', { phase: 'layer2', message: 'Analizando zona de documentos...' });
-
-      const domResults = await this._executeDomScraping();
-      results.layer2 = domResults;
-
-      // ──── FASE 3: VALIDACIÓN (4.09) ────
-      const allCaptured = [...results.layer1, ...results.layer2];
-      results.totalFound = allCaptured.length;
-
-      if (allCaptured.length > 0) {
-        // 4.12: Cargar hashes existentes desde document_hashes (Supabase) antes de validar
-        const session = await supabase.getSession();
-        if (session?.user?.id && this.pdfValidator) {
-          await this.pdfValidator.loadExistingHashes(
-            supabase, session.user.id, confirmedCausa.rol,
-            confirmedCausa.tribunal || '', confirmedCausa.caratula || ''
-          );
-        }
-
-        this._emit('status', {
-          phase: 'validating',
-          message: `Validando ${allCaptured.length} documento(s)...`,
-        });
-
-        const validation = await this.pdfValidator.validateBatch(allCaptured);
-        results.validated = validation.approved;
-        results.rejected = validation.rejected;
-        results.totalValidated = validation.approved.length;
-        results.batchSummary = validation.batchSummary;
-
-        if (validation.rejected.length > 0) {
-          this._emit('status', {
-            phase: 'filtered',
-            message: `${validation.rejected.length} documento(s) descartado(s) por filtros de calidad`,
-          });
-        }
-
-        // Emitir batchSummary para que el Sync UI muestre advertencias
-        if (validation.batchSummary) {
-          this._emit('batch_summary', validation.batchSummary);
-        }
-
-        // Emitir warnings de archivos grandes que requieren confirmación
-        if (validation.batchSummary?.needsConfirmation) {
-          this._emit('status', {
-            phase: 'needs_confirmation',
-            message: 'Hay archivos excepcionalmente grandes que requieren confirmación.',
-            confirmationFiles: validation.batchSummary.confirmationFiles,
-          });
-          // En esta versión, asumimos que el abogado ya confirmó la causa
-          // y procede con el upload. El Sidepanel mostrará la advertencia.
-        }
-
-        // ──── FASE 4: UPLOAD (solo PDFs validados) ────
-        if (validation.approved.length > 0) {
-          const standardCount = validation.standardUploads?.length || 0;
-          const resumableCount = validation.resumableUploads?.length || 0;
-
-          const uploadMethod = resumableCount > 0
-            ? `${standardCount} estándar + ${resumableCount} resumible(s)`
-            : `${standardCount} estándar`;
-
-          this._emit('status', {
-            phase: 'uploading',
-            message: `Subiendo ${validation.approved.length} documento(s) validado(s) (${uploadMethod})...`,
-            estimatedTime: validation.batchSummary?.estimatedTotalUploadFormatted,
-          });
-
-          const uploaded = await this._uploadValidated(validation.approved, confirmedCausa);
-          results.totalUploaded = uploaded;
-
-          this._emit('status', {
-            phase: 'complete',
-            message: `Sincronización completa: ${uploaded} subido(s), ${validation.rejected.length} descartado(s)`,
-            totalFound: results.totalFound,
-            totalValidated: results.totalValidated,
-            totalUploaded: uploaded,
-            totalRejected: validation.rejected.length,
-            batchSummary: validation.batchSummary,
-          });
-        } else {
-          results.needsManual = true;
-          this._emit('status', {
-            phase: 'all_rejected',
-            message: 'Todos los documentos capturados fueron rechazados por los filtros. Use la subida manual.',
-          });
-        }
-      } else {
+      if (!causaPackage) {
         results.needsManual = true;
         this._emit('status', {
-          phase: 'fallback',
-          message: 'No se detectaron documentos en la zona de la causa. Use la subida manual.',
+          phase: 'extract_failed',
+          message: 'No se pudo extraer los datos del expediente. ¿Está abierto el detalle de la causa?',
+        });
+        this.status = 'idle';
+        results.duration = Date.now() - startTime;
+        return results;
+      }
+
+      results.causaPackage = causaPackage;
+      results.totalFound = causaPackage.folios.length;
+
+      const directDocs = [
+        causaPackage.jwt_texto_demanda,
+        causaPackage.jwt_certificado_envio,
+        causaPackage.jwt_ebook,
+      ].filter(Boolean).length;
+
+      this._emit('status', {
+        phase: 'extracted',
+        message: `Extraídos: ${causaPackage.cuadernos.length} cuaderno(s), ` +
+                 `${causaPackage.folios.length} folio(s), ${directDocs} doc(s) directos`,
+      });
+
+      // ──── FASE 2: Send to service-worker → API (4.17) ────
+      this._emit('status', {
+        phase: 'sending',
+        message: 'Enviando paquete al servidor para descarga...',
+      });
+
+      try {
+        const response = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({
+            type: 'causa_package',
+            package: causaPackage,
+          }, (resp) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else {
+              resolve(resp);
+            }
+          });
+        });
+
+        if (response?.status === 'accepted') {
+          results.totalUploaded = response.documentsQueued || 0;
+          this._emit('status', {
+            phase: 'complete',
+            message: `Paquete enviado: ${causaPackage.folios.length} folios + ${directDocs} documentos directos. ` +
+                     'El servidor procesará la descarga.',
+            causaPackage: {
+              rol: causaPackage.rol,
+              cuadernos: causaPackage.cuadernos.length,
+              folios: causaPackage.folios.length,
+              directDocs: directDocs,
+            },
+          });
+        } else if (response?.status === 'api_unavailable') {
+          this._emit('status', {
+            phase: 'api_pending',
+            message: 'Paquete extraído correctamente. API sync pendiente (4.17).',
+          });
+        } else {
+          this._emit('status', {
+            phase: 'send_error',
+            message: response?.error || 'Error al enviar paquete al servidor.',
+          });
+          results.errors.push(response?.error || 'Unknown send error');
+        }
+      } catch (sendError) {
+        console.warn('[StrategyEngine] CausaPackage send:', sendError.message);
+        this._emit('status', {
+          phase: 'api_pending',
+          message: 'Paquete extraído. API sync se implementará en tarea 4.17.',
         });
       }
     } catch (error) {
@@ -328,373 +329,14 @@ class StrategyEngine {
 
     results.duration = Date.now() - startTime;
     this.status = 'idle';
-    this.networkInterceptor.clearCaptured();
-
     return results;
   }
 
   // ════════════════════════════════════════════════════════
-  // LAYER 2: DOM Scraping con Throttle Humano
+  // LEGACY: DOM Scraping helpers (kept for manual upload compat)
   // ════════════════════════════════════════════════════════
-
-  async _executeDomScraping() {
-    const results = [];
-    const documentZone = this.causaContext.getDocumentZone();
-
-    // Si tenemos zona de documentos confirmada, buscar SOLO dentro de ella
-    if (documentZone?.element) {
-      this._emit('status', {
-        phase: 'layer2_scoped',
-        message: 'Buscando descargas dentro de la zona de documentos de la causa...',
-      });
-
-      const zoneElement = documentZone.element;
-
-      // FASE PREVIA: Scrape modal de Anexos (expand-then-scrape)
-      // PJud carga los anexos por AJAX al abrir el modal; no están en el DOM hasta entonces
-      const anexosPdfs = await this._scrapeAnexosModal(zoneElement);
-      if (anexosPdfs.length > 0) {
-        results.push(...anexosPdfs);
-        this._emit('status', {
-          phase: 'layer2_anexos',
-          message: `${anexosPdfs.length} documento(s) extraído(s) de Anexos`,
-        });
-      }
-
-      // Buscar links de descarga DENTRO de la zona confirmada
-      const clickables = zoneElement.querySelectorAll('a, button, [onclick], [role="button"]');
-      const candidates = [];
-
-      for (const el of clickables) {
-        const score = this.domAnalyzer._scoreDownloadElement(el);
-        if (score >= (this.config.heuristics?.minConfidenceThreshold || 0.35)) {
-          candidates.push({ element: el, confidence: score, source: 'scoped_zone' });
-        }
-      }
-
-      if (candidates.length > 0) {
-        candidates.sort((a, b) => b.confidence - a.confidence);
-        this._emit('status', {
-          phase: 'layer2_found',
-          message: `${candidates.length} enlace(s) de descarga en la zona de documentos`,
-        });
-
-        let downloadCount = 0;
-        for (const candidate of candidates.slice(0, 30)) {
-          const pdf = await this._attemptDownload(candidate);
-          if (pdf) {
-            results.push(pdf);
-            downloadCount++;
-
-            this._emit('status', {
-              phase: 'layer2_downloading',
-              message: `Descargando documento ${downloadCount}/${candidates.length}...`,
-              current: downloadCount,
-              total: candidates.length,
-            });
-          }
-        }
-      }
-
-      return results;
-    }
-
-    // Fallback: Sin zona confirmada, buscar tabla de forma heurística
-    const tableResult = this.domAnalyzer.findCausaTable();
-    if (!tableResult) {
-      console.log('[StrategyEngine] Layer 2: No se encontró zona de documentos');
-      return results;
-    }
-
-    this._emit('status', {
-      phase: 'layer2_table',
-      message: `Tabla detectada (confianza: ${Math.round(tableResult.confidence * 100)}%). Extrayendo...`,
-    });
-
-    const cases = this.domAnalyzer.extractCaseData(tableResult);
-    let downloadCount = 0;
-
-    for (const caseData of cases) {
-      for (const linkData of caseData.downloadLinks) {
-        const pdf = await this._attemptDownload(linkData);
-        if (pdf) {
-          pdf.caseText = caseData.text;
-          results.push(pdf);
-          downloadCount++;
-
-          this._emit('status', {
-            phase: 'layer2_downloading',
-            message: `Descargando documento ${downloadCount}...`,
-            current: downloadCount,
-          });
-        }
-      }
-    }
-
-    return results;
-  }
-
-  /**
-   * Scrape de modal Anexos (PJud): expand-then-scrape.
-   * El enlace abre #modalAnexoCausaCivil y los PDFs se cargan por AJAX.
-   * Flujo: detectar enlace → clic → esperar carga → extraer PDFs → cerrar modal.
-   */
-  async _scrapeAnexosModal(zoneElement) {
-    const results = [];
-    const anexosSelectors = [
-      'a[href="#modalAnexoCausaCivil"]',
-      'a[onclick*="anexoCausaCivil"]',
-      'a[data-toggle="modal"][href*="Anexo"]',
-    ];
-
-    let anexosLink = null;
-    for (const sel of anexosSelectors) {
-      try {
-        anexosLink = zoneElement.querySelector(sel);
-        if (anexosLink) break;
-      } catch (e) { /* selector inválido */ }
-    }
-
-    if (!anexosLink) return results;
-
-    try {
-      this._emit('status', {
-        phase: 'layer2_anexos_open',
-        message: 'Abriendo modal de Anexos...',
-      });
-
-      // Sin executeThrottled aquí: cada _attemptDownload ya usa su propio throttle.
-      // Envolver todo causaba deadlock (maxConcurrent=1: el slot nunca se liberaba).
-      await new Promise(r => setTimeout(r, 500)); // breve delay antes del clic
-      this._simulateHumanClick(anexosLink);
-      const modal = await this._waitForModalContent('#modalAnexoCausaCivil', 6000);
-
-      if (!modal) {
-        console.warn('[StrategyEngine] Modal Anexos no cargó a tiempo o está vacío');
-        return results;
-      }
-
-      const modalBody = modal.querySelector('.modal-body');
-      const searchRoot = modalBody || modal;
-
-      const clickables = searchRoot.querySelectorAll('a, button, [onclick], [role="button"]');
-      const candidates = [];
-      for (const el of clickables) {
-        const score = this.domAnalyzer._scoreDownloadElement(el);
-        if (score >= (this.config.heuristics?.minConfidenceThreshold || 0.35)) {
-          candidates.push({ element: el, confidence: score, source: 'anexos_modal' });
-        }
-      }
-
-      candidates.sort((a, b) => b.confidence - a.confidence);
-
-      for (const candidate of candidates.slice(0, 20)) {
-        const pdf = await this._attemptDownload(candidate);
-        if (pdf) results.push(pdf);
-      }
-
-      this._closeModal(modal);
-    } catch (e) {
-      console.warn('[StrategyEngine] Error al scrapear modal Anexos:', e.message);
-    }
-
-    return results;
-  }
-
-  /**
-   * Espera a que el modal se abra y tenga contenido (AJAX).
-   * Retorna el elemento del modal o null si timeout.
-   */
-  _waitForModalContent(modalId, maxMs = 6000) {
-    return new Promise((resolve) => {
-      const start = Date.now();
-      const check = () => {
-        const modal = document.querySelector(modalId);
-        if (!modal) {
-          if (Date.now() - start < maxMs) setTimeout(check, 300);
-          else resolve(null);
-          return;
-        }
-
-        const isVisible = modal.classList.contains('in') ||
-          modal.classList.contains('show') ||
-          (modal.style?.display && modal.style.display !== 'none');
-
-        const hasPdfContent = modal.querySelector(
-          'i.fa-file-pdf-o, i.fa-file-pdf, form[action*="documento"], a[href*=".pdf"]'
-        );
-
-        if (isVisible && hasPdfContent) {
-          resolve(modal);
-          return;
-        }
-
-        if (Date.now() - start >= maxMs) {
-          resolve(modal); // devolver aunque esté vacío para poder cerrar
-          return;
-        }
-
-        setTimeout(check, 300);
-      };
-      check();
-    });
-  }
-
-  /**
-   * Cierra un modal Bootstrap (data-dismiss o backdrop).
-   */
-  _closeModal(modal) {
-    try {
-      const btn = modal.querySelector('[data-dismiss="modal"], .close, button[aria-label="Close"]');
-      if (btn) btn.click();
-      else modal.classList.remove('in', 'show');
-    } catch (e) {
-      console.warn('[StrategyEngine] No se pudo cerrar modal:', e.message);
-    }
-  }
-
-  /**
-   * Intentar descargar un PDF.
-   * PJud usa <a onclick="$(this).closest('form').submit();"> - form.submit() hace navegación,
-   * el interceptor nunca lo ve. Si detectamos form trigger, hacemos fetch manual.
-   */
-  async _attemptDownload(candidate) {
-    try {
-      return await this.humanThrottle.executeThrottled(async () => {
-        const element = candidate.element;
-
-        // PJud: elementos que disparan form.submit() - evitar navegación, usar fetch
-        const formPdf = await this._fetchViaForm(element);
-        if (formPdf) {
-          return {
-            ...formPdf,
-            source: 'form_fetch',
-            confidence: candidate.confidence || candidate.score,
-          };
-        }
-
-        // Path original: click + esperar captura por red (fetch/XHR)
-        const capturePromise = this.networkInterceptor.waitForCapture(12000);
-        this._simulateHumanClick(element);
-        const captured = await capturePromise;
-
-        if (captured) {
-          return {
-            ...captured,
-            source: 'dom_triggered',
-            confidence: candidate.confidence || candidate.score,
-          };
-        }
-
-        return null;
-      });
-    } catch (error) {
-      console.warn('[StrategyEngine] Error al descargar:', error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Si el elemento dispara un form submit (ej. PJud <a onclick="form.submit()">),
-   * extrae datos del form y hace fetch manual. El servidor responde con el PDF.
-   */
-  async _fetchViaForm(element) {
-    const form = element?.closest?.('form');
-    if (!form) return null;
-
-    try {
-      const url = new URL(form.action || '', window.location.href).href;
-      const method = (form.method || 'get').toUpperCase();
-
-      let options = { method, credentials: 'include' };
-
-      if (method === 'GET') {
-        const params = new URLSearchParams(new FormData(form));
-        const separator = url.includes('?') ? '&' : '?';
-        const fullUrl = `${url}${separator}${params.toString()}`;
-        const response = await fetch(fullUrl, options);
-        return await this._parsePdfResponse(response, fullUrl);
-      }
-
-      const enctype = (form.enctype || 'application/x-www-form-urlencoded').toLowerCase();
-      if (enctype.includes('multipart')) {
-        options.body = new FormData(form);
-      } else {
-        options.body = new URLSearchParams(new FormData(form)).toString();
-        options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-      }
-
-      const response = await fetch(url, options);
-      return await this._parsePdfResponse(response, url);
-    } catch (e) {
-      console.warn('[StrategyEngine] _fetchViaForm falló:', e.message);
-      return null;
-    }
-  }
-
-  /**
-   * Parsea respuesta fetch: si es PDF, retorna objeto compatible con el flujo de captura.
-   */
-  _parsePdfResponse(response, url) {
-    if (!response.ok) return null;
-
-    const contentType = response.headers.get('content-type') || '';
-    const isPdf = contentType.includes('application/pdf') ||
-      contentType.includes('application/octet-stream') ||
-      /\.pdf(\?|$)/i.test(url || '');
-
-    if (!isPdf) return null;
-
-    return response.blob().then((blob) => {
-      if (blob.size < 1024) return null; // Muy pequeño, probablemente no es PDF real
-      return {
-        url: url,
-        contentType: contentType,
-        blobUrl: URL.createObjectURL(blob),
-        size: blob.size,
-        method: 'form_fetch',
-        timestamp: Date.now(),
-        capturedAt: new Date().toISOString(),
-      };
-    }).catch(() => null);
-  }
-
-  /**
-   * Simular un click lo más humano posible
-   * Incluye mouseover, mousedown, mouseup, click
-   * Los WAF avanzados verifican la secuencia completa de eventos
-   */
-  _simulateHumanClick(element) {
-    try {
-      // Scroll al elemento (un humano necesita verlo)
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-      // Secuencia completa de eventos del mouse
-      const rect = element.getBoundingClientRect();
-      const x = rect.left + rect.width / 2 + (Math.random() * 4 - 2);
-      const y = rect.top + rect.height / 2 + (Math.random() * 4 - 2);
-
-      const eventOptions = {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: x,
-        clientY: y,
-      };
-
-      element.dispatchEvent(new MouseEvent('mouseover', eventOptions));
-      element.dispatchEvent(new MouseEvent('mousedown', eventOptions));
-
-      // Pequeño delay entre mousedown y mouseup (humanos no son instantáneos)
-      setTimeout(() => {
-        element.dispatchEvent(new MouseEvent('mouseup', eventOptions));
-        element.dispatchEvent(new MouseEvent('click', eventOptions));
-      }, 50 + Math.random() * 100);
-    } catch (e) {
-      // Fallback: click simple
-      element.click();
-    }
-  }
+  // DOM-click-based scraping replaced by JWT extraction (4.16).
+  // Server-side PDF download via JWTs will be in 4.17.
 
   // ════════════════════════════════════════════════════════
   // UPLOAD: Subir PDFs capturados al servidor
@@ -968,7 +610,7 @@ class StrategyEngine {
     }
 
     // Si hay causa confirmada, asociar el archivo a ella
-    const confirmedCausa = this.causaContext?.getConfirmedCausa();
+    const confirmedCausa = this.jwtExtractor?.getConfirmedCausa();
 
     const formData = new FormData();
     formData.append('file', file, file.name);

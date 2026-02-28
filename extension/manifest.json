@@ -35,9 +35,8 @@
         "lib/resumable-upload.js",
         "scraper/remote-config.js",
         "scraper/network-interceptor.js",
-        "scraper/dom-analyzer.js",
         "scraper/human-throttle.js",
-        "scraper/causa-context.js",
+        "scraper/jwt-extractor.js",
         "scraper/pdf-validator.js",
         "scraper/strategy-engine.js",
         "content.js"
