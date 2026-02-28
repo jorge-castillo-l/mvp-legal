@@ -1,0 +1,51 @@
+<!--
+Paso 4:
+Causa de referencia para Escritos por Resolver: C-50-2026 - Juzgado de Letras y Gar.de Cabrero
+Fecha captura: 27/02/2026
+
+NOTA: Las tabs son INLINE (no AJAX). Vienen completas en la respuesta de causaCivil.php.
+Las tabs Historia, Litigantes, Notificaciones y Exhortos ya están documentadas con datos 
+reales en DOM4.html (causa C-100-2023, Lebu).
+Este archivo documenta la única tab que faltaba: Escritos por Resolver.
+
+HALLAZGOS:
+- Tab Escritos por Resolver: 1 escrito pendiente encontrado (Ingreso demanda). Usa docuN.php para descarga
+- Columnas: Doc. | Anexo | Fecha de Ingreso | Tipo Escrito | Solicitante
+- Doc. contiene form de descarga con JWT: SI (form name="formAneEsc", action="docuN.php", param dtaDoc=JWT)
+- Anexo contiene form de descarga: NO en este caso (vacío), pero podría tener form con JWT en escritos que adjunten documentos
+-->
+
+HTML: 
+<div class="table-responsive">
+
+    <table class="table table-bordered table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Doc.</th>
+                <th>Anexo</th>
+                <th>Fecha de Ingreso</th>
+                <th>Tipo Escrito</th>
+                <th>Solicitante</th>
+            </tr>												
+        </thead>
+        <tbody>
+            <tr><!-- escrito pendiente: aún no proveído por el tribunal -->
+                <td align="center"><!-- Doc.: form de descarga del escrito -->
+                    <form name="formAneEsc" action="ADIR_871/civil/documentos/docuN.php" method="get" target="anes1"><!-- mismo endpoint docuN.php que escritos en tab Historia -->
+                        <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjI0MjA1MywiZXhwIjoxNzcyMjQ1NjUzLCJkYXRhIjoiYXAwQkpSR1wvNkEwb3c1OHJ1Szd3UVdidUlJa3EzTTZsK1YrTE01cGthazBlVUEzRytJR1RycTBDQUlCdFZDQ1ltWEZPTkdwaXNxT282UE9MWWpPaUdacFF6Nzd3MFd6SFQ1VVFHRjlHaVFvPSJ9.sSxHEi3FNH41Iw3N2f22tVBnDwf98tlwH1pDYYyhD94">
+                        <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                            <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                        </a>
+                        
+                    </form>
+                </td>
+                <td align="center"><!-- Anexo: vacío en este caso, podría tener form de descarga -->
+                </td>
+                <td>27/02/2026</td><!-- Fecha de Ingreso del escrito -->
+                <td>Ingreso demanda</td><!-- Tipo Escrito -->
+                <td>Demandante                                        </td><!-- Solicitante: quién presentó el escrito -->		
+            </tr>
+        </tbody>
+    </table>
+                
+</div>

@@ -1,0 +1,12 @@
+ID Origen,Tarea V1,Nota V2 (extraída de PREPARACIÓN V2)
+3.06,Enhanced Analysis Pipeline,"Límites por plan: Estudio 500 full_analysis/mes + 100 deep_thinking/mes | Enterprise 1500 full_analysis/mes + 300 deep_thinking/mes (al implementar 6.05)"
+3.08,Chat UI 3 Modos,"Componentes de chat diseñados como módulos reutilizables para montar en Dashboard sin duplicar lógica"
+3.11,PDF Viewer Component,"Componente diseñado como módulo reutilizable para montar en Dashboard con layout de pantalla completa"
+4.04,Middleware: Limits & Rate Guard,"Estructura middleware extensible para agregar planes Estudio/Enterprise (6.05) + action_type 'editor' al integrar Editor de Escritos (3.03) y Micro-Escritos (10.06)"
+2.02,Privacy: Vertex AI Logs Disabled,"Al integrar Claude para Editor de Escritos → deshabilitar también logs en Anthropic API"
+5.01,Vistas de Casos,"Componentes de vistas diseñados como módulos reutilizables para montar vista detallada completa en Dashboard"
+5.02,Landing Page,"Diseño de pricing grid extensible para agregar planes Estudio $249 + Enterprise $499 al implementar Multi-User Team Management (6.05)"
+6.04,SQL: Plans Schema Update,"plan_type CHECK extensible para agregar 'estudio'|'enterprise' al implementar Multi-User Team Management (6.05) + monthly_editor_count/limit para Editor de Escritos (3.03) y Micro-Escritos (10.06)"
+6.01,Stripe & Webhooks,"Estructura Stripe extensible para agregar planes Estudio $249 + Enterprise $499 con billing por organización (6.05) al implementar Multi-User Team Management"
+1.06,Next.js 'use cache' Setup,"Extender cache a Dashboard completo al implementar vistas detalladas + chat en Dashboard"
+8.01,Test Suite & QA Pipeline,"Agregar tests de Editor de Escritos (3.03) + Micro-Escritos (10.06) + Mis Causas (4.21) con libro/tipo f + cookies + dual entry point"

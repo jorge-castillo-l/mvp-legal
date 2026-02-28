@@ -1,0 +1,1207 @@
+<!--
+DOM2-tipo-e.html — Captura de modal #modalDetalleCivil para causa tipo E (Exhorto)
+
+  ROL: E-1-2023
+  Tribunal: Juzgado de Letras y Gar.de Cochrane
+  Fecha captura: 27/02/2026
+  Entry point: Consulta Unificada
+
+  HALLAZGOS:
+  - Proc.: Exhorto
+  - Documentos directos: Texto Demanda (form), Anexos (ban), Certificado (ban), Ebook (form), Receptor (link)
+  - Cuadernos: solo 1 (0 - Principal)
+  - Tabs: 6 (las 5 estándar + "Piezas Exhorto" #piezasExhortoCiv) — EXCLUSIVO tipo e
+  - Bloque "Piezas Exhorto" en metadata: tercera table.table-titulos.wellTable con Causa Origen y Tribunal Origen
+  - Función deshabilitada: causaOrigenCivil(JWT) → #modalCausaOrigenCivil (comentada en HTML, PJUD usa detalleCausaCivil)
+  - Tab Piezas Exhorto: estructura similar a Historia pero con columna "Cuaderno" adicional
+  - Targets de ventana: exTraP[N] (resoluciones) y exTraW[N] (escritos) — distintos a Historia (p[N], w[N])
+  - Descarga vía docuS.php y docuN.php (igual que Historia)
+  - Remisiones en la Corte: NO aparece en esta causa
+-->
+<div class="modal-content">
+    <div class="modal-header">
+                                <button type="button" class="close" data-dismiss="modal">×</button>
+                    <h4 class="modal-title" style="color:#337ab7;">Detalle Causa Civil</h4>
+    </div>
+
+    <div class="modal-body">
+    
+        <div class="panel with-nav-tabs">
+        
+            <div class="panel panel-default">
+                <!-- PRIMERA table.table-titulos: metadata de la causa -->
+                <table class="table table-responsive table-titulos">
+                    <tbody>
+                        <tr>
+                            <td><strong>ROL:</strong> E-1-2023 <span title="Causa LTE" class="label label-primary topTool"></span></td>
+                            <td colspan="2"><strong>F. Ing.:</strong> 14/01/2023</td>
+                            <td>BANCO  DEL ESTADO DE CHILE</td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <strong>Est. Adm.: </strong>
+                                <span class="topTool" data-toggle="tooltip">
+                                  Sin archivar                  																					</span>
+                            </td>
+                            <td><strong>Proc.:</strong> Exhorto</td>
+                            <td colspan="2"><strong>Ubicación:</strong> Digital                       </td>
+                        </tr>
+                        <tr>
+                            <td><strong>Estado Proc.:</strong> Concluido                     </td>
+                            <td><strong>Etapa:</strong> 1 Terminada                               </td>
+                            <td colspan="2"><strong>Tribunal:</strong> Juzgado de Letras y Gar.de Cochrane               </td>
+                        </tr>
+                        <input type="hidden" value="string(42) " 1="" terminada="" "="">
+                    </tbody>
+                </table>
+                        
+                <!-- SEGUNDA table.table-titulos: documentos directos -->
+                <table class="table table-responsive table-titulos">
+                    <tbody>
+                        <tr>
+                            <td>
+                                <strong>Texto Demanda:</strong><!-- form con JWT → docu.php (disponible) -->
+                                <form name="form" action="ADIR_871/civil/documentos/docu.php" method="get" target="txtD">
+                                    <input type="hidden" name="valorEncTxtDmda" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9BcDJRdCtXRFZlajBSXC9GbFRZWFIxdnJpcFFNVjF1YmZqaHgrcEZaaFdob3R0VzBXT3RyVmxGbDVNOHJIdkxBRmZPa0FocGpra0cyYmk5YmJqSEFcL3ZvPSJ9.rez1-hhsvposiC-f4Tf5xVpBLNavOqDJthIyp8oToBc">
+                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Archivo Texto Demanda" role="img">
+                                        <i title="Texto Demanda" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Texto Demanda</span>
+                                    </a>
+                                </form>
+                            </td>
+                            <td>
+                                <strong>Anexos de la causa:</strong><!-- fa-ban: no disponible en tipo e -->
+                                <br>
+                                <i class="fa fa-ban fa-lg" aria-hidden="true" style="color:#660000; cursor:no-drop;"></i>
+                            </td>
+                              
+                              <!-- Bloque boton Certificado -->
+                
+                            <td>
+                                <strong>Certificado de Envío:</strong><!-- fa-ban: no disponible en tipo e --><br>
+                                <i class="fa fa-ban fa-lg" aria-hidden="true" style="color:#660000; cursor:no-drop;"></i>
+                            </td>
+                        <!-- Fin Bloque boton Certificado -->
+
+                            <td id="boton">
+                        <!-- Bloque boton ebook -->
+                                <strong>Ebook:</strong>
+                                <form name="form" action="ADIR_871/civil/documentos/newebookcivil.php" method="get" target="_blank">
+                                    <input type="hidden" name="dtaEbook" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiRnlTTnhWVXRJUGd5Tmh0TXA2VjgwQmRJZTBKTmxEY0wwZENKZ3VaVmZja2dKR0puMEppdTdWcFhwN3FiVHdJTCJ9.lEpRIGiwda0O6v05ykvdJRVZQeNAKYSEQC1fPGqIaeI">
+                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Ebook" role="img">
+                                    <i title="Descargar Ebook" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Ebook</span>
+                                    </a>
+                                </form>
+                            </td>
+                        <!-- Fin Bloque boton ebook -->
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <!-- TERCERA table.table-titulos.wellTable: Bloque Piezas Exhorto — EXCLUSIVO tipo e -->
+                <!-- Muestra Causa Origen + Tribunal Origen del exhorto. Link abre modal de la causa original -->
+                <table class="table table-responsive table-titulos wellTable">
+                    <tbody>								
+                        <tr>
+                
+                            <td>
+                                <strong>Causa Origen:</strong> C-1915-2020										&nbsp;&nbsp;&nbsp;&nbsp;
+                                <!-- DESHABILITADO: causaOrigenCivil() → #modalCausaOrigenCivil. PJUD lo reemplazó por detalleCausaCivil() abajo -->
+                                <!--<a data-toggle="modal" href="#modalCausaOrigenCivil" title="Causa origen" onClick="causaOrigenCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiRnlTTnhWVXRJUGd5Tmh0TXA2VjgwQmRJZTBKTmxEY0wwZENKZ3VaVmZja2dKR0puMEppdTdWcFhwN3FiVHdJTCJ9.lEpRIGiwda0O6v05ykvdJRVZQeNAKYSEQC1fPGqIaeI');"><i class="fa fa-folder-open fa-lg" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>-->
+                                <a data-toggle="modal" href="#modalDetalleCivil" title="Causa origen" onclick="detalleCausaCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNaFlGbXladmFid0hhbGplV2w3OWlXQVU1NDQ3UlwvSG1BaEVwTjUra0F5NkpGdDJcL3hybkdzaUtSRm81T3RNU3NjZUNyTWo5YzUrTXhuSER3SUEyaTFqWjRmNWVCT3hFM2ZhYnFZbWdsdGZWOUZ4REJETStXTkR5eXppa1F4V2ZrczBYblBoWlpHRkdiWUF0XC9ETDhyTHhQYUdFRXhXQ1VLR05hdTV0ekFrZjQ4bllEV0pWMlZYTVV2MVdJQzVOMGFrYXc2OXdpcURRbmtlVUkzdTNRRFowU29aSW5pMWlMTk9TYVZNRWo0UHdYTXRmd0tYaFA5dHhLY2lHVFJtTXdBOU5vMnZFN1ZlQk1zdzM0WGpQcXJaaWk3cjZKQzMwMFpWNVYySEk4YXpJVktqdU1LZGtPYktIVER5YVNGRE9rYU5oMEl4K00yUEdMTVNIYlhFZU5hQVkyRlF0QWhLYlwvNXd5Mm9WUnJcL3N3Q3hkTU11eWRWQ0ZKY0dwZ0FuY1ZnMFBqNG9qWGswUmhDNlRpRkRJK3ozdnlmU1RpdTBnS0xKNDBTRXVGWnJtYVU0MkhLZUlpSEFONnRWdEVydEZaQmJjelplUUk3WCtLQ2t6dkltbWdjXC96NW1xZGNQandtT2tFU2FSVVBqWmREWlwvdURKaDBhMTUyMEwwNUF2YlFnNklseFI5V25GQ2NXMDVSVGtDTlNsaWxHc1JtK2J6ZDVVK1FnWmQ0Z0w0SVhvYU5MMVRsbjVua2dCTUFrMmNSM3NXSVhaYXYxU0QrZ2wrV0lmV2FDaXRLTklRRnZEd08ycVRBVnRVS25VVVNUZnMzeFp5MWc2UGNNR0trcFA4SGo1djBMS1hZNFRBZkthakVnQ1VYRzNVT3FGcHFLZE1VNm9BYmFTbFwvRzJDYTNsaWdvSWZIMEowUlFkVkdNWUJncnNLR2x2SXdcL2dJdFVOUTFzUjRrSzEzRVdRZzhLMEpzaVkwaE81VXZ4S0Q2bTNWVGlINVYreEpTZEpNNjBcL1A2T0NEZlhzMDNhTWdYQzZGMDZVVUppOSt3TW1Ed2RlXC8wK3B4RklZNDB5a3hXREJ5NWhPUGhcL3hSWkw5a0RMdzdwNE0yKzFoK3hEUitpS2VcLys5OU05M05ITnpLZ3c4YzduUEtUSytaZ0MwNTNHV0c1R2hUbEpJTjBra2x5V05KWTdwQ3JQdTRpTHhaVUhnTUtQeUt5MzVIZDV1TDhpcmFNcWlabFBkMFRmS1EraktyaVh2aVwvTGQzckdLUEF5Z01ZNnZoSXcrcytaa2RzOGdFdjlPOWlQQTZ0Kyt6MnNmcXlNaHo5d01oMG9WRnBQSk91VWR6Z1MyWnFBWXFISWh0NjhhSm9aNVV2aWFhSzI4RFoyaDFvZ0dXYk5OU1hzMk45ZFhOa0pqa09YaEhLXC9NTlZwMXI2aExJUDFuTWsxTGQwQ1N1ZnBBPT0ifQ.I4vsLffYdMBKS9Eg_DAtG6Og-Lx4otujaYWJLNTdkXI');"><i class="fa fa-folder-open fa-lg" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+                            </td>
+                            <td><strong>Tribunal Origen:</strong> 1º Juzgado de Letras de Coyhaique                 </td>
+                            <!-- Fin Bloque Piezas Exhorto -->
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="panel panel-default">
+                <table class="table table-responsive table-titulos">
+                    <tbody>
+                        <tr>
+                            <td>
+                                <strong>Historia Causa Cuaderno</strong><br>
+                                <select id="selCuaderno" class="form-control form-control-sm">
+                                        <option value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNa2xsNXIwYXdcL2ZTTnJvWUFWS0pHVVhCNGhnaEVzN0RCOHltUDJwcHREcDM5U1h5MStcL1gyNTUrbTJqYURBWU01SDBGSnNjOUpKZ3ZzYVQrSnZcLytpRHJPZENBaTh4cGpueGQ0UTNVSkNNdW40ZFIySzlrK3FZNnZGaTd4Yk5VcEtURFJkblBZbVE5RXVjRzlQVDlpSzRRPSJ9.s9oH9UxtiWEbzYC91czrK2TiWZmXo7BWZBWyUegnYjo" selected="selected">0 - Principal</option>
+
+                                </select>
+                                <!--
+                                250 29035396 37087308 1 1 E 2023										-->
+                            </td>
+                            <td>
+                                <strong>Información notificaciones receptor:</strong>
+                                <br>
+                                <a data-toggle="modal" href="#modalReceptorCivil" title="Ver Receptor" role="img" onclick="receptorCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoic1dCRmw3Mm15TEtaeU5samZQc3FuYVRHVGxLTStnY3JrWjFmZXJyZGJuNTFoWUtabklVSkRhSE12dTdmV0FHRTJmeENcL2hDNE5jXC9ZWXJCWXljNEdoTkJvMzNxaFc1elZIU1dxOFdXSGc1b1FrSkFrQUJOSXRMMjcwSUUrdjJSQlJMdjh5Y0dadHMyanV2XC96eVpPY2VQXC9zc1RadzdZWXkzN3c4OThPRWdUeTFOSlArZzlhSEFOSHRES0dvNmtaMiJ9.8f6Gg0UhuUi-ONqhyQ-2XjevjC84O7FwdcWDeAJnTUs');"><i class="fa fa-folder fa-2x" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="panel-heading">
+                <ul class="nav nav-tabs" style="display:inline-block">
+                    <li class="active"><a data-toggle="tab" href="#historiaCiv" aria-expanded="true">Historia</a></li>
+                    <li><a data-toggle="tab" href="#litigantesCiv">Litigantes</a></li>
+                    <li><a data-toggle="tab" href="#notificacionesCiv">Notificaciones</a></li>
+                    <li><a data-toggle="tab" href="#escritosCiv">Escritos por Resolver</a></li>
+                    <li><a data-toggle="tab" href="#exhortosCiv">Exhortos</a></li>
+                    
+                    <li class=""><a data-toggle="tab" href="#piezasExhortoCiv" aria-expanded="false">Piezas Exhorto</a></li><!-- 6ta tab: EXCLUSIVO tipo e -->
+
+                </ul>
+            </div>
+            
+            <div class="tab-content" id="loadHistCuadernoCiv">
+                
+                <div class="tab-pane fade active in" id="historiaCiv"> <!-- INICIO PANEL -->
+                
+                    <div class="panel panel-default">
+                    
+                        <div class="table-responsive">
+                            
+                            <table class="table table-bordered table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Folio</th>
+                                        <th>Doc.</th>
+                                        <th>Anexo</th>
+                                        <th>Etapa</th>
+                                        <th>Trámite</th>
+                                        <th>Desc. Trámite</th>
+                                        <th>Fec. Trámite</th>
+                                        <th>Foja</th>
+                                        <th>Georref.</th>
+                                    </tr>												
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            5 
+                                        </td>
+                                        <td align="left">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="p1">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9FYkZIaGJxckU3Y2FnUEx5MzFXSnJxWVUzUXNZOXBiVlJwNVFlSVdcL3R1ZWN6MkNSKyt5TkwzTkJ0RjE1T1BOZlVqVmpxdTJLMFpRSktzWm9FMndKN1VlM1lZQlNnRG1URld2aGQ1XC9uVFkwZzdvRkVHK1R4SWkwclVCV2NDNkRSZz09In0.LjzhdeIY767jZR4Hl1Ip8rsAZWSzVqx9qdz_WWElDG8">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                            </td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Exhorto                                 </td>
+                                        <td>Resolución</td>
+                                        <!--<td><span title="Devuelve con resultado positivo" class="topToolNom"></span></td>-->
+                                        <td>
+Devuelve con resultado positivo												</td>
+                                        <td>31/01/2023</td>
+                                        <td>3</td>
+                                        <td align="center">
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            4 
+                                        </td>
+                                        <td align="left">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w2" style="display: inline-block;">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9MUmRoT1wvVGVNN1A0Z21Eemd4SVJRR3E0bW1WU21BeVpia2VjekcyUzdpSEtJd0owcTJHV1ZLODdWdGRIT29vMUtqVFlLQW1KOVVMUFptQitBXC9KM2ZkQUxFbVdPOW1BdTVKVlpNTG03NmRERTUrK0JsKzl5bGl1OTUwUU9mSlp0QT09In0.gcu-EWO9EqqhA09yleXzfRmy_JKl4UmPLlcIxxKtVvg">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                        <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                    </a>
+                                                </form>
+                                                                                                      </td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Exhorto                                 </td>
+                                        <td>Actuación Receptor</td>
+                                        <!--<td><span title="Inscripción / Alzamiento registro (Realizada) Diligencia:30/01/2023 11:41" class="topToolNom"></span></td>-->
+                                        <td>
+Inscripción / Alzamiento registro (Realizada) Diligencia:30/01/2023 11:41												</td>
+                                        <td>30/01/2023 (30/01/2023)</td>
+                                        <td>0</td>
+                                        <td align="center">
+                                                <a data-toggle="modal" href="#modalGeoReferenciaCivil" title="Georreferencia" role="img" onclick="geoReferencia('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoibERBTFMxU01vcStrRHhVVjNiSFZmU3NMWFhhR0lmY2lJZ2dkeEJwQXRVND0ifQ.THgqNWIEIVFGvjj4dItcVud8Cv3-XF-GlI2bQWbqwD4');"><i class="fa fa-globe fa-lg" aria-hidden="true" style="cursor:pointer; color:#2FB083"></i></a>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            3 
+                                        </td>
+                                        <td align="left">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w3" style="display: inline-block;">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9CbW1XZzl2cEs1YkpETGFTYmg4c0RhY1BqRmRld1d2Nmx6RnJ5UTh6UFd5aHJZanMzNHVNdGZkTG5iT0Y4N1VHNlhVSUlzQXlTNDV2OFAxMDcrTElxa1RyaEVHSGpCZU5GVzFXRDBFYmpWQVFzXC9CdlVicHZaN0xpdG5SbTE1MDR3PT0ifQ._3MNY_ZHszaZE02oAs0jW8XvMZnGkUWiIzdvitOuZwE">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                        <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                    </a>
+                                                </form>
+                                                                                                      </td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Exhorto                                 </td>
+                                        <td>Actuación Receptor</td>
+                                        <!--<td><span title="EMBARGO (Exitosa) Diligencia:25/01/2023 11:07" class="topToolNom"></span></td>-->
+                                        <td>
+EMBARGO (Exitosa) Diligencia:25/01/2023 11:07												</td>
+                                        <td>30/01/2023 (25/01/2023)</td>
+                                        <td>0</td>
+                                        <td align="center">
+                                                <a data-toggle="modal" href="#modalGeoReferenciaCivil" title="Georreferencia" role="img" onclick="geoReferencia('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoibERBTFMxU01vcStrRHhVVjNiSFZmV1RodjFmQ0dMcno0UGlxUWdQcWczWT0ifQ.jfnItP-ZlacNWM5Xmr53vvP1-_dV8tlXZK8C4CE6diE');"><i class="fa fa-globe fa-lg" aria-hidden="true" style="cursor:pointer; color:#2FB083"></i></a>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            2 
+                                        </td>
+                                        <td align="left">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="p4">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9ObDVleERja3BjWjROYXI5YW1vbThubzFEd1ZYZjRqRGgwbUxWaEVDWlc4b3NHS1wvNEFKNHlLd1h1SDdNdFI4VkNIQWdLVEpMRHh5RVFYanhmRXZ5R3BPOERzZ0ZcL0pucmtScVplUVZNQ3NhalNDTWNrQTY0OSt0VHhhNzBJK2h2Zz09In0.-0bYvk743Dett6puJplmkruK2zSJxwVpMImYVNneoR0">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                            </td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Exhorto                                 </td>
+                                        <td>Resolución</td>
+                                        <!--<td><span title="Cúmplase" class="topToolNom"></span></td>-->
+                                        <td>
+Cúmplase												</td>
+                                        <td>16/01/2023</td>
+                                        <td>2</td>
+                                        <td align="center">
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            1 
+                                        </td>
+                                        <td align="left">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w5" style="display: inline-block;">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9GT0FYdGpQeit2dmJsaEpUR1ZraHdDem9CcFhsdGJpVFV1YkdrYnZ1clZQQ0s2eEJFbEdwRlppQmg5eFwvV3ViT0NRTmxTaDZjU0VMd2Y4cDBhUFE2MTMzYW9UZXJ1T0FyNzEzalNRY0ZcL3lHIn0.iohZX8QtZjvQGaC1mxU4m8SUBBPzscngOtsA-Pqutuo">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                        <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                    </a>
+                                                </form>
+                                                                                                      </td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Exhorto                                 </td>
+                                        <td>Escrito</td>
+                                        <!--<td><span title="Ingreso Exhorto" class="topToolNom"></span></td>-->
+                                        <td>
+Ingreso Exhorto												</td>
+                                        <td>14/01/2023</td>
+                                        <td>1</td>
+                                        <td align="center">
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                        </div>
+                    </div>
+
+                </div> <!-- FIN PANEL -->
+
+
+                <div class="tab-pane fade" id="litigantesCiv"> <!-- INICIO PANEL -->
+                    <div class="panel panel-default">
+                    
+                        <div class="table-responsive">
+
+                            <table class="table table-bordered table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Participante</th>
+                                        <th>Rut</th>
+                                        <th>Persona</th>
+                                        <th>Nombre o Razón Social</th>
+                                    </tr>												
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>AB.DTE</td>
+                                        <td>11838522-5</td>
+                                        <td>NATURAL                       </td>
+                                        <td>MARCOS ISMAEL GALLEGOS RODRÍGUEZ </td>				
+                                    </tr>
+                                    <tr>
+                                        <td>DDO.  </td>
+                                        <td>9539102-8</td>
+                                        <td>NATURAL                       </td>
+                                        <td>GUSTAVO CELESTINO BUSTAMANTE CID </td>				
+                                    </tr>
+                                    <tr>
+                                        <td>DTE.  </td>
+                                        <td>97030000-7</td>
+                                        <td>JURIDICA                      </td>
+                                        <td>BANCO  DEL ESTADO DE CHILE   </td>				
+                                    </tr>
+                                </tbody>
+                            </table>
+                                
+                        </div>
+                    </div>
+                </div> <!-- FIN PANEL -->
+
+
+                <div class="tab-pane fade" id="notificacionesCiv"> <!-- INICIO PANEL -->
+                    <div class="panel panel-default">
+                    
+                        <div class="table-responsive">
+
+                            <table class="table table-bordered table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>ROL</th>
+                                        <th>Est. Notif.</th>
+                                        <th>Tipo Notif.</th>
+                                        <th>Fecha Trámite</th>
+                                        <th>Tipo Part.</th>
+                                        <th>Nombre</th>
+                                        <th>Trámite</th>
+                                        <th>Obs. Fallida</th>
+                                    </tr>												
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
+                                
+                        </div>
+                    </div>
+                </div> <!-- FIN PANEL -->
+
+
+                <div class="tab-pane fade" id="escritosCiv"> <!-- INICIO PANEL -->
+                    <div class="panel panel-default">
+                        
+                        <div class="table-responsive">
+
+                            <table class="table table-bordered table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Doc.</th>
+                                        <th>Anexo</th>
+                                        <th>Fecha de Ingreso</th>
+                                        <th>Tipo Escrito</th>
+                                        <th>Solicitante</th>
+                                    </tr>												
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
+                                        
+                        </div>
+                    </div>
+                </div> <!-- FIN PANEL -->
+                
+                
+                <div class="tab-pane fade" id="exhortosCiv"> <!-- INICIO PANEL -->
+                    <div class="panel panel-default">
+                    
+                        <div class="table-responsive">
+
+                            <table class="table table-bordered table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Rol Origen</th>
+                                        <th>Tipo Exhorto</th>
+                                        <th>Rol Destino</th>
+                                        <th>Fecha Ordena Exhorto</th>
+                                        <th>Fecha Ingreso Exhorto</th>
+                                        <th>Tribunal Destino</th>
+                                        <th>Estado Exhorto</th>
+                                    </tr>												
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
+                                
+                        </div>
+                    </div>
+                </div> <!-- FIN PANEL -->
+                
+                <!-- TAB PIEZAS EXHORTO: folios de la causa origen remitidos al tribunal exhortado -->
+                <!-- Estructura similar a #historiaCiv pero con columna "Cuaderno" adicional (pos. 3) -->
+                <!-- Targets ventana: exTraP[N] (resoluciones/actuaciones) y exTraW[N] (escritos) -->
+                <div class="tab-pane fade" id="piezasExhortoCiv"> <!-- INICIO PANEL -->
+                    <div class="panel panel-default">
+                    
+                        <div class="table-responsive">
+
+                            <table class="table table-bordered table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Folio</th>
+                                        <th>Doc.</th>
+                                        <th>Cuaderno</th><!-- columna exclusiva de Piezas Exhorto, no existe en Historia -->
+                                        <th>Anexo</th>
+                                        <th>Etapa</th>
+                                        <th>Támite</th>
+                                        <th>Desc. Támite</th>
+                                        <th>Fec. Támite</th>
+                                        <th>Foja</th>
+                                    </tr>												
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>17</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP1">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdYVU9uVHJzc2VKNkZaTlJtblVzS0tsalhVSGtWOFZhYXhcL0pLZWdEWllka1NCdk1iYnM1ZjlFK2lTUHJZTlhDK2phMjNyNzNwZ1N4TkU1N1cxVTRnWkh4VWMxK1p3bnIrWHpibEd1bU12b3RvNERyYkZrdVZTTjJjOExyS29vaW9nPT0ifQ.xMtyNrqJK-upwZsnGpPKiDcj6u6GBKUlvE1VSZvmDXY">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Excepciones                             </td>
+                                        <td>Actuación</td>
+                                        <td>Certifica que no se opuso excepciones</td>
+                                        <td>21/01/2021</td>
+                                        <td>10</td>
+                                    </tr>
+                                    <tr>
+                                        <td>16</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP2">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdUQnBTZHRra3FlZnJiQ0RGNzE4WHZGb1lsQ2FIdU1TUFo2XC85OFZrUVd2Zk1cL0t4NXRreVNEdlg3TGpWQ1ZyVzlTOUp0QnVLRUZcL1Y1WFNndkY5SjJ0WEFucmpuY0R3NkF2cFdWUXd2V01zUnJRUUthK3Nwd0JyNzYrZFY1NjNaOGc9PSJ9.uYiecWtpxrvBSBe42RF0CNYZGLtAPBpqi37XbTWLVn0">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Excepciones                             </td>
+                                        <td>Resolución</td>
+                                        <td>Certifíquese</td>
+                                        <td>20/01/2021</td>
+                                        <td>9</td>
+                                    </tr>
+                                    <tr>
+                                        <td>15</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP3">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdUTHZTanVoM0hPTE84S3FxM2dFbjdpR1FYS2tRcnhSNTQzazhMS3RlWEx1d3EyM2M4VWptVGxkNFZKOXJPbytmbzBnSDlHa0RJXC9KNDZrUG5xbzY0c2dRdVROU2d1aWEwbjhxcU5mV2Y3UExBTDJxOStGY0JkM0txQ3Z3WkNsTVpRPT0ifQ.hxvqQwE6zUAL_kMFiwyHo16LejMD3PI-4TxzAV-QWnE">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Notificación demanda y su proveído      </td>
+                                        <td>Actuación</td>
+                                        <td>Notificación de Demanda</td>
+                                        <td>19/01/2021</td>
+                                        <td>8</td>
+                                    </tr>
+                                    <tr>
+                                        <td>14</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW4">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdkVjhqSThhdlRjWE1lRzQ0UDMzSlBDRWs1NXlLNVFsTXp4dGZNcDg5clUrTjNiSVFmZWFtRml5YkdqRHRaRnFrcWtRUDQxeG55akpSbWNGNEhuQ1BSVmRNK1FFWlV6SjNWSlNDRGY4bjV0MVZhWDlaUHl2VG8wMDh6c0RjSFliTWc9PSJ9.h5mZiyJ2f_HzvCRquLN0iYbznVPOghPRaY6OMahtFhA">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Certificación que se indica</td>
+                                        <td>18/01/2021</td>
+                                        <td>7</td>
+                                    </tr>
+                                    <tr>
+                                        <td>9</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP5">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdUTDZjeUFrYVR4aGMwd3g2Y1Zhd2l5ZWJxUkVJbDhGYVhFY1lnTVwvVDZwTVVcLytTcExqRjRCYUlZWXpvRTljSXd0cEdpU0I2aUIzVlJ1eHgrWlh3TFJSRzduVU94cUswMDA0QjRiaTBsWnc3K2RyaStFRlFXUlZrYVMwM0JuY2ZNdz09In0.6lhKwKojgHshNvWdnTdt65Xs_fZZ0_3kxGOFkU6fvaY">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Notificación demanda y su proveído      </td>
+                                        <td>Resolución</td>
+                                        <td>Recepciona exhorto</td>
+                                        <td>02/12/2020</td>
+                                        <td>6</td>
+                                    </tr>
+                                    <tr>
+                                        <td>8</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW6">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdiR1JSY1VibjZ0SUpOamdxRjErT01WMjNmMTl0bTViRzZRalErandwVlBcLzlCa05EeG0wMnFFQlF0N1hvU3hFYm80SkUyaGRWZTd1VHlMVkhSOGFJS1YrZkc0YTU1VkQ4M0NZWWxJeHplXC9aWDRJRHVUQ3hoZkppQVduWWFiVEtSdz09In0.krmKz5oyz9y2afNbw4AWmbE7ncWLBVsIh8uhNwuHUXc">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Devuelve Exhorto                                   E-221-2020 Juzgado de Letras y Gar.de Cochrane   </td>
+                                        <td>01/12/2020</td>
+                                        <td>0</td>
+                                    </tr>
+                                    <tr>
+                                        <td>13</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP7">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdhdFlxK3J1VkUzeUlsSTJ6ZEw3b2tHXC9kTWV2ZzFYaHZTVUZsRFJCRkRqOFgyUkVWSTZudjhZNVdSSVwvQ0d3V0o2UFliWHN4UXJxdmdnZDNwSWU3WmMrclZKdUtNcHFIcVRiUVZyZ2NIZTBxd3FCNExCTkYxU3BhZDE3RklOelJNUT09In0.XQ-JjTDiqLZjwnyJ8xV6Ifr7_MRC11hjtoYerre-WDs">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Notificación demanda y su proveído      </td>
+                                        <td>Resolución</td>
+                                        <td>Devuelve con resultado positivo</td>
+                                        <td>30/11/2020</td>
+                                        <td>3</td>
+                                    </tr>
+                                    <tr>
+                                        <td>12</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW8">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdidzRyN0tNOEtac1JUbkM2WktvV3NDOHJcL3o2VjVOTUQ4TTZBdUVtWWRtV1U4U3BqRE5SWVErVzYrWVVvNUx0dTQrQktMdUlNdVBZdlBMUEdxOHByczRNVWtjRTd1YzdnRFMxcEFZWFVqNmE3b21cL0VvajFuN1lQMHgwRmRNdVBHaVV4eHhLcjJjXC9cLzdJeEMwNGE3Z21jPSJ9.J2MJCdVwrg1uQfQYFyGH_hM7PQjGD2tlLMamQmiFQAg">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Actuación-Receptor</td>
+                                        <td>NOTIFICACIÓN DE DEMANDA</td>
+                                        <td>24/11/2020</td>
+                                        <td>0</td>
+                                    </tr>
+                                    <tr>
+                                        <td>10</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP9">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdZdDd0MWZqdVdib1FRQndubStMRjZMRmtQQzRtRUNXYVJsQ3BVMlhVZnpxaHNYQlwvRHhtSjlXMVlpa3FpMms3dktGQ3lFQzN2M2ZLREhwOUoxSWtUK1lsenNPUUtKNHJnZ3p2VzVoa0I1QlBjeVwvTW5pSDJrMHBwaVlHVUtjZDNPUT09In0.ckCa_fVOpkM5e8YLpqqUSUS7u0Ct6Jnj2kDkVQIF344">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Notificación demanda y su proveído      </td>
+                                        <td>Resolución</td>
+                                        <td>Cúmplase</td>
+                                        <td>16/11/2020</td>
+                                        <td>2</td>
+                                    </tr>
+                                    <tr>
+                                        <td>11</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW10">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdYKzZ6R1h1eWQ5QVlwNmFUNU9HS2Nsc09udXJtWHJ1bzhqc2E5enFvTjMrSHNXcWN6MDgxQnZIOG80cXF0ZEk5bCtzdE9jMjRReHlQV0pxSDI4VVE3UjUyRko2ZGNJcVJCV09lNFl3enNqcmdQXC8wV25cL2lHREdTTVV6WEp4OEdSZz09In0.5BevsCXlEY6B9CKa2xo3MXYMfIvIYcxHjOaAKM2wCig">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Ingreso Exhorto</td>
+                                        <td>14/11/2020</td>
+                                        <td>1</td>
+                                    </tr>
+                                    <tr>
+                                        <td>7</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP11">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdhdFZ3Mnc5NTMreUVJMldzUk9qVkFDYmsyOStzSEhuK2llM3haOUxzdmxnRWo0aEZnWXY0MEloVGlOMGVMVUhvUlA0NFRZZzZ1eG1xZFdvZG83OEMrTGJsSE9NbWE5THRYWjIzWFFicjZIbFBoZlJSU3dFb0gzZnNGbFlJT2dScXc9PSJ9.Ik12sls0nrMh9wkVbFNXjcFpmnXI3stVrruHkl4IL2M">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Notificación demanda y su proveído      </td>
+                                        <td>Resolución</td>
+                                        <td>Exhórtese</td>
+                                        <td>13/11/2020</td>
+                                        <td>5</td>
+                                    </tr>
+                                    <tr>
+                                        <td>6</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW12">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdmdGtVQ0lJNmE3NTJ5MndqaVMyYklFdzdFRVVnQmhoTVhhXC9rTlwvTW9PNUNQcE9lSjd1dXlVYjgxUElnV1licE9VU3FYaEtFZncxRXZwdmZYTmlqMDlWVHhpOEF4XC91RWZpcUV1akJDa3ZHNzBvRFwvRHAxdzNJOWY3RVRyXC9wM0pOUT09In0.gUnxKmAtyIJYGtBO3YlZkkYjj2XlCN0HBM7fkA809RA">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Solicita exhorto</td>
+                                        <td>12/11/2020</td>
+                                        <td>4</td>
+                                    </tr>
+                                    <tr>
+                                        <td>5</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP13">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdROWpSWXRtd05CSW4rek11amQ4OU83UXozd3Vqd0t3c1JFVnV4RzBiZnNFcFhpYXVnbXY0OVJYMFQ1YXJxXC9aeHNNNkZFcVZVaGcrcGdBR0JUajJaK1d0WDJjZEFBTW5PblozMEw4N2Z2SVBwRmFOcTR0RFA2UzgwblNZUURTTEJnPT0ifQ.jNM0EDZSIDfX8tHdG_qfWa4DX5WzpoCajA7aNN5yDJM">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Inicio de la Tramitación                </td>
+                                        <td>Resolución</td>
+                                        <td>Ordena despachar mandamiento</td>
+                                        <td>11/11/2020</td>
+                                        <td>3</td>
+                                    </tr>
+                                    <tr>
+                                        <td>4</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP14">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdWN2U4QVJsalhKazkycVVsd0Q4c1dlQjRyaE5kYmRpbEo0ZWtmcTloY0pocStId0FodzM2Qk9ZdFhpZnF5Yk81MDBESHFzRlBpbDhMakhiWis3TjFUOHk2TFRTRWp6UCsyWkxrbVV3UmZRVURUbjBHUVozbGJHTW11TnJzNTcya1BlNll4WkcweDNFSlRsSVVnUkxVejA9In0.BlUoecCkj_ahP7HjYkLS_hZHo-BeN9PAW86-Immvba0">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Inicio de la Tramitación                </td>
+                                        <td>Acreditación</td>
+                                        <td>Acredita Poder</td>
+                                        <td>10/11/2020</td>
+                                        <td>0</td>
+                                    </tr>
+                                    <tr>
+                                        <td>3</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW15">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdaOW1hRGI5VkNyWjl4M05qdHNvWHVidjY5bXc2XC9LRnlEbjZkZzFyZzlSUk5UbjBKakNqNWZwcmRHWjVOdlwvY2lIXC9xVEg4bzBBZHhCWmoyNkxhcFlUTTBKUEdYNCs5UDRsYjJDQXlWNnhUS1NwREVKRElxc3F3SXVxa1wvR25JMktBPT0ifQ.ZLIZBpEFFsGjRim-HITcyxpQsuty8j-EstNLGI_U16w">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Cumple lo ordenado </td>
+                                        <td>10/11/2020</td>
+                                        <td>2</td>
+                                    </tr>
+                                    <tr>
+                                        <td>2</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP16">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdWbCt4bWt0akxuem94elBURjdrdmNhRVwvcDNydTZkTThDdEp0UHZ5SjR3XC92T3pTUjdpXC9yclZkTlVRYmRCTjBcLzVYMGd3cFRRSGhCVHdWOUkzdHVMM1VibmhDUnV6T3Q3cENJSG9MSVNkXC9odnFrN3dsZ0phXC9HMUtnNFphMytLSnc9PSJ9.qfkuioIcrklOnp7xn5rFkzu0fpjDONgpraXj6o4xWNc">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>1</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Inicio de la Tramitación                </td>
+                                        <td>Resolución</td>
+                                        <td>Pospone inicio de la tramitación</td>
+                                        <td>05/11/2020</td>
+                                        <td>1</td>
+                                    </tr>
+                                    <tr>
+                                        <td>20</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP17">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdmWmx5MmZ0RCtQeWhVQlJvVHI3cDRUMnh2RFpEemJUdHVMc1pOWStSakl2ZkdBZGFrQmh4RnQ1aUxWeFhncUQ1ZUlwQmFMQm9yXC82dGJXY29tTW9UUDdDbXZ4RmV0MVgxZFN4b3k1cndwT2ZYYmFOVDBFVVVjSEJBeloxN1lFdHN3PT0ifQ.YpQ2IsjF-7cwEljdtOHWSgoIisRJnaGVBilQ68AhqmE">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Apremio                                 </td>
+                                        <td>Resolución</td>
+                                        <td>Recepciona exhorto</td>
+                                        <td>29/12/2022</td>
+                                        <td>21</td>
+                                    </tr>
+                                    <tr>
+                                        <td>19</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW18">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdiVExnYWFpMXpYMWU3ZExtRnJTR2JYWXoxeGZ1K1NiSU5sakN5QjMrN0Q0XC9WQUczbW9veGd6WjFEVFRsU2tyOGRNVjZWOXdEcjFzZ2lPdDV0S0VScUhcL29tYXNZQmNBQnIzWTROdEtVTDVYWTdSM1FKWnI2dHN3dGlIRjJYV3htUT09In0.SJyM6vqliWkUUAv5ilJi2fREvNNfyx2dsxJh0i1g9Y8">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Devuelve Exhorto                                   E-146-2022 Juzgado de Letras y Gar.de Cochrane   </td>
+                                        <td>27/12/2022</td>
+                                        <td>0</td>
+                                    </tr>
+                                    <tr>
+                                        <td>24</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP19">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdVa2FEUFpONCtZUUVweDFETTVzRldTdlwvYjYzcXp3Y095OWRadjJ2QzZuU3dobzNib0NDY3BTZXZXaTRBWVFBSkUxWTErU3llVFhISnBJVm8xWGdTUlwvdHJxTWtoZGdyYktHZDVPQ3I3WUlJemVsSGJDZHRvd0JvdUorV1pvSHdUdz09In0.9i2rfouMguDj5Yl2JIXrast4lYLn4EUJPkbOK0XY-Y8">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Apremio                                 </td>
+                                        <td>Resolución</td>
+                                        <td>Devuelve con resultado positivo</td>
+                                        <td>26/12/2022</td>
+                                        <td>3</td>
+                                    </tr>
+                                    <tr>
+                                        <td>18</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP20">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdhc2hjVGR1bGNuVWx2NVJjZlArazZwUDdNMytRdjcranZscjNLUDdycUM2eUpuYklNVjlwTENVK2hkRFdxTENOVnFnQlI5TTdsRG1FZDVFRmtnazZPeVViazFnOWFKMGFoMGNhdmd2SnZYTFByeFkwaDNDZ0RPOFNYNFZ1OGdiQlE9PSJ9.VQgKrWcvj43foJHKQ1i6dv3oHypIV4sR7rmwKqbDcFs">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Apremio                                 </td>
+                                        <td>Resolución</td>
+                                        <td>Mero trámite</td>
+                                        <td>26/12/2022</td>
+                                        <td>20</td>
+                                    </tr>
+                                    <tr>
+                                        <td>17</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW21">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdkaG53eGtBTmsyd2dMQ2hzd0RrVGVwNVl4XC9Kc2xyd3BcL1wvZmpma0hFXC83QkhZZFFNVGZocmN2dnBJUHA4Y3JPbDRIZ3VpT0lDbWZEN04wUHZZZjZyVWs4ZHlTRzZSN016TW1vY3BjVEZVajBVdTdZUWx6TFY4UndPVUNlUVg3TDBRPT0ifQ.B9MHyN9L1CpbiWb8iKEb-beqtKjNmZjbPIJ8DW36NV0">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+                
+                                                <a data-toggle="modal" href="#modalAnexoSolicitudCivil" title="Anexo solicitud" role="img" onclick="anexoSolicitudCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiRnlTTnhWVXRJUGd5Tmh0TXA2VjgwREZva2ZyOEd6cXVUelRjcms2djV1bHdNNUgwQjVxejFBU1ZRd3FKRXhVbmNWV0ZPUlNLXC9yOXR2VlZZK24ya3dcLzQ5UlB3WmJ2Z3pYXC92Z2V1ZXB4cGs9In0.p1KOOoL_WI2EIkoDQCg1y1QleMIVLy_QwOgVUMYGR94');"><i class="fa fa-folder-open fa-lg" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Curso progresivo a los autos  </td>
+                                        <td>20/12/2022</td>
+                                        <td>19</td>
+                                    </tr>
+                                    <tr>
+                                        <td>23</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW22">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdZYnlcLzJMZkJqS05Jb3o3dm5WcU5GNCs4Qkc3RUtjRGh2ZlFiS2lXa1dPaWdnOWVZWG56SDJEM2R2bU9scjA5WXhpQkxIbitBNUZGQXh6eDJCRklXMkpONjR4cXBpQlJSdFBLclcrRzAzTDMwUGZBXC84T0dsMGdTUWIyRGRtSk1IWjkwczhFV2hjWFNMMWIwcWthYXp4RT0ifQ.Eappjue1AsDQtmeepNjWvMm7AoHvBxxmi3jf38uRdkI">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Actuación-Receptor</td>
+                                        <td></td>
+                                        <td>14/12/2022</td>
+                                        <td>0</td>
+                                    </tr>
+                                    <tr>
+                                        <td>21</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP23">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdmWEYyR29qWGlFT25HNXRcL095TzRjYWJkQzNsTEd2VVpHOUtOdmVQdzJoaHprNGpOeTlwUmdkUXBoQnpKY0FkVXdVbmhrVzZyVENBOEdaSEIzQ2ExWEVENEwxdHFlUjFFMVpzdlFDeHdcL3N6MFBmRlI5R3FCY0h6MGt4QkFpM3cyZz09In0.OiPowZmb_dtEb0luP3ulKNbgXRC7fCWrXojXHQcOOZ4">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Apremio                                 </td>
+                                        <td>Resolución</td>
+                                        <td>Cúmplase</td>
+                                        <td>09/12/2022</td>
+                                        <td>2</td>
+                                    </tr>
+                                    <tr>
+                                        <td>22</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW24">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdjamd3S2NSOWVjTzBvcHE5RmFCMG5vSUxzXC91NlJJRnh5cXBYUnZBSlFhdFcyMTM5R1RQMGN5RjBkVFErRmkyUHgrU3o2K1QwNkdHRUk2U2FLbDlvbDJocnhTK1RrMUMzRUhCblBFSVdlZkJTRG9oV3Eyc3gxWitUdHBKWDV6UTVRPT0ifQ.i9R0kAidAXMiB7mKVHfrXPFyDQWUE_ifvXHu9RcGzoI">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Ingreso Exhorto</td>
+                                        <td>08/12/2022</td>
+                                        <td>1</td>
+                                    </tr>
+                                    <tr>
+                                        <td>16</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP25">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdiOEx2VncxMTZcL3dhY3BOZW5pc2dJS1ljSGtvcXBVcmtHWmpGaTNjRDZpeng2V2J4MmE0bklOUFljMVVuR040cHhKR0hKRnJtMnJ2Z1U1RjZTNGZnbDNKclRaTFNvS0lVUGQwcURZbjVlcUl0dUNqdHNGRnhLTjh5SFF2aTl3NUVBPT0ifQ.dh3kU9W6Iix9mQyYTqB3kuHL8VD-5SPFpSgPqR3yzZI">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Apremio                                 </td>
+                                        <td>Resolución</td>
+                                        <td>Exhórtese</td>
+                                        <td>07/12/2022</td>
+                                        <td>18</td>
+                                    </tr>
+                                    <tr>
+                                        <td>15</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW26">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdXSWhCdEJobWVJSkRpaUhYd2F3cXBURkZWdmdqN2M4S2hHWkx2TWFFXC90RDA1ekRtVGtUY01LVjY3Qk9YaVRKTFJrZmR6Z3JRSVc1bWhSYm9OdU9pUjkwdWNhUW9wcTlsY2NXVTRPZUg0NENEQXdHVEExNTRDREVtVVJhOVhRazFRPT0ifQ.8onXs0JfQiHLEF60YwRV6v7b1scPd3yN5k0LeyDQQBY">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Solicita exhorto</td>
+                                        <td>06/12/2022</td>
+                                        <td>17</td>
+                                    </tr>
+                                    <tr>
+                                        <td>14</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP27">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdlR0xneTVDZmtyUU9rY3JuNE5yY1BOaEcrZ1NjMThxNE1vWWRoT3hGRUxiblBYVkdzRkJNK2oreHljOGdlZ3Q5elZCbFwvamJLWmI1MlRXTGg5M0tuUytxVnptQzZlUWRLQkR6SmRLRld2bmtVSkx2XC92Z1BUTE5TMkhHZ054ZWcrZz09In0.XngOd9rxTfMhEF6czseijyLpiTVae0JCrauql1EQJkU">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Apremio                                 </td>
+                                        <td>Resolución</td>
+                                        <td>Nulidad de lo Obrado</td>
+                                        <td>17/11/2022</td>
+                                        <td>16</td>
+                                    </tr>
+                                    <tr>
+                                        <td>13</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW28">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdYTWZTSlRcLzFuQjZtcmZzS2VHY2NNa2czVUwreEtZbWZzZFlCcEJaNFVNZUZBOXc5YmFmQ0lHVTRGRDdcLzdYMjR3em95M2xwZm9vR2U2eHhRUTZtdGpwTXlic3hWOVltRDk3NmpVd0JjdncxSHFUZGFkVHBydkpuTVJQMkpcL2ZQdnc9PSJ9.35jkiY2duMIf9xfxvyCVosNRswQudfGbozymMJESlAc">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Solicita exhorto</td>
+                                        <td>11/11/2022</td>
+                                        <td>15</td>
+                                    </tr>
+                                    <tr>
+                                        <td>11</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW29">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdRd1VCdE12ZlRINHd5TVgxMzdKeVB5ajVFZjN5SFwvMjd3Yjk2U3l0MlpyTzlkcXVXdjZ5OEJqalI0bEhEcFBDb2wwdENOQTI4VjM1bmxweTBieGtldWtMK2l1ZDZaYmVaSkl6RTFLTkZKWTR3dHVRbGtEdjdSRzZhN09pSVJQTXhnPT0ifQ.AFckwrvDijvokeGY9DFNTCqbgdHWvYVbMIC0hzWOjCs">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Curso progresivo a los autos                      </td>
+                                        <td>14/09/2022</td>
+                                        <td>13</td>
+                                    </tr>
+                                    <tr>
+                                        <td>7</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP30">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdUTk5jd0ZKN1BHdm1Lb1JMY1o4VEsrYnB3U2ZkXC9uY1dQMzd2R0tOMGRkV2xvMytkaklEenNtZ0Qxclo2TVJia1htTkpNdnAwcWI0dTlBdlNzSXljUjRtYmp5UWpaR1VmbDA3VmFNd0hMVjhLYkM5MXIza3ZtMXNlZFRCbkI4Q0dnPT0ifQ.mWNUBVkcXSADCqgWESg1CSvJFim8yt6miwfolqSdkd0">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Mandamiento                             </td>
+                                        <td>Resolución</td>
+                                        <td>Mero trámite</td>
+                                        <td>20/01/2021</td>
+                                        <td>8</td>
+                                    </tr>
+                                    <tr>
+                                        <td>6</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP31">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdUekdsY2QxZWhlR2tUbkxSTDEwUUtiMmZsZDAyMFdkK0NUZVdUZ2thY1RPQ3lXSXhnbEpzVGFLdnM2Q01MZkFLNTFZdFNPVEthXC94bjQydjhVbEQ0Q3JrMmNFVW1KTnZFWUFtYTJQcTR1Qjd5NTNrNFo4dmNtNzFQSE83UjBWRE5BPT0ifQ.Wi9X3qQMy08P99BXQTFJHJHQcXKMXVvp4KGtuA79bc8">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Mandamiento                             </td>
+                                        <td>Actuación</td>
+                                        <td>Requerimiento de pago</td>
+                                        <td>19/01/2021</td>
+                                        <td>9</td>
+                                    </tr>
+                                    <tr>
+                                        <td>5</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW32">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdSc3FsXC9IdEZIVVVYaTJrRHljOG1iQ2YzTTc0QXQzaFdTRDNKK2NxR0VvYTNLeWxHaWhRQ1dnUzVaS0hjT3ZHaTNRYlFkS2xaNkx0Qkk1TW5wNXVLN0NhNm9zXC8reTJJZGZXK1UzYlJDNEpzUnlxeUxrU21VTFBYck9HTnpJalhaUT09In0.XhkhUXTdHMJOstZYtZ9FADawKmwqnF60pmZudPKvtXo">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Escrito</td>
+                                        <td>Solicita fuerza pública</td>
+                                        <td>18/01/2021</td>
+                                        <td>7</td>
+                                    </tr>
+                                    <tr>
+                                        <td>4</td>		
+                                        <td align="center">
+                
+                                                <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="exTraW33">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdTQmpORnhQUExSemM1RER6dG1mWmFMa09ZdFFEUEErUnlKVTVYdTZ5NlVjK0Z2SWRaR2M5OTdXMmhwK05UR1NKbTQ5WU1sY2lzV3BXbDl1dFM4S2VoVmdwMXNLcjBGRzdiVnkwaDhRK3N3dHhzWGdFendyRGtod0xZeEdMa1RYbEVnQjNCV1F0YmVYakI4c3VHMmhUVVU9In0._VqxvvxEvQkGTLqDvCaVH7B8PPXy0yCeDOC2TJR1LJ0">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td></td>
+                                        <td>Actuación-Receptor</td>
+                                        <td></td>
+                                        <td>24/11/2020</td>
+                                        <td>0</td>
+                                    </tr>
+                                    <tr>
+                                        <td>1</td>		
+                                        <td align="center">
+                                                <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="exTraP34">
+                                                    <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjMxMzI2MSwiZXhwIjoxNzcyMzE2ODYxLCJkYXRhIjoiUFwvbFhxclVHaU1ZUFwvTUJVNlRTZmdYcTdxUjZidVBPMFlHSDFhVmtNNDNGcVluXC9wSXlwMjdhNlVXR0YwWHlBU2FmV1hzK3dDcng5QWlcL20zcVdPMWVMTVB5SGhPZXZ5WFpiU1BLcHBJTDlKdnpcL0N0MkRBVW5pbFhlYmtzNVdQbEJ3OU9qcjFjRmZ2OFp0M2tROCtLenc9PSJ9.p9veH61tKw0dGR0eu1SQ67e_8u6zvsCjn4r8Wyf5MZQ">
+                                                    <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                        <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                    </a>
+                                                    
+                                                </form>
+                                        </td>
+                                        <td>2</td>
+                                        <td align="center">
+
+                                        </td>
+                                        <td>Mandamiento                             </td>
+                                        <td>Actuación</td>
+                                        <td>Mandamiento</td>
+                                        <td>11/11/2020</td>
+                                        <td>1</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                                
+                        </div>
+                    </div>
+                </div> <!-- FIN PANEL -->
+                
+            </div>
+            
+        </div>
+        
+
+    
+    </div>
+    
+
+    <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Cerrar</button>
+                </div>
+    
+</div>

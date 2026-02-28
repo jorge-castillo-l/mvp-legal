@@ -1,0 +1,128 @@
+<!--
+Paso 3:
+a) - ROL: C-100-2023
+- Tribunal: Juzgado de Letras y Gar.de Lebu
+b) - Fecha captura: 27/02/2026
+
+Request URL: 
+https://oficinajudicialvirtual.pjud.cl/ADIR_871/civil/modal/receptorCivil.php
+Request Method: POST
+Payload: valReceptor=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MjI0MDExNiwiZXhwIjoxNzcyMjQzNzE2LCJkYXRhIjoic1dCRmw3Mm15TEtaeU5samZQc3FuU0tvOHlmWHJYcnFjMDZUdTlaYytNbGZIYWxqNWd2Zlo5U2FHOWM1QWtmZm5mdWtKTEQyZjh0SUtxcnVXWTArQ1wvTmphODBORWhmdHdpdmwyRTVHc0VsRFVLYjFRdnV5Y0k4T2g1bnE5UlhJUEJCdkdBZ2pWU2Uyc3JHamJZdFlHT1V2MHV1eFZLNjViaHFzZ3FZRUcySU1OS2lUUXpXeXdtcFJzRlRsc0ZkUiJ9.ogiYC9tBYwMpmgF3dh80G1vQ10-JT7wIZRp1WVRXtGI
+
+Request Headers:
+POST /ADIR_871/civil/modal/receptorCivil.php HTTP/1.1
+Accept: text/html, */*; q=0.01
+Accept-Encoding: gzip, deflate, br, zstd
+Accept-Language: es-ES,es;q=0.9
+Connection: keep-alive
+Content-Length: 541
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+Cookie: _ga_2MWS7SEKF0=GS2.1.s1770351875$o2$g0$t1770351875$j60$l0$h0; _gid=GA1.2.731700804.1772056208; PHPSESSID=d4443ca5b99cd40bcea72e1da5ff5f78; _ga_WKMRR3GSBD=GS2.1.s1772239132$o49$g0$t1772239132$j60$l0$h0; _ga_DCJFQTPKEZ=GS2.1.s1772239128$o62$g1$t1772240080$j58$l0$h0; _ga=GA1.1.2097184674.1767636666; TS01262d1d=01b485afe580bdd5a7ac1ee533acc9709439ddbd9e7c0c59f0f81470aeb49a6823ecbf6510bec883910b402883922ac1086f239c0afe48d7d9a6ec11e2e3689c2fd3283615; TSa2ac8a0a027=08a336eaa2ab2000078a402652ffc325b5cb3b57f952bbffae8f141c8fc9369732f5c06a21125fd8083c9eec9e11300084b6c572a6d658af14ca36e52e0492bd9a54b47ce5547e1ed32b3e88eaa6d495455a9b6534ca18324f1af786d0c0b136
+Host: oficinajudicialvirtual.pjud.cl
+Origin: https://oficinajudicialvirtual.pjud.cl
+Referer: https://oficinajudicialvirtual.pjud.cl/indexN.php
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: cors
+Sec-Fetch-Site: same-origin
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36
+X-Requested-With: XMLHttpRequest
+sec-ch-ua: "Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "Windows"
+
+HALLAZGOS:
+- Estructura: tabla única con 4 columnas (Cuaderno | Datos del Retiro | Fecha Retiro | Estado)
+- Contiene links a PDFs del receptor: NO
+- Endpoints de descarga dentro del modal: ninguno
+- Tipos de notificación observados: N/A — este modal muestra asignaciones/retiros de receptor, no tipos de notificación
+- Estados observados: Resuelta, Eliminado
+- "Datos del Retiro" = nombre del receptor judicial asignado a la diligencia
+- Las entradas están agrupadas por cuaderno (Principal, Apremio, Tercería)
+- 8 entradas para 3 cuadernos distintos, múltiples receptores
+- NOTA: este modal es más simple de lo esperado en 4.14 — es un resumen de asignaciones de receptor,
+  no un detalle de diligencias/certificaciones. Los detalles de cada diligencia (certificaciones, 
+  notificaciones Art.44, búsquedas) están en los folios individuales de la tab Historia (DOM2/DOM4)
+
+-->
+
+HTML:
+<div class="modal-content"><!-- modal #modalReceptorCivil — trigger: receptorCivil(JWT) -->
+    <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal">×</button>
+        <h4 class="modal-title" style="color:#337ab7;">Información de Receptor</h4>
+    </div>
+
+    <div class="modal-body">
+    
+        <div class="panel panel-default">
+            <div class="panel-body">
+                <div class="table-responsive">
+                        
+                        <table class="table table-bordered table-striped table-hover"><!-- tabla de asignaciones de receptor por cuaderno -->
+                            <thead>
+                                <tr><th>Cuaderno</th><!-- nombre del cuaderno donde se asignó la diligencia -->
+                                <th>Datos del Retiro</th><!-- nombre del receptor judicial asignado -->
+                                <th>Fecha Retiro</th><!-- fecha en que el receptor retiró el encargo -->
+                                <th>Estado</th><!-- Resuelta = diligencia completada | Eliminado = anulada -->
+                            </tr></thead>
+                            <tbody>
+                                <tr>
+                                    <td>Tercería de Posesión</td>
+                                    <td>CAMILA FERNANDA ROJAS REYES</td>
+                                    <td>29/10/2025</td>
+                                    <td>Resuelta       </td>
+                                </tr>
+                                <tr>
+                                    <td>Apremio Ejecutivo Obligación de Dar</td>
+                                    <td>marcela urra bravo</td>
+                                    <td>31/07/2025</td>
+                                    <td>Resuelta       </td>
+                                </tr>
+                                <tr>
+                                    <td>Apremio Ejecutivo Obligación de Dar</td>
+                                    <td>marcela urra bravo</td>
+                                    <td>30/07/2025</td>
+                                    <td>Eliminado      </td>
+                                </tr>
+                                <tr>
+                                    <td>Principal</td>
+                                    <td>CAMILA FERNANDA ROJAS REYES</td>
+                                    <td>26/09/2023</td>
+                                    <td>Eliminado      </td>
+                                </tr>
+                                <tr>
+                                    <td>Principal</td>
+                                    <td>CAMILA FERNANDA ROJAS REYES</td>
+                                    <td>25/09/2023</td>
+                                    <td>Resuelta       </td>
+                                </tr>
+                                <tr>
+                                    <td>Apremio Ejecutivo Obligación de Dar</td>
+                                    <td>CAMILA FERNANDA ROJAS REYES</td>
+                                    <td>25/09/2023</td>
+                                    <td>Resuelta       </td>
+                                </tr>
+                                <tr>
+                                    <td>Principal</td>
+                                    <td>LUISA ANGELICA CARO VALDES</td>
+                                    <td>05/06/2023</td>
+                                    <td>Resuelta       </td>
+                                </tr>
+                                <tr>
+                                    <td>Apremio Ejecutivo Obligación de Dar</td>
+                                    <td>LUISA ANGELICA CARO VALDES</td>
+                                    <td>05/06/2023</td>
+                                    <td>Eliminado      </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+            
+    <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cerrar</button>
+    </div>
+</div>

@@ -1,0 +1,490 @@
+Delivered-To: castillo.lopez.jorge94@gmail.com
+Received: by 2002:a2e:bc13:0:b0:389:faed:d5fe with SMTP id b19csp200874ljf;
+        Thu, 26 Feb 2026 08:09:19 -0800 (PST)
+X-Received: by 2002:ac8:7d83:0:b0:506:1fc3:dac7 with SMTP id d75a77b69052e-50745ed280cmr29670251cf.7.1772122159192;
+        Thu, 26 Feb 2026 08:09:19 -0800 (PST)
+ARC-Seal: i=1; a=rsa-sha256; t=1772122159; cv=none;
+        d=google.com; s=arc-20240605;
+        b=E++sSj9oCOcmnDLo3l4H+ruzSxf5Qi82boy7OhFOtomf/CGfIOj5ptZMZgfPbj+c4F
+         TAiYuPnpdGekp+2Vu8l0ICwx9X6l/P7zhfeFyk9kmyp/lrSxxDEgnF+u9CSA5DDziW0L
+         OsEEdCVZ3+7AenzKHR4KTELN97YjlbFSWwrKLITpto0X30hwM6qYPLb8kNGZW6A5Bm+R
+         mK1WE5Yrp1tue5kts/WrrzrZFe+WZMlqn/JB3sIYgHrsHzh6nqE9mtA5Z8ciOIcx3GTf
+         ATUQUY1xFiUCyRFo7LcwBj8wy+5pxAbiCwTrsfUu1TDfjTxtKZ2RCl4s37WM9UbvemyP
+         w7Rg==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;
+        h=to:from:subject:message-id:gmsai:feedback-id:reply-to:date
+         :mime-version:dkim-signature;
+        bh=noVEm5iaRV59d8AhqDhh+BR4X7cqKrUFw5AI/iriQEs=;
+        fh=Pr18hCQtfwP9y61ITIh8pGyCub8nimBmkKaPlSxTV8g=;
+        b=GNmTcnOvpv8C74kzjvhn7XlKju8WK6VQeqZv2hdQnp4p3n1s61mIaH+AR+RaGy7rGh
+         Aprtvdu1nmTIfSos/7l+BbjsEOWOvnJLjapPkkNmMZmveTL0jZcalcM795lrWwKDDR3z
+         NBaH7+vSNq1nyuPmGpinu1diKhR+cGTqTwL5S5NYEZ47kKYBlEEqFbgDFz8HAANJbFY/
+         9tc5t7KpHwbdRiYKRHwgtK8v2OICJon5P2aCEEQC+Rlahpng7YTRWooK9ZVGS26wp91m
+         UbtNkUsR8fx2VWTFcyDq4kjKAvYVqOTgfhhzH0XR23UET8PgDdCm2l4Jn4JxFunuerjh
+         jN3g==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@google.com header.s=20230601 header.b=1qNfmqtM;
+       spf=pass (google.com: domain of 3lncgarykaomlttlqjfnxyzint-stwjuqdlttlqj.htr@scoutcamp.bounces.google.com designates 209.85.220.69 as permitted sender) smtp.mailfrom=3LnCgaRYKAOMLTTLQJFNXYZINT-STWJUQdLTTLQJ.HTR@scoutcamp.bounces.google.com;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=google.com;
+       dara=pass header.i=@gmail.com
+Return-Path: <3LnCgaRYKAOMLTTLQJFNXYZINT-STWJUQdLTTLQJ.HTR@scoutcamp.bounces.google.com>
+Received: from mail-sor-f69.google.com (mail-sor-f69.google.com. [209.85.220.69])
+        by mx.google.com with SMTPS id d75a77b69052e-50744c45bafsor15876711cf.11.2026.02.26.08.09.18
+        for <castillo.lopez.jorge94@gmail.com>
+        (Google Transport Security);
+        Thu, 26 Feb 2026 08:09:19 -0800 (PST)
+Received-SPF: pass (google.com: domain of 3lncgarykaomlttlqjfnxyzint-stwjuqdlttlqj.htr@scoutcamp.bounces.google.com designates 209.85.220.69 as permitted sender) client-ip=209.85.220.69;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@google.com header.s=20230601 header.b=1qNfmqtM;
+       spf=pass (google.com: domain of 3lncgarykaomlttlqjfnxyzint-stwjuqdlttlqj.htr@scoutcamp.bounces.google.com designates 209.85.220.69 as permitted sender) smtp.mailfrom=3LnCgaRYKAOMLTTLQJFNXYZINT-STWJUQdLTTLQJ.HTR@scoutcamp.bounces.google.com;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=google.com;
+       dara=pass header.i=@gmail.com
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=google.com; s=20230601; t=1772122158; x=1772726958; dara=google.com;
+        h=to:from:subject:message-id:gmsai:feedback-id:reply-to:date
+         :mime-version:from:to:cc:subject:date:message-id:reply-to;
+        bh=noVEm5iaRV59d8AhqDhh+BR4X7cqKrUFw5AI/iriQEs=;
+        b=1qNfmqtM5Iv0CTRB92kqtb5qawNm2uleWcMttaEsx/vuO8Q66qDydTHVfs7HtVwk0x
+         bcyMQ9eXsCp+HIf5VQqVtjQyseW9vBRKJyc4EzZvwgwpxAEVU9EdFfQEc1MaUhjVgjX8
+         g7I8IhTmtOazN/LFZr0XdPE95pKzOYyTU/YaHEBi+tGXiV431HZS8EcsfhVJFbySyTg3
+         MHYcD6P+6oO01YcshqXljDaSTZOo5AvdpZGzIFtVCd/0gvkjb57BRlWth6Dh0Gmgk0PM
+         aOb3FiIHUPOg/E2csulBV6T/6N0eXCCxRY47gp/TPbbmrxzIAuCfgeFQKONCAbrV8m51
+         Am4Q==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20230601; t=1772122158; x=1772726958;
+        h=to:from:subject:message-id:gmsai:feedback-id:reply-to:date
+         :mime-version:x-gm-message-state:from:to:cc:subject:date:message-id
+         :reply-to;
+        bh=noVEm5iaRV59d8AhqDhh+BR4X7cqKrUFw5AI/iriQEs=;
+        b=o83cErzLrMfokBsLA8nBR1tgjSZAZVWFr3YY3FivAEpkxib4qYdvVAfX5ZyZWSj6/6
+         Tg9XYA8/6D40mWJV7gu6lG1ekZcdY4pn0rIN1FJYWCKF3WvRHtfqlk2BbVFVwY7hZeLm
+         zP7Wfwd9aEmt3qh/cEXduteT40spqZMhNlX1orR1uhSTrlw/8P8mZkFnk1mjNWT9t8OM
+         itARTA/hAIlro6+6otMLA156YiS6I5HsZ5Sf9jFkA5UzuGSuDdcLwYJLXfgXFNJkF3iH
+         3QHfmFx4DJUPAQpbn8/WiQ27b5mXF2B31GKDKWKJiqPyyReh2ZNBfyo1DeVY52cBRF4F
+         8/AQ==
+X-Gm-Message-State: AOJu0YygPdOCokBqgPgX33GwIqnIKV+0ANvEFNG+jyo1SM0/k2TCTuWA
+	7IqPSyDZg4iZZc9XyCruFYfziiY6sVpUpuIXBLEZQL5TfHinei58Yw3HOwZh
+MIME-Version: 1.0
+X-Received: by 2002:ac8:7d87:0:b0:4ed:de14:b374 with SMTP id
+ d75a77b69052e-507460ed78dmr31130991cf.64.1772122158821; Thu, 26 Feb 2026
+ 08:09:18 -0800 (PST)
+Date: Thu, 26 Feb 2026 08:09:18 -0800
+Reply-To: =?UTF-8?B?4oCcR29vZ2xlIEFJIFN0dWRpb+KAnQ==?= <googleaistudio-noreply@google.com>
+X-Google-Id: 4449273
+Feedback-ID: P-43-0:C20387276:M111119771-en:gamma
+gmsai: true
+X-Google-Notification-Metadata: CgISAA
+X-Notifications: b738b365d1960000
+X-Notifications-Bounce-Info: AXZ5ntr7joJamAp8ZXDrI7fwoVk3O4Fz9xdku54C0Ns7eYra6r9Bd0jYw4xjPPuTOfzaIvAckm2SdmdNYfgPdc38ML4_DkuAUdiz7n0h2T7jdA2I0ltLVd1Nyxut2IquydOHXOx24ctuEEebmX8tKVLHuQOsMrjid61Ki6BRogrunI0aq0Pb-CohQxhkpcOl-7G7dNGfCyyAkfAsnM74NKT70_KWbG622ddNaULIrZCr_Llri_K3uLRpMO0i78aciwkdDrp02Zt95Qw_yE-WByAFzNFJZseQdlF27XsJpJRJGERzSdKPeNz9FOLT-gibEULsZRXdrwkap3VhpXwDU_XQG_bvhdCAHbkfTNoL90keAQ38u89A1mrzYpHx_WrYTAP8JIfDoHdCGFKpQHbaFa-fkkL7bhrwJJWULRNpTFnQ1aESYnNJLf56wMWn7ZB_CPPlGeCKU598n4zPSZnHll0u7-HwjAHrj45Ro-iKp38puHOh_DQ2MwvdVotPBQAc0nsQJhO4ZbGaO9PHdH81MH2MU-xyJLWtEPkQtj__NjAwNjA0MDQxNTM1NTk2OTMzMg
+Message-ID: <42288e7553f985f7f84018ee1e96679eaa2a93f1-20387276-111816997@google.com>
+Subject:  [Action Required] Migrate to Gemini 3.1 Pro Preview before March 9, 2026
+ 
+From: =?UTF-8?B?4oCcR29vZ2xlIEFJIFN0dWRpb+KAnQ==?= <googleaistudio-noreply@google.com>
+To: castillo.lopez.jorge94@gmail.com
+Content-Type: multipart/alternative; boundary="000000000000c67658064bbc57f5"
+
+--000000000000c67658064bbc57f5
+Content-Type: text/plain; charset="UTF-8"; format=flowed; delsp=yes
+Content-Transfer-Encoding: base64
+
+UmV2aWV3IHVwZGF0ZXMgdG8gb3VyIEdlbWluaSAzIG1vZGVscyBhbmQgLWxhdGVzdCBhbGlhcy4N
+Cg0KDQoNCg0KDQoNCg0KSGVsbG8gSm9yZ2UsDQoNCldlJ3JlIHdyaXRpbmcgdG8gaW5mb3JtIHlv
+dSB0aGF0IHdlIHdpbGwgZGlzY29udGludWUgR2VtaW5pIDMgUHJvIFByZXZpZXcgIA0Kb24gR2Vt
+aW5pIEFQSSBhbmQgR29vZ2xlIEFJIFN0dWRpbyAoQUlTKSBlZmZlY3RpdmUgTWFyY2ggOSwgMjAy
+Ni4NCg0KQXMgd2UgY29udGludWUgdG8gbWFrZSBzaWduaWZpY2FudCBpbXByb3ZlbWVudHMgd2l0
+aCBvdXIgR2VtaW5pIG1vZGVscywgd2UgIA0KZW5jb3VyYWdlIGN1c3RvbWVycyB0byBtaWdyYXRl
+IHRvIEdlbWluaSAzLjEgUHJvIFByZXZpZXcuIEFkZGl0aW9uYWxseSwgb24gIA0KTWFyY2ggNiwg
+MjAyNiwgd2Ugd2lsbCBzd2l0Y2ggb3VyIC1sYXRlc3QgYWxpYXMgdG8gcG9pbnQgdG8gdGhlIGxh
+dGVzdCAgDQpHZW1pbmkgMy4xIFBybyBQcmV2aWV3IG1vZGVsLg0KDQpXaGF0IHlvdSBuZWVkIHRv
+IGtub3cNCg0KS2V5IGNoYW5nZXMgYW5kIFRpbWVsaW5lczoNCg0KDQpNYXJjaCA2LCAyMDI2OiBJ
+ZiB5b3UgYXJlIHVzaW5nIHRoZSAtbGF0ZXN0IGFsaWFzLCBwbGVhc2Ugbm90ZSB0aGF0IHdlIHdp
+bGwgIA0Kc3dpdGNoIHRvIEdlbWluaSAzLjEgUHJvIFByZXZpZXcgKCBnZW1pbmktMy4xLXByby1w
+cmV2aWV3ICkuDQpNYXJjaCA5LCAyMDI2OiBXZSdsbCBkaXNjb250aW51ZSBHZW1pbmkgMyBQcm8g
+UHJldmlldyBpbiBmYXZvciBvZiBvdXIgIA0KbGF0ZXN0IEdlbWluaSBtb2RlbCwgR2VtaW5pIDMu
+MSBQcm8gUHJldmlldy4gVG8gYXZvaWQgc2VydmljZSBkaXNydXB0aW9uLCAgDQpwbGVhc2UgbWln
+cmF0ZSB0byBHZW1pbmkgMy4xIFBybyBQcmV2aWV3ICggZ2VtaW5pLTMuMS1wcm8tcHJldmlldyAp
+IGJlZm9yZSAgDQpNYXJjaCA5LCAyMDI2Lg0KDQpZb3VyIGFmZmVjdGVkIHByb2plY3RzIGFyZSBs
+aXN0ZWQgYmVsb3c6DQoNCg0KZ2VuLWxhbmctY2xpZW50LTA1NTE5MjEyNjANCg0KV2UncmUgaGVy
+ZSB0byBoZWxwDQoNCklmIHlvdSBoYXZlIGFueSBxdWVzdGlvbnMgb3IgbmVlZCBoZWxwLCBjaGVj
+ayB0aGUgcHJvZHVjdCBkb2N1bWVudGF0aW9uIG9yICANCnZpc2l0IHRoZSBHZW1pbmkgQUkgY29t
+bXVuaXR5Lg0KDQpUaGFua3MgZm9yIGNob29zaW5nIEdvb2dsZSBBSSBTdHVkaW8gYW5kIEdlbWlu
+aSBBUEkuDQoNCg0KDQoNCuKAkyBUaGUgR2VtaW5pIEFQSSBUZWFtDQoNCg0KDQoNCg0KwqkgMjAy
+NiBHb29nbGUgTExDIDE2MDAgQW1waGl0aGVhdHJlIFBhcmt3YXksIE1vdW50YWluIFZpZXcsIENB
+IDk0MDQzLCBVU0ENClRoaXMgZW1haWwgd2FzIHNlbnQgdG8gY2FzdGlsbG8ubG9wZXouam9yZ2U5
+NEBnbWFpbC5jb20gYmVjYXVzZSB5b3Ugc2lnbmVkICANCnVwIHRvIHRyeSB0aGUgR2VtaW5pIEFQ
+SSBhbmQgR29vZ2xlIEFJIFN0dWRpby4NCg0KDQoNCg0KDQo=
+--000000000000c67658064bbc57f5
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+
+<html xmlns:v=3Durn:schemas-microsoft-com:vml dir=3Dltr lang=3Den style=3D"=
+margin:0; padding:0"><head>
+<meta http-equiv=3DContent-Type content=3D"text/html; charset=3Dutf-8">
+<title>[Action Advised] Migrate to Gemini API to continue using Google AI s=
+ervices and tooling</title>
+<link rel=3Dpreconnect href=3Dhttps://fonts.googleapis.com>
+<link rel=3Dpreconnect href=3Dhttps://fonts.gstatic.com crossorigin=3D"">
+<link href=3Dhttps://fonts.googleapis.com/css2?family=3DRoboto+Mono:ital,wg=
+ht@0,100..700;1,100..700&amp;display=3Dswap rel=3Dstylesheet>
+<!--[if (gte mso 9)|(IE)]>
+<style>
+.outlook_cta{
+border-top: 2px solid #849eff !important;
+border-bottom: 3px solid #849eff !important;
+border-right:24px solid #849eff !important;
+border-left: 24px solid #849eff !important;
+}
+.outlook_cta_2{
+border-top: 1px solid #849EFF !important;
+border-bottom: 3px solid #849EFF !important;
+border-right:24px solid #849EFF !important;
+border-left: 24px solid #849EFF !important;
+}
+.ol_pdt_0{
+padding-top: 0px !important;
+}
+@media screen and (max-width: 800px){
+.w_375{
+width:375px !important;
+}
+.w_320{
+width: 320px !important;
+}
+.w_340{
+width: 340px !important;
+}
+}
+</style>
+<![endif]-->
+<style>
+@media screen and (max-width: 800px){
+.no-border{border: none !important;}
+.mob-pd-b-0{padding-bottom: 0px !important;}
+.w_305{width: 305px !important;}
+.w_375{width:375px !important;}
+.w_320{width: 320px !important;}
+.w_315{width: 315px !important;}
+.w_340{width: 340px !important;}
+.mob-hide{display:none !important;}
+.mob-show{display:block !important;}
+.mauto{margin: 0 auto !important;}
+.pd_t_0{padding-top: 0px !important;}
+.mobileFont{font-size: 9px !important;}
+.mobileFont14{font-size: 14px !important; line-height:21px !important;}
+.mobileFont26{font-size: 26px !important; line-height:36px !important;}
+.pd_b{
+padding-bottom:40px !important}
+.pd_t{
+padding-top:40px !important}
+.pd_b_46{
+padding-bottom:46px !important}
+}
+</style>
+</head>
+<body style=3Dmargin:0>
+<table align=3Dcenter role=3Dpresentation width=3D100% style=3D"margin:0 au=
+to;text-align:center" bgcolor=3D#191A1C cellpadding=3D0 cellspacing=3D0 bor=
+der=3D0>
+<tbody><tr>
+<td align=3Dcenter valign=3Dtop>
+<table role=3Dpresentation class=3Dw_375 width=3D640 bgcolor=3D#191A1C styl=
+e=3D"margin:0 auto;text-align:center" cellpadding=3D0 cellspacing=3D0 borde=
+r=3D0>
+<!--[if (gte mso 9)|(IE)]>
+<table role=3D"presentation" width=3D"640" bgcolor=3D"#1A1A1A" class=3D"w_3=
+75" style=3D"max-width:640px;margin:0 auto;text-align:center" cellpadding=
+=3D"0" cellspacing=3D"0" border=3D"0">
+<![endif]-->
+<tbody>
+<!--- view it online starts --->
+<tr>
+<td valign=3Dtop align=3Dcenter>
+<table role=3Dpresentation width=3D100% cellpadding=3D0 cellspacing=3D0 bor=
+der=3D0>
+<tbody>
+<tr>
+<td align=3Dcenter valign=3Dtop width=3D50% style=3Dbackground-color:#191A1=
+C>
+<table role=3Dpresentation border=3D0 cellpadding=3D0 cellspacing=3D0 width=
+=3D100%>
+<tbody>
+<tr>
+<td align=3Dcenter valign=3Dtop style=3D"font-family:Google Sans Text, Robo=
+to, Helvetica, Arial, sans-serif;font-size: 12px;color: #8A8A8A;line-height=
+: 18px;font-weight: 500;padding: 20px 20px 16px 20px;">
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<!--- view it online ends --->
+<tr>
+<td align=3Dcenter valign=3Dtop style=3D"border: 1px solid #6C6C6C;">
+<table role=3Dpresentation class=3Dw_375 border=3D0 cellspacing=3D0 cellpad=
+ding=3D0 width=3D640>
+<!--- logo module starts --->
+<tbody><tr>
+<td align=3Dcenter valign=3Dtop bgcolor=3D#0F1012 style=3Dborder-radius:0px=
+;;>
+<table role=3Dpresentation class=3Dw_375 border=3D0 cellspacing=3D0 cellpad=
+ding=3D0 width=3D640>
+<tbody>
+<tr>
+<td align=3Dcenter valign=3Dtop style=3D"padding: 16px 0px 16px 0px; border=
+-bottom: 1px solid #6C6C6C;" class=3Dmob-hide>
+<table align=3Dleft role=3Dpresentation class=3Dw_320 border=3D0 cellspacin=
+g=3D0 cellpadding=3D0 width=3D480>
+<tbody><tr>
+<td align=3Dleft valign=3Dtop style=3Dpadding-left:80px>
+<img src=3Dhttps://www.gstatic.com/gumdrop/files/google-play-developers-new=
+-google-ai-transparent-w246px-h34px-2x.png width=3D123 alt=3D"" style=3Ddis=
+play:block;outline:none;text-decoration:none height=3Dauto>
+</td>
+</tr>
+</tbody></table>
+</td>
+<!--[if !mso]><!-->
+<td align=3Dcenter valign=3Dtop style=3D"padding: 16px 0px 16px 0px;display=
+: none;border-bottom: 1px solid #6C6C6C;" class=3Dmob-show>
+<table align=3Dcenter role=3Dpresentation class=3Dw_320 border=3D0 cellspac=
+ing=3D0 cellpadding=3D0 width=3D480>
+<tbody><tr>
+<td align=3Dcenter valign=3Dtop>
+<img src=3Dhttps://www.gstatic.com/gumdrop/files/google-play-developers-new=
+-google-ai-transparent-w246px-h34px-2x.png width=3D123 alt=3D"" style=3Ddis=
+play:block;outline:none;text-decoration:none height=3Dauto>
+</td>
+</tr>
+</tbody></table>
+</td>
+<!--<![endif]-->
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+<!--- logo module ends --->
+<!--- content table module starts --->
+<tr>
+<td align=3Dcenter valign=3Dtop>
+<table role=3Dpresentation class=3Dw_375 border=3D0 cellspacing=3D0 cellpad=
+ding=3D0 width=3D640 bgcolor=3D#0F1012>
+<tbody><tr>
+<td align=3Dcenter valign=3Dtop>
+<table align=3Dcenter role=3Dpresentation class=3Dw_375 border=3D0 cellspac=
+ing=3D0 cellpadding=3D0 width=3D640>
+<!--- heading module starts --->
+<tbody><tr>
+<td align=3Dcenter valign=3Dtop>
+<table align=3Dcenter role=3Dpresentation class=3Dw_320 border=3D0 cellspac=
+ing=3D0 cellpadding=3D0 width=3D480>
+<tbody><tr>
+<td align=3Dleft valign=3Dtop style=3D"font-family:Google Sans,Roboto,Helve=
+tica,Arial sans-serif;font-size:26px;line-height:36px;font-weight:700;color=
+:#E2E2E5;letter-spacing:-0.5px;padding: 40px 0px 23px; border-bottom: 1px s=
+olid #6c6c6c;" class=3D"no-border mobileFont26 pd_b">Review updates to our =
+Gemini 3 models and -latest alias.
+
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+
+<!--- heading module ends --->
+<!--[if !mso]><!-->
+<tr>
+<td align=3Dcenter valign=3Dtop style=3D"border-bottom:1px solid #6C6C6C;pa=
+dding-top: 0px;display:none" class=3Dmob-show>
+<img src=3Dhttps://www.gstatic.com/gumdrop/files/spacer-11.gif width=3D0 he=
+ight=3D0 border=3D0 alt=3D"" style=3D"display: block;">
+</td>
+</tr>
+
+<!--<![endif]-->
+<tr>
+<td align=3Dcenter valign=3Dtop>
+<table align=3Dcenter role=3Dpresentation class=3Dw_320 border=3D0 cellspac=
+ing=3D0 cellpadding=3D0 width=3D480>
+<tbody><tr>
+<td align=3Dleft valign=3Dtop>
+<table cellpadding=3D0 class=3D"w_320 mauto" cellspacing=3D0 role=3Dpresent=
+ation>
+<tbody>
+<tr>
+<td align=3Dleft valign=3Dtop style=3D"font-family:Google Sans Text,Roboto,=
+Helvetica,Arial sans-serif;font-size:15px;line-height:23px;font-weight:400;=
+color:#E2E2E5; padding-top: 23px;" class=3D"mobileFont14 pd_t">
+
+  <!-- translation notice incident 5 locales -->
+=C2=A0
+<p><a rel=3Dnofollow style=3D"text-decoration:none; color:#FFFFFF">Hello Jo=
+rge</a>,</p>
+
+<p>We&#39;re writing to inform you that we will discontinue <a href=3Dhttps=
+://c.gle/AEJ26quqM2faXLiWQKn3m4G5GGMST6Q_sHZTnhNXDE1fQvaQTCHpiBfUHTxmwDgbdg=
+0K1UDaAWxdM-X5vy5CdiLDeWkMAflK0NmbQXwXIUvNlNze-sw8oYErNXR_1gAPy9ee_evC1T-Dt=
+wD3OGYbhN5eXJpJ2bPpEDq8Nt4y2hL0ig style=3D"text-decoration: none; color: #b=
+4c6fb" target=3D_blank><strong>Gemini 3 Pro Preview</strong></a> on <a href=
+=3Dhttps://c.gle/AEJ26qt8rfpe0I0Q_BfEq8QSeuf7JbEw2ByvDwIRZkf22Dn9sbaBynAB6k=
+W0ue4fvkTvneDbat5d5E1nfSv1gnrzJ8j-cDYOYAaDaP2oTO2kHiWkkKgTVHhyeSrndUpa9bLDs=
+pyv style=3D"text-decoration: none; color: #b4c6fb" target=3D_blank><strong=
+>Gemini API</strong></a> and <a href=3Dhttps://c.gle/AEJ26qu3RYNa2ZFYzNMcr7=
+pHGVZbaPMePY6Y2a8VHnp_6yV-uqNbIo80MlEa4WSFcJL7UB8oQrXTNdYkSUsbemfs36S2hFcmh=
+eDpPV5isXRYMhe8CfyYhLFWr7Q style=3D"text-decoration: none; color: #b4c6fb" =
+target=3D_blank><strong>Google AI Studio</strong></a> <strong>(AIS)</strong=
+> effective <strong>March 9, 2026</strong>.</p>
+
+<p>As we continue to make significant improvements with our <strong>Gemini<=
+/strong> <a href=3Dhttps://c.gle/AEJ26qtfhgwXNuCZwLn3QxcOt7A7dnnCgYKQGiMG-G=
+72k8iz-BDes7warsjTOT90GQfD1xGUO6325m_jU7AEbqC7fGpBGSF3TKs35SCFk9_tKDrX315A8=
+VMQPnj7sTGurqKJFGwyBB48KLyNNw style=3D"text-decoration: none; color: #b4c6f=
+b" target=3D_blank>models</a>, we encourage customers to migrate to <a href=
+=3Dhttps://c.gle/AEJ26qu96AtMsk5kC4yOzelthqpNZutJZIxdvqjDT4YrOig7mMJ0pNTl-r=
+j6eLsN6bLDe1Vmmg23E93_ixnLVP4btFbJSVWPEGLrmSY_WNqCN3u3gdzpBgbCprRpGa7PvJEPI=
+IPAxcxhk0yMHQjvpZa1JDkfAqjT7LHexathqiXPjHZ0 style=3D"text-decoration: none;=
+ color: #b4c6fb" target=3D_blank>Gemini 3.1 Pro Preview</a>. Additionally, =
+on <strong>March 6, 2026</strong>, we will switch our <strong>-latest alias=
+</strong> to point to the latest Gemini 3.1 Pro Preview model.</p>
+
+<h3>What you need to know</h3>
+
+<p><strong>Key changes and Timelines:</strong></p>
+
+<ul>
+  <li><strong>March 6, 2026</strong>: If you are using the <strong>-latest =
+alias</strong>, please note that we will switch to Gemini 3.1 Pro Preview (=
+<code style=3Dcolor:#898989><strong>gemini-3.1-pro-preview</strong></code>)=
+.</li>
+  <li><strong>March 9, 2026</strong>: We=E2=80=99ll discontinue <a href=3Dh=
+ttps://c.gle/AEJ26quqM2faXLiWQKn3m4G5GGMST6Q_sHZTnhNXDE1fQvaQTCHpiBfUHTxmwD=
+gbdg0K1UDaAWxdM-X5vy5CdiLDeWkMAflK0NmbQXwXIUvNlNze-sw8oYErNXR_1gAPy9ee_evC1=
+T-DtwD3OGYbhN5eXJpJ2bPpEDq8Nt4y2hL0ig style=3D"text-decoration: none; color=
+: #b4c6fb" target=3D_blank>Gemini 3 Pro Preview</a> in favor of our latest =
+Gemini model, <a href=3Dhttps://c.gle/AEJ26qu96AtMsk5kC4yOzelthqpNZutJZIxdv=
+qjDT4YrOig7mMJ0pNTl-rj6eLsN6bLDe1Vmmg23E93_ixnLVP4btFbJSVWPEGLrmSY_WNqCN3u3=
+gdzpBgbCprRpGa7PvJEPIIPAxcxhk0yMHQjvpZa1JDkfAqjT7LHexathqiXPjHZ0 style=3D"t=
+ext-decoration: none; color: #b4c6fb" target=3D_blank>Gemini 3.1 Pro Previe=
+w</a>. To avoid service disruption, please migrate to Gemini 3.1 Pro Previe=
+w (<code style=3Dcolor:#898989><strong>gemini-3.1-pro-preview</strong></cod=
+e>) before <strong>March 9, 2026</strong>.</li>
+</ul>
+
+<p>Your affected projects are listed below:</p>
+
+<ul>
+  <li><a href=3Dhttps://c.gle/AEJ26qtPDVNRbw8LAIulZhmjK6kZhJf-EW-4iHZxwmoIs=
+uzuTGZ4_g3aFvwZZ0qfMPfZgDOWVflViHKbLu40HlA8MqeXmBGdSHkbRBNAdsGpw9cOOQfGAgvn=
+rrHrAkINn77QTpZJQd-K367Tdxh-8oefMNE8TbW9htwZI8tdvbzEKeyc style=3D"text-deco=
+ration: none; color: #b4c6fb" target=3D_blank>gen-lang-client-0551921260</a=
+></li>
+</ul>
+
+<h3>We=E2=80=99re here to help</h3>
+
+<p>If you have any questions or need help, check the <a href=3Dhttps://c.gl=
+e/AEJ26qtfhgwXNuCZwLn3QxcOt7A7dnnCgYKQGiMG-G72k8iz-BDes7warsjTOT90GQfD1xGUO=
+6325m_jU7AEbqC7fGpBGSF3TKs35SCFk9_tKDrX315A8VMQPnj7sTGurqKJFGwyBB48KLyNNw s=
+tyle=3D"text-decoration: none; color: #b4c6fb" target=3D_blank>product docu=
+mentation</a> or visit the <a href=3Dhttps://c.gle/AEJ26qvn2jPccaR94w3Dwddv=
+UF599TEnKfFBuyqpsycBHcT3yEkHUqYeVL99AgvqKKWOON7xnQw2zI75zuQuQVUjqnZ4Ps8vTtg=
+hFoRB2a5w3PoNZF2bicE8dXzrRB8 style=3D"text-decoration: none; color: #b4c6fb=
+" target=3D_blank>Gemini AI community</a>.</p>
+
+<p>Thanks for choosing Google AI Studio and Gemini API.</p>
+
+<!-- signature -->
+
+<tr>
+<td align=3Dleft valign=3Dtop>
+<table cellpadding=3D0 class=3D"w_320 mauto" cellspacing=3D0 role=3Dpresent=
+ation>
+<tbody>
+<tr>
+<td align=3Dleft valign=3Dtop style=3D"font-family:Google Sans Text,Roboto,=
+Helvetica,Arial sans-serif;font-size:15px;line-height:23px;font-weight:400;=
+color:#E2E2E5; padding-top: 16px; padding-bottom: 23px;" class=3D"mobileFon=
+t14 pd_b_46">
+
+<p><strong>=E2=80=93 The Gemini API Team</strong></p>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+<!-- footer -->
+<tr>
+<td align=3Dcenter valign=3Dtop>
+<table role=3Dpresentation class=3Dw_375 border=3D0 cellspacing=3D0 cellpad=
+ding=3D0 width=3D640>
+<tbody><tr>
+<td align=3Dcenter valign=3Dtop style=3D"padding:36px 0px 40px 0px; backgro=
+und-color:#191A1C">
+<table width=3D549 class=3Dw_340 cellspacing=3D0 cellpadding=3D0 border=3D0=
+ role=3Dpresentation align=3Dcenter>
+<tbody><tr>
+<td align=3Dcenter valign=3Dtop style=3D"font-family:Google Sans Text, Robo=
+to,Helvetica,Arial sans-serif;font-size:12px;line-height:18px;color:#8A8A8A=
+;font-weight: 400;" class=3Dmob-pd-b-0>
+=C2=A9 2026 Google LLC <a href=3D# style=3Dcolor:#8A8A8A;text-decoration:no=
+ne>1600 Amphitheatre Parkway, Mountain View, CA 94043, USA</a>=20
+</td>
+</tr>
+<td align=3Dcenter valign=3Dtop style=3D"font-family:Google Sans Text, Robo=
+to,Helvetica,Arial sans-serif;font-size:12px;line-height:18px;color:#8A8A8A=
+;padding-top: 15px; font-weight: 400;">
+ This email was sent to <a href=3Dmailto:castillo.lopez.jorge94@gmail.com s=
+tyle=3D"text-decoration: none; color: #8A8A8A; pointer-events: none; cursor=
+: default;" target=3D_blank>castillo.lopez.jorge94@gmail.com</a> because yo=
+u signed up to try the Gemini API and Google AI Studio.</td>
+<tr>
+<td align=3Dcenter valign=3Dtop style=3D"font-family:Google Sans Text, Robo=
+to,Helvetica,Arial sans-serif;font-size:12px;line-height:18px;color:#8A8A8A=
+;padding-top: 15px; font-weight: 400;">
+
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody></table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody></table>
+<img alt=3D"" height=3D1 width=3D3 src=3Dhttps://notifications.google.com/g=
+/proof/img/ANiao5rVZdlDaJAFCq56YRZodVURUBFe8_Sox5Od4ptMrSvRv83PwJ3HiLkO1sjs=
+wH6n8teTU7w_JxCF6DdO-ToMFxPYQ1Mbl-oZjAf4HmW6nUCqbOM.gif>
+<img alt=3D"" height=3D1 width=3D3 src=3Dhttps://notifications.google.com/g=
+/img/AEJ26qsVoV72VMDLzNMa1MWgVRqOF1t5AiMK6siKSRF2rpWdMmGzz1-5CoWdLm-aPrFdYh=
+l-ZnC1xLXS_KSPXvRCUWPObD_cIDY0p3PKWW3sbgGlCrsL8jG6cpvpaVRf4Bj7RRpEfA.gif></=
+body></html>
+
+--000000000000c67658064bbc57f5--

@@ -36,37 +36,44 @@ export type ProcessingQueueRow = Tables<'processing_queue'>
  * 
  * FREE ("Prueba Profesional" - 7 días):
  *   - 1 causa, 20 chats (lifetime), 3 deep thinking (lifetime)
+ *   - 0 escritos (sin acceso a editor/micro-escritos)
  *   - 7 días de retención, luego The Reaper borra datos
  *   - Ghost card: se conserva metadata de causa (ROL, tribunal, carátula)
  *   - Device fingerprint impide re-crear cuenta free
  * 
  * PRO ($50.00/mes):
  *   - 500 causas, chat con Fair Use (soft cap 3,000/mes)
- *   - 100 deep thinking por mes, editor ilimitado
+ *   - 100 deep thinking por mes
+ *   - 200 escritos/mes (Editor 3.03 + Micro-Escritos 10.06 comparten cuota)
  *   - Fair Use: al superar 3,000 chats/mes se aplica throttle
  *     de 30s entre queries (no se bloquea, se ralentiza)
  *   - Retención permanente de datos
+ * 
+ * Nota: Cuando se implemente 6.04 (4 planes), los límites de escritos serán:
+ *   FREE: 0 | INDIVIDUAL: 50/mes | ESTUDIO: 200/mes | ENTERPRISE: 500/mes
  */
 export const PLAN_LIMITS = {
   free: {
     cases: 1,
     chats: 20,
     deep_thinking: 3,
+    editor: 0,
     retention_days: 7,
     price_usd: 0,
   },
   pro: {
     cases: 500,
     chats: Infinity,
-    deep_thinking: 100,  // por mes
+    deep_thinking: 100,
+    editor: 200,
     retention_days: Infinity,
     price_usd: 50,
     fair_use: {
       chat_soft_cap_monthly: 3_000,
-      throttle_ms: 30_000,  // 30 segundos entre queries al superar soft cap
+      throttle_ms: 30_000,
     },
   },
 } as const
 
 export type PlanType = 'free' | 'pro'
-export type ActionType = 'chat' | 'deep_thinking' | 'case'
+export type ActionType = 'chat' | 'deep_thinking' | 'case' | 'editor'

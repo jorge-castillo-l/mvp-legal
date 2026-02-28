@@ -3,8 +3,8 @@
  * Tarea 1.04: SQL Perfiles & RLS
  * 
  * ACTUALIZACIÓN Feb 2026 — Rediseño de Planes:
- *   FREE ("Prueba Profesional" - 7 días): 1 causa, 20 chats, 3 DT
- *   PRO ($50.00/mes): 500 causas, chat fair use 3,000/mes, 100 DT/mes
+ *   FREE ("Prueba Profesional" - 7 días): 1 causa, 20 chats, 3 DT, 0 escritos
+ *   PRO ($50.00/mes): 500 causas, chat fair use 3,000/mes, 100 DT/mes, 200 escritos/mes
  * 
  * Funciones de utilidad para trabajar con perfiles de usuario,
  * verificar límites y manejar contadores.
@@ -252,14 +252,19 @@ export async function getProfileStats(_userId: string): Promise<{
     limit: number
     remaining: number
   }
+  editor: {
+    used: number
+    monthlyUsed?: number
+    limit: number
+    remaining: number
+  }
   cases: {
     used: number
     limit: number
     remaining: number
   }
-  accountAge: number // días
-  expiresIn?: number // días (solo para FREE)
-  /** Notificación que el UI debe mostrar según el estado del trial */
+  accountAge: number
+  expiresIn?: number
   trialNotification?: {
     type: 'info' | 'warning' | 'urgent' | 'expired'
     message: string
@@ -332,6 +337,11 @@ export async function getProfileStats(_userId: string): Promise<{
         limit: PLAN_LIMITS.free.deep_thinking,
         remaining: Math.max(0, PLAN_LIMITS.free.deep_thinking - profile.deep_thinking_count),
       },
+      editor: {
+        used: 0,
+        limit: PLAN_LIMITS.free.editor,
+        remaining: 0,
+      },
       cases: {
         used: profile.case_count,
         limit: PLAN_LIMITS.free.cases,
@@ -348,6 +358,7 @@ export async function getProfileStats(_userId: string): Promise<{
   // ═══════════════════════════════════════════
   const monthlyChatCount = profile.monthly_chat_count
   const monthlyDTCount = profile.monthly_deep_thinking_count
+  const monthlyEditorCount = (profile as Record<string, unknown>).monthly_editor_count as number ?? 0
   const softCap = PLAN_LIMITS.pro.fair_use.chat_soft_cap_monthly
 
   // Determinar estado de Fair Use
@@ -375,6 +386,12 @@ export async function getProfileStats(_userId: string): Promise<{
       monthlyUsed: monthlyDTCount,
       limit: PLAN_LIMITS.pro.deep_thinking,
       remaining: Math.max(0, PLAN_LIMITS.pro.deep_thinking - monthlyDTCount),
+    },
+    editor: {
+      used: monthlyEditorCount,
+      monthlyUsed: monthlyEditorCount,
+      limit: PLAN_LIMITS.pro.editor,
+      remaining: Math.max(0, PLAN_LIMITS.pro.editor - monthlyEditorCount),
     },
     cases: {
       used: profile.case_count,

@@ -2,11 +2,17 @@
 
 ## Contexto Global (2026)
 Este proyecto es una **Extensión de Navegador** para abogados chilenos basada en Chromium (Manifest V3).
-- **Core Product:** La experiencia principal vive en el Sidepanel de la extensión, activado en pjud.cl.
-- **Web Dashboard:** (`/app/dashboard`) es SOLO un panel administrativo satélite (Billing, Historial, Settings). NO es el espacio de trabajo.
-- **Backend:** Supabase (Auth, Database, Storage, Edge Functions).
-- **IA:** Google Gemini 3 (Flash + Pro) via `@google/generative-ai`. NO usar Vercel AI SDK.
+- **Core Product:** La experiencia principal vive en el Sidepanel de la extensión, activado en pjud.cl. Chat IA + Visor PDF + Vistas de causas viven SOLO en el Sidepanel.
+- **Web Dashboard:** (`/app/dashboard`) es mínimo en V1: lista de causas sincronizadas + gestión de suscripción Stripe. SIN chat ni visor PDF en Dashboard (eso es V2).
+- **MVP V1 = Single-user.** Solo 2 planes: Free + Individual ($99/mes). Multi-user (Estudio/Enterprise) es V2.
+- **Backend:** Supabase (Auth, Database, Storage, Edge Functions). PostgreSQL con pgvector.
+- **IA — 3 Capas Gemini:** Google Gemini 3 via `@google/generative-ai`. NO usar Vercel AI SDK.
+  - Capa 1 (Fast Chat): `gemini-3-flash` — RAG + respuesta rápida (~$0.005/query)
+  - Capa 2 (Full Analysis): `gemini-3-flash` long context + caching (~$0.015/query)
+  - Capa 3 (Deep Thinking): `gemini-3-pro` con thinking mode (~$0.13/query)
+- **RAG Pipeline:** Vector search (pgvector HNSW) + full-text BM25 + reranking. Embeddings: `text-embedding-004`.
 - **Extracción PDF:** `pdf-parse` v2.4.5 (wrapper de `pdfjs-dist`). Fallback OCR: Google Document AI.
+- **V2 futuro (NO implementar ahora):** Editor de Escritos (Claude Sonnet 4), Micro-Escritos, Multi-User Teams, Dashboard completo, Motor de Plazos automático, Alertas.
 
 ## Tech Stack (versiones reales)
 - Framework: Next.js 16.1 (App Router + Turbopack)
@@ -14,47 +20,61 @@ Este proyecto es una **Extensión de Navegador** para abogados chilenos basada e
 - Estilos: Tailwind CSS 4+ (variables nativas)
 - UI: Shadcn/UI v2 con tema legal (Slate/Gray)
 - Auth: Supabase SSR (`@supabase/ssr`)
-- DB: PostgreSQL via Supabase (con RLS obligatorio)
+- DB: PostgreSQL via Supabase (con RLS obligatorio) + pgvector (HNSW)
 - Storage: Supabase Storage (bucket `case-files`)
+- Embeddings: Google `text-embedding-004` (768 dims, $0.00625/1M tokens)
+- IA Chat: Google Gemini 3 Flash + Pro via `@google/generative-ai`
 
 ## Estructura de Archivos
 ```
 src/
   app/
-    api/{recurso}/route.ts    # API Routes (Node.js runtime, NUNCA Edge)
-    dashboard/                 # Panel web (satélite)
-    login/                     # Auth pages
+    api/upload/route.ts         # Upload PDFs desde extensión
+    api/scraper/config/route.ts # Selectores CSS dinámicos para scraper
+    api/scraper/sync/route.ts   # Sync server-side: recibe JWTs → descarga PDFs de PJUD
+    api/chat/route.ts           # RAG pipeline: pregunta → vector search → Gemini → respuesta
+    api/auth/session/route.ts   # Token para extensión
+    dashboard/                  # Panel web mínimo V1 (lista causas + suscripción)
+    login/                      # Auth pages
   lib/
-    supabase/server.ts         # createClient, createClientWithToken, createAdminClient
-    supabase/client.ts         # Browser client
-    supabase/middleware.ts      # Session refresh
-    database.types.ts           # Re-exports de tipos + PLAN_LIMITS + aliases
+    supabase/server.ts          # createClient, createClientWithToken, createAdminClient
+    supabase/client.ts          # Browser client
+    supabase/middleware.ts       # Session refresh
+    gemini.ts                   # getModel(mode): Flash/Flash-long/Pro-thinking
+    rag.ts                      # RAG pipeline: embed query → vector search → BM25 → rerank → prompt
+    database.types.ts            # Re-exports de tipos + PLAN_LIMITS (2 planes) + aliases
     cors.ts                     # CORS para chrome-extension://
-    profile-helpers.ts          # checkUserLimits, incrementCounter
-    pdf-extract.ts              # extractNativePdfText (pdf-parse v2)
+    profile-helpers.ts           # checkUserLimits, incrementCounter (Free + Individual)
+    pdf-extract.ts               # extractNativePdfText (pdf-parse v2)
   types/
-    supabase.ts                # FUENTE DE VERDAD de tipos DB (generado por CLI)
+    supabase.ts                 # FUENTE DE VERDAD de tipos DB (generado por CLI)
 extension/
-  lib/config.js                # CONFIG global (URLs, Supabase keys)
-  lib/supabase.js              # Cliente Supabase para extensión
-  scraper/                     # Módulos del scraper resiliente
-  sidepanel.{html,js}          # UI principal del producto
-  manifest.json                # Manifest V3
+  lib/config.js                 # CONFIG global (URLs, Supabase keys)
+  lib/supabase.js               # Cliente Supabase para extensión
+  scraper/
+    jwt-extractor.js            # Lectura pasiva DOM → JWTs + metadata (CausaPackage)
+  sidepanel.{html,js}           # UI principal: sync + chat 3 capas + visor PDF + vistas causas
+  manifest.json                 # Manifest V3
 supabase/
-  migrations/                  # Migraciones SQL con timestamp
+  migrations/                   # Migraciones SQL con timestamp
+  functions/
+    process-document/            # Edge Function: pdf-parse → OCR fallback → chunking → embeddings
 ```
 
 ## Esquema de Base de Datos (tablas actuales)
 ```
-profiles         → auth.users (1:1). plan_type, contadores, fingerprint, RLS por id.
-cases            → Causas judiciales. UNIQUE(user_id, rol, tribunal, caratula). RLS por user_id.
-documents        → PDFs. FK a cases. storage_path, file_hash. RLS por user_id.
-document_hashes  → Deduplicación SHA-256. UNIQUE(user_id, hash). FK a cases. RLS por user_id.
-extracted_texts  → Texto extraído de PDFs. UNIQUE(document_id). FK a documents + cases. RLS por user_id.
-document_chunks  → Fragmentos para RAG. UNIQUE(extracted_text_id, chunk_index). FK a extracted_texts + documents + cases. RLS por user_id.
-document_embeddings → Embeddings vectoriales por chunk. UNIQUE(chunk_id). FK a document_chunks + cases. RLS por user_id.
+profiles             → auth.users (1:1). plan_type CHECK('free'|'individual'), contadores mensuales (fast_chat/full_analysis/deep_thinking), max_causes, fingerprint. RLS por id.
+cases                → Causas judiciales. UNIQUE(user_id, rol, COALESCE(tribunal)). caratula nullable (enrichment). libro_tipo TEXT nullable (c/v/e/a/f/i). fuente_sync DEFAULT 'consulta_unificada'. materia (procedimiento). RLS por user_id.
+documents            → PDFs. FK a cases. storage_path, file_hash. RLS por user_id.
+document_hashes      → Deduplicación SHA-256. UNIQUE(user_id, hash). FK a cases. RLS por user_id.
+extracted_texts      → Texto extraído de PDFs. UNIQUE(document_id). extraction_method ('pdf-parse'|'document-ai'). status ('completed'|'needs_ocr'|'failed'). FK a documents + cases. RLS por user_id.
+document_chunks      → Fragmentos para RAG. UNIQUE(extracted_text_id, chunk_index). section_type, page_number, metadata JSONB. FK a extracted_texts + cases. RLS por user_id.
+document_embeddings  → pgvector embeddings (768 dims). UNIQUE(chunk_id). Índice HNSW. FK a document_chunks + cases. RLS por user_id.
+conversations        → Historial de chat. case_id FK, mode ('fast_chat'|'full_analysis'|'deep_thinking'). RLS por user_id.
+chat_messages        → Mensajes. conversation_id FK, role, content, sources_cited JSONB, tokens_input/output, model_used, latency_ms. RLS por user_id.
+ocr_usage            → Conteo OCR. pages_processed, monthly_pages. RLS por user_id.
 ```
-Relaciones: cases 1:N documents 1:1 extracted_texts 1:N document_chunks 1:1 document_embeddings.
+Relaciones: cases 1:N documents 1:1 extracted_texts 1:N document_chunks 1:1 document_embeddings. cases 1:N conversations 1:N chat_messages.
 
 ## Convenciones de Migraciones SQL
 - Archivo: `supabase/migrations/YYYYMMDDHHMMSS_nombre_descriptivo.sql`
@@ -79,21 +99,32 @@ Relaciones: cases 1:N documents 1:1 extracted_texts 1:N document_chunks 1:1 docu
 - NUNCA exponer `createAdminClient` al cliente.
 - NUNCA enviar SERVICE_ROLE_KEY fuera de server-side.
 
-## Pipeline de Procesamiento de Documentos
+## Pipeline de Procesamiento de Documentos (Ingesta → RAG-ready)
 ```
-Extension (scraper/manual) → /api/upload → Storage + DB
-  1. Auth (Bearer token)
-  2. Validar PDF (tipo, tamaño, magic bytes)
-  3. SHA-256 dedup (document_hashes)
-  4. Upsert causa (cases, con manejo de UNIQUE constraint)
-  5. Upload a Storage (bucket case-files)
-  6. Insert en documents
-  7. Extracción nativa pdf-parse → extracted_texts (status: completed | needs_ocr | failed)
-  8. Insert hash en document_hashes
-  9. Respuesta con metadata + estado extracción
+FASE 1: Sync (Extension → API)
+  Extension lee DOM pasivamente (JWT Extractor) → envía CausaPackage (JWTs + metadata) a /api/scraper/sync
+  API descarga PDFs server-side con JWTs → Storage + DB. Throttle 500ms-1s entre requests a PJUD.
+
+FASE 2: Upload individual (fallback)
+  Extension → /api/upload → Storage + DB (mismo pipeline pero para PDFs individuales)
+
+FASE 3: Procesamiento (Edge Function trigger)
+  1. pdf-parse (nativo) → extracted_texts (status: completed | needs_ocr | failed)
+  2. Si needs_ocr → Google Document AI → extracted_texts
+  3. Legal-Aware Chunking → document_chunks (512-1024 tokens, 15% overlap, metadata: section_type + folio + cuaderno)
+  4. Embeddings text-embedding-004 → document_embeddings (vector 768 dims, HNSW index)
+  5. Causa queda RAG-ready
+
+FASE 4: RAG (Chat query)
+  1. Embed pregunta → vector search filtrada por case_id
+  2. BM25 full-text search en Postgres
+  3. Reranking híbrido (vector + BM25 + temporal)
+  4. Top-K chunks + system prompt por procedimiento → Gemini (capa según modo)
+  5. Respuesta con citas: [tipo doc] fecha [DD/MM/YYYY] folio [N] cuaderno [nombre] (pág. N)
 ```
-- Si chars/página < 50 → status='needs_ocr' (fallback OCR en tarea 7.04).
-- Extracción NO bloquea upload: si falla, se registra status='failed' para reintento.
+- Deduplicación: SHA-256 en document_hashes. Skip si hash ya existe.
+- Chunking legal: detecta Vistos/Considerandos/Resolutivos (sentencias), Suma/En lo principal/Otrosí/Petitorio (escritos), Certificación/Diligencia/Resultado (actuaciones receptor).
+- Citas obligatorias en TODA respuesta del chat. Links clickeables al PDF con scroll a página.
 
 ## Reglas de Seguridad
 - `SUPABASE_SERVICE_ROLE_KEY` SOLO en `.env.local`. NUNCA en código, extensión ni commits.
@@ -107,20 +138,25 @@ Extension (scraper/manual) → /api/upload → Storage + DB
 - Extensión usa JS puro (NO TypeScript, NO ES modules). Variable global `CONFIG` desde `lib/config.js`.
 - NO usar `import/export` en archivos de la extensión (incompatible con MV3 content scripts).
 - NO usar librerías pesadas que inflen el bundle de la extensión.
-- NO crear páginas complejas en Dashboard si esa función puede ir en el Sidepanel.
+- NO crear páginas complejas en Dashboard (V1 = mínimo). Chat, PDF viewer, vistas detalladas van SOLO en Sidepanel.
+- NO implementar funcionalidades V2: Editor de Escritos, Claude SDK, Multi-User Teams, Planes Estudio/Enterprise, Analytics PostHog.
 
 ## Tipos TypeScript
 - Fuente de verdad: `src/types/supabase.ts` (generado por Supabase CLI).
 - Re-exports + constantes de negocio: `src/lib/database.types.ts`.
-- Aliases de Insert disponibles: `CaseInsert`, `DocumentInsert`, `DocumentHashInsert`, `ExtractedTextInsert`, `DocumentChunkInsert`.
+- Aliases de Insert disponibles: `CaseInsert`, `DocumentInsert`, `DocumentHashInsert`, `ExtractedTextInsert`, `DocumentChunkInsert`, `ConversationInsert`, `ChatMessageInsert`.
 - Importar tipos desde `@/types/supabase` o `@/lib/database.types` (ambos válidos).
-- PLAN_LIMITS y PlanType/ActionType viven en `@/lib/database.types`.
+- PLAN_LIMITS (2 planes: Free + Individual) y PlanType viven en `@/lib/database.types`.
+- V1 NO tiene ActionType 'editor' (eso es V2 con Claude para escritos).
 
 ## UI/UX
 - Estética "Legal/Sobria" (Slate/Gray). Shadcn/UI v2.
 - Componentes ligeros para no ralentizar el navegador.
-- Sidepanel es responsive (ancho limitado ~400px).
-- Dashboard es secundario: billing, historial, settings.
+- Sidepanel es responsive (ancho limitado ~400px). Toda la experiencia rica vive aquí en V1.
+- Dashboard V1 es mínimo: lista causas sincronizadas + gestión suscripción. Sin chat ni PDF viewer.
+- Componentes de chat/PDF/vistas diseñados como módulos reutilizables (preparación para Dashboard completo en V2).
+- Chat: 3 modos visuales — Rayo (fast) / Lupa (full) / Cerebro (deep). Acciones rápidas por procedimiento.
+- Citas en respuestas: links clickeables que abren PDF en visor con scroll a página.
 
 ## Mantenimiento de este archivo
 Actualizar `.cursorrules` cuando:
