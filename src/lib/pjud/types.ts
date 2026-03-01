@@ -69,6 +69,12 @@ export interface TabsData {
   }>
 }
 
+export interface AnexoFile {
+  jwt: JwtRef
+  fecha: string
+  referencia: string
+}
+
 export interface ExhortoData {
   causa_origen: string | null
   tribunal_origen: string | null

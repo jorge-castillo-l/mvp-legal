@@ -33,6 +33,15 @@ const REQUEST_TIMEOUT_MS = 30_000
 export class PjudClient {
   private lastRequestTime = 0
   private requestCount = 0
+  private cookies: PjudCookies | null = null
+
+  /**
+   * Store session cookies for endpoints that require them (e.g. anexoDocCivil.php).
+   * Safe to call for all syncs — endpoints that don't need cookies simply ignore them.
+   */
+  setCookies(cookies: PjudCookies | null): void {
+    this.cookies = cookies
+  }
 
   private baseHeaders(): Record<string, string> {
     return {
@@ -68,7 +77,8 @@ export class PjudClient {
 
   /**
    * Download a PDF from PJUD via GET with JWT.
-   * No cookies needed (confirmed by Prueba B — JWT is self-sufficient).
+   * Most endpoints (docuS/docuN/docu.php) are JWT-self-sufficient.
+   * Some (anexoDocCivil.php) require session cookies — included when available.
    */
   async downloadPdf(
     endpoint: string,
@@ -79,13 +89,17 @@ export class PjudClient {
 
     const url = this.resolveUrl(endpoint, param, jwt)
 
+    const headers: Record<string, string> = { ...this.baseHeaders() }
+    const cookie = this.cookieHeader(this.cookies)
+    if (cookie) headers['Cookie'] = cookie
+
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
     try {
       const response = await fetch(url, {
         method: 'GET',
-        headers: this.baseHeaders(),
+        headers,
         signal: controller.signal,
         redirect: 'follow',
       })
@@ -185,6 +199,75 @@ export class PjudClient {
         console.error('[PjudClient] causaCivil.php request timeout')
       } else {
         console.error('[PjudClient] causaCivil.php error:', error)
+      }
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
+   * POST to anexoCausaCivil.php to get the HTML for the Anexos modal.
+   * The response contains a table with individual document JWTs
+   * downloadable via anexoDocCivil.php.
+   */
+  async fetchAnexosHtml(
+    jwt: string,
+    cookies: PjudCookies | null
+  ): Promise<string | null> {
+    await this.throttle()
+
+    const url = `${PJUD_BASE_URL}/ADIR_871/civil/modal/anexoCausaCivil.php`
+
+    const headers: Record<string, string> = {
+      ...this.baseHeaders(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: PJUD_ORIGIN,
+    }
+
+    const cookie = this.cookieHeader(cookies)
+    if (cookie) headers['Cookie'] = cookie
+
+    const body = new URLSearchParams({ dtaAnexCau: jwt }).toString()
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'follow',
+      })
+
+      if (!response.ok) {
+        console.warn(
+          `[PjudClient] anexoCausaCivil.php failed: ${response.status} ${response.statusText}`
+        )
+        return null
+      }
+
+      const html = await response.text()
+
+      if (html.length < 50 || !html.includes('table')) {
+        console.warn(
+          `[PjudClient] anexoCausaCivil.php response too small or invalid (${html.length} chars)`
+        )
+        return null
+      }
+
+      console.log(
+        `[PjudClient] anexoCausaCivil.php: ${html.length} chars recibidos`
+      )
+      return html
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('[PjudClient] anexoCausaCivil.php request timeout')
+      } else {
+        console.error('[PjudClient] anexoCausaCivil.php error:', error)
       }
       return null
     } finally {

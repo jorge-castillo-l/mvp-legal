@@ -38,8 +38,9 @@ import { createHash } from 'crypto'
 import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { PjudClient } from '@/lib/pjud/client'
-import { parseFoliosFromHtml, parseReceptorData } from '@/lib/pjud/parser'
+import { parseAnexosFromHtml, parseFoliosFromHtml, parseReceptorData } from '@/lib/pjud/parser'
 import type {
+  AnexoFile,
   CausaPackage,
   PdfDownloadTask,
   SyncResult,
@@ -180,6 +181,7 @@ export async function POST(request: NextRequest) {
         emit('progress', { message: 'Calculando documentos a descargar…', current: 0, total: 0 })
 
         const pjud = new PjudClient()
+        pjud.setCookies(pkg.cookies)
         const downloadTasks = buildDownloadTasks(pkg)
 
         // ────────────────────────────────────────────
@@ -199,11 +201,18 @@ export async function POST(request: NextRequest) {
         const extraFolioTasks = await fetchOtherCuadernos(pjud, pkg, emit, nonSelectedCount)
         downloadTasks.push(...extraFolioTasks)
 
+        // ────────────────────────────────────────────
+        // PASO 6b: FETCH ANEXOS DE LA CAUSA
+        // ────────────────────────────────────────────
+        const anexosTasks = await fetchAnexos(pjud, pkg, emit)
+        downloadTasks.push(...anexosTasks)
+
         const totalTasks = downloadTasks.length
         console.log(
           `[sync] ${pkg.rol} — ${totalTasks} PDFs a descargar ` +
           `(${pkg.folios?.length || 0} folios visibles + ` +
-          `${extraFolioTasks.length} de otros cuadernos)`
+          `${extraFolioTasks.length} de otros cuadernos + ` +
+          `${anexosTasks.length} anexos)`
         )
 
         if (totalTasks === 0) {
@@ -674,6 +683,65 @@ async function fetchOtherCuadernos(
     } catch (err) {
       console.error(`[sync] Error fetching cuaderno "${cuaderno.nombre}":`, err)
     }
+  }
+
+  return tasks
+}
+
+// ════════════════════════════════════════════════════════
+// FETCH ANEXOS DE LA CAUSA
+// ════════════════════════════════════════════════════════
+
+async function fetchAnexos(
+  pjud: PjudClient,
+  pkg: CausaPackage,
+  emit?: SseEmitter,
+): Promise<PdfDownloadTask[]> {
+  const tasks: PdfDownloadTask[] = []
+
+  if (!pkg.jwt_anexos) return tasks
+
+  try {
+    emit?.('progress', {
+      message: 'Obteniendo anexos de la causa…',
+      current: 0,
+      total: 0,
+    })
+
+    console.log(`[sync] Fetching anexos via anexoCausaCivil.php...`)
+
+    const html = await pjud.fetchAnexosHtml(pkg.jwt_anexos, pkg.cookies)
+
+    if (!html) {
+      console.warn('[sync] anexoCausaCivil.php no retornó HTML útil')
+      return tasks
+    }
+
+    const anexos: AnexoFile[] = parseAnexosFromHtml(html)
+    console.log(`[sync] Anexos de la causa: ${anexos.length} archivo(s) encontrado(s)`)
+
+    for (let i = 0; i < anexos.length; i++) {
+      const anexo = anexos[i]
+      const cleanRef = (anexo.referencia || `anexo_${i + 1}`)
+        .replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '')
+        .trim()
+        .substring(0, 30)
+        .replace(/\s+/g, '_')
+
+      tasks.push({
+        jwt: anexo.jwt.jwt,
+        endpoint: anexo.jwt.action,
+        param: anexo.jwt.param,
+        filename: `${pkg.rol}_anexo_${i + 1}_${cleanRef}.pdf`,
+        document_type: 'anexo',
+        folio: null,
+        cuaderno: null,
+        fecha: anexo.fecha || null,
+        source_url: anexo.jwt.action,
+      })
+    }
+  } catch (err) {
+    console.error('[sync] Error fetching anexos:', err)
   }
 
   return tasks

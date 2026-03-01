@@ -16,7 +16,7 @@
  */
 
 import { parse as parseHtml, HTMLElement } from 'node-html-parser'
-import type { Folio, JwtRef, ReceptorData } from './types'
+import type { AnexoFile, Folio, JwtRef, ReceptorData } from './types'
 
 /**
  * Extract folios from the HTML response of causaCivil.php.
@@ -141,6 +141,42 @@ function cleanText(text: string | undefined): string {
     .replace(/\u00A0/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// ════════════════════════════════════════════════════════
+// ANEXOS PARSER
+// ════════════════════════════════════════════════════════
+
+/**
+ * Parse the HTML response of anexoCausaCivil.php.
+ * Each row has: Doc (form → anexoDocCivil.php with JWT) | Fecha | Referencia
+ */
+export function parseAnexosFromHtml(html: string): AnexoFile[] {
+  const root = parseHtml(html, {
+    lowerCaseTagName: true,
+    comment: false,
+    voidTag: { closingSlash: true },
+  })
+
+  const anexos: AnexoFile[] = []
+  const rows = root.querySelectorAll('tbody tr')
+
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td')
+    if (cells.length < 2) continue
+
+    const docCell = cells[0]
+    const jwt = extractFormJwt(docCell, 'anexoDocCivil.php', 'docuS.php', 'docuN.php', 'docu.php')
+    if (!jwt) continue
+
+    anexos.push({
+      jwt,
+      fecha: cleanText(cells[1]?.text),
+      referencia: cleanText(cells[2]?.text),
+    })
+  }
+
+  return anexos
 }
 
 // ════════════════════════════════════════════════════════

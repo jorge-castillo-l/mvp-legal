@@ -82,7 +82,7 @@ class JwtExtractor {
     if (!metadata.rol) return null;
 
     const caratula = await this._resolveCaratula(metadata.rol, metadata._partialCaratula);
-    const folioCount = this._countVisibleFolios(modalBody);
+    const docCount = this._countAllVisibleDocuments(modalBody);
 
     this.detectedCausa = {
       rol: metadata.rol,
@@ -97,11 +97,11 @@ class JwtExtractor {
       hasDocumentZone: true,
       documentZoneType: 'pjud_modal',
       documentPreview: {
-        total: folioCount,
+        total: docCount,
         byType: {},
         items: [],
       },
-      totalDocuments: folioCount,
+      totalDocuments: docCount,
       pageUrl: window.location.href,
       detectedAt: Date.now(),
     };
@@ -165,6 +165,9 @@ class JwtExtractor {
 
     this._lastPackage = causaPackage;
 
+    // Total = folios + direct docs + anexos (matches what the sync pipeline downloads)
+    const totalDocs = this._countAllVisibleDocuments(modalBody);
+
     // Also update detected causa for backward compat
     this.detectedCausa = {
       rol: metadata.rol,
@@ -179,7 +182,7 @@ class JwtExtractor {
       hasDocumentZone: true,
       documentZoneType: 'pjud_modal',
       documentPreview: {
-        total: folios.length,
+        total: totalDocs,
         byType: this._groupFoliosByType(folios),
         items: folios.slice(0, 50).map(f => ({
           text: `Folio ${f.numero} - ${f.tramite} - ${f.desc_tramite}`.substring(0, 150),
@@ -187,7 +190,7 @@ class JwtExtractor {
           hasDownload: !!f.jwt_doc_principal,
         })),
       },
-      totalDocuments: folios.length,
+      totalDocuments: totalDocs,
       pageUrl: window.location.href,
       detectedAt: Date.now(),
     };
@@ -921,6 +924,42 @@ class JwtExtractor {
     const historiaTab = modalBody.querySelector('#historiaCiv');
     if (!historiaTab) return 0;
     return historiaTab.querySelectorAll('tbody tr').length;
+  }
+
+  /**
+   * Count ALL downloadable documents visible in the DOM, not just folios.
+   * Used for accurate sync-state comparison against cases.document_count.
+   */
+  _countAllVisibleDocuments(modalBody) {
+    let count = 0;
+
+    // 1) Folios in visible cuaderno
+    const historiaTab = modalBody.querySelector('#historiaCiv');
+    if (historiaTab) {
+      count += historiaTab.querySelectorAll('tbody tr').length;
+    }
+
+    // 2) Direct documents (each form = 1 downloadable doc)
+    const demandaForm = modalBody.querySelector('form[action*="docu.php"]:not([action*="docuS"]):not([action*="docuN"])');
+    if (demandaForm?.querySelector('input[name="valorEncTxtDmda"]')?.value) count++;
+
+    const certForm = modalBody.querySelector('form[action*="docCertificadoDemanda"]');
+    if (certForm?.querySelector('input[name="dtaCert"]')?.value) count++;
+
+    const ebookForm = modalBody.querySelector('form[action*="newebookcivil"]');
+    if (ebookForm?.querySelector('input[name="dtaEbook"]')?.value) count++;
+
+    // 3) Anexos: if the link exists and is NOT a ban icon, at least 1 anexo is available
+    const anexoLink = modalBody.querySelector(
+      'a[onclick*="anexoCausaCivil"], a[href="#modalAnexoCausaCivil"]'
+    );
+    if (anexoLink) {
+      const parentTd = anexoLink.closest('td');
+      const isBanned = parentTd?.querySelector('i.fa-ban');
+      if (!isBanned) count++;
+    }
+
+    return count;
   }
 
   _groupFoliosByType(folios) {

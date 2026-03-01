@@ -301,7 +301,7 @@ function applySyncStateUI(causa, syncState) {
     const warn = document.getElementById('sync-context-warning');
     if (warn && hasNewDocs) {
       warn.style.display = 'block';
-      warn.innerHTML = `⚠️ ${pageTotal - count} documento(s) nuevo(s). Sincronice antes de consultar a la IA.`;
+      warn.innerHTML = '⚠️ Hay documentos nuevos (anexos u otros). Sincronice antes de consultar a la IA.';
     } else if (warn) {
       warn.style.display = 'none';
     }
