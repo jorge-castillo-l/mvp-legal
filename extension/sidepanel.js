@@ -311,7 +311,7 @@ function applySyncStateUI(causa, syncState) {
     docCount.classList.remove('sync-badge-synced');
     if (preview && preview.total > 0) {
       docPreview.style.display = 'block';
-      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos`;
+      docCount.textContent = `${preview.total} folio(s) en cuaderno visible + docs directos y otros cuadernos`;
       if (docTypes) {
         docTypes.innerHTML = (Object.entries(preview.byType || {}).filter(([, c]) => c > 0)
           .map(([type, c]) => `<span class="doc-type-badge">${type}: ${c}</span>`).join('')) || '';
@@ -376,7 +376,7 @@ async function displayDetectedCausa(causa) {
     const preview = causa.documentPreview;
     if (preview && preview.total > 0) {
       docPreview.style.display = 'block';
-      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos`;
+      docCount.textContent = `${preview.total} folio(s) en cuaderno visible + docs directos y otros cuadernos`;
       if (docTypes) {
         docTypes.innerHTML = Object.entries(preview.byType || {})
           .filter(([, c]) => c > 0)
@@ -508,9 +508,14 @@ async function getCausaPackage() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return null;
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'extract_causa_package' });
-    if (response?.package) {
-      console.log('[4.18] CausaPackage desde content script (fallback):', response.package.rol);
-      return response.package;
+    if (response?.causaPackage) {
+      console.log('[4.18] CausaPackage desde content script:', response.causaPackage.rol);
+      // Poblar el store del service worker para futuras consultas
+      chrome.runtime.sendMessage({
+        type: 'causa_package',
+        package: response.causaPackage,
+      }).catch(() => {});
+      return response.causaPackage;
     }
   } catch (e) {
     console.warn('[4.18] No se pudo obtener del content script:', e.message);
