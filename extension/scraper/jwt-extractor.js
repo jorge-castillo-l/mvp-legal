@@ -145,7 +145,7 @@ class JwtExtractor {
       caratula: caratula,
       materia: metadata.procedimiento_raw,
       fuente: this._detectEntryPoint(),
-      cookies: null, // MVP v1.1: populated for mis_causas
+      cookies: this._captureCookies(),
 
       jwt_texto_demanda: directJwts.textoDemanda,
       jwt_certificado_envio: directJwts.certificadoEnvio,
@@ -751,6 +751,30 @@ class JwtExtractor {
       tribunal_origen: tribunalOrigenMatch ? tribunalOrigenMatch[1].trim() : null,
       jwt_causa_origen: jwtCausaOrigen,
     };
+  }
+
+  // ════════════════════════════════════════════════════════
+  // COOKIES — needed for causaCivil.php POST (cuaderno fetch)
+  // ════════════════════════════════════════════════════════
+
+  _captureCookies() {
+    try {
+      const cookieStr = document.cookie || '';
+      if (!cookieStr) return null;
+
+      const cookies = {};
+      for (const part of cookieStr.split(';')) {
+        const [name, ...rest] = part.trim().split('=');
+        if (name === 'PHPSESSID' || name === 'TS01262d1d') {
+          cookies[name] = rest.join('=');
+        }
+      }
+
+      if (!cookies.PHPSESSID) return null;
+      return cookies;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ════════════════════════════════════════════════════════

@@ -8,10 +8,10 @@
 </head>
 <body>
   <div class="container">
-    <!-- Banner global: visible solo durante sync -->
+    <!-- Banner global: visible durante sync (4.18) -->
     <div id="sync-wait-banner" class="card sync-wait-banner" style="display: none;">
-      <span class="sync-wait-icon">⚠️</span>
-      <span>Espere y no haga nada. Si cambia de pestaña o navega, se detendrá la sincronización.</span>
+      <span class="sync-wait-icon">⟳</span>
+      <span>Sincronización en progreso en el servidor. Puede seguir navegando con libertad.</span>
     </div>
 
     <!-- Sección de Autenticación -->
@@ -43,6 +43,11 @@
               <p class="causa-rol" id="causa-rol">--</p>
               <p class="causa-detail" id="causa-tribunal">--</p>
               <p class="causa-detail" id="causa-caratula">--</p>
+              <!-- Preview de cuadernos/folios detectados por JwtExtractor (4.16/4.18) -->
+              <div id="causa-package-preview" class="causa-package-preview" style="display: none;">
+                <span id="causa-cuadernos" class="pkg-badge pkg-badge-cuadernos"></span>
+                <span id="causa-folios" class="pkg-badge pkg-badge-folios"></span>
+              </div>
             </div>
             <div id="doc-preview" class="doc-preview" style="display: none;">
               <p class="preview-title" id="doc-count">0 documentos encontrados</p>
@@ -56,17 +61,15 @@
             </button>
           </div>
 
-          <!-- Bloque compacto: progreso y resultado (visible solo durante sync) -->
+          <!-- Bloque compacto: progreso y resultado (visible solo durante/tras sync) -->
           <div id="sync-compact" class="card sync-compact" style="display: none;">
             <div class="progress-container">
               <div id="progress-bar" class="progress-bar"></div>
             </div>
             <div id="progress-status" class="progress-status">Iniciando...</div>
-            <div id="resumable-progress" style="display: none;">
-              <div class="progress-container" style="margin-top: 8px;">
-                <div id="resumable-bar" class="progress-bar progress-info" style="width: 0%;"></div>
-              </div>
-              <div id="resumable-status" class="progress-status" style="font-size: 12px;"></div>
+            <!-- Indicador de cuaderno actual (4.18) -->
+            <div id="cuaderno-progress" class="cuaderno-progress" style="display: none;">
+              <span id="cuaderno-progress-text" class="cuaderno-progress-text"></span>
             </div>
             <div id="sync-compact-result"></div>
             <div id="sync-compact-details"></div>
@@ -129,7 +132,7 @@
     </main>
 
     <footer>
-      <small>MVP Legal v1.2</small>
+      <small>MVP Legal v1.3</small>
     </footer>
   </div>
   <script src="lib/config.js"></script>

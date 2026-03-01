@@ -51,6 +51,7 @@ const CONFIG = (() => {
     UPLOAD:         `${env.DASHBOARD_URL}/api/upload`,
     UPLOAD_CONFIRM: `${env.DASHBOARD_URL}/api/upload/confirm-hash`,
     SCRAPER_CONFIG: `${env.DASHBOARD_URL}/api/scraper/config`,
+    SCRAPER_SYNC:   `${env.DASHBOARD_URL}/api/scraper/sync`,
     CASES:          `${env.DASHBOARD_URL}/api/cases`,
   };
 

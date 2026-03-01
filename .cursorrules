@@ -31,7 +31,7 @@ src/
   app/
     api/upload/route.ts         # Upload PDFs desde extensión
     api/scraper/config/route.ts # Selectores CSS dinámicos para scraper
-    api/scraper/sync/route.ts   # Sync server-side: recibe JWTs → descarga PDFs de PJUD
+    api/scraper/sync/route.ts   # Sync server-side: recibe CausaPackage (JWTs + metadata) → descarga PDFs de PJUD → Storage + DB
     api/chat/route.ts           # RAG pipeline: pregunta → vector search → Gemini → respuesta
     api/auth/session/route.ts   # Token para extensión
     dashboard/                  # Panel web mínimo V1 (lista causas + suscripción)
@@ -42,6 +42,9 @@ src/
     supabase/middleware.ts       # Session refresh
     gemini.ts                   # getModel(mode): Flash/Flash-long/Pro-thinking
     rag.ts                      # RAG pipeline: embed query → vector search → BM25 → rerank → prompt
+    pjud/types.ts               # Interfaz CausaPackage + tipos PJUD (sync pipeline)
+    pjud/client.ts              # HTTP client para PJUD (WAF bypass + throttle + PDF download)
+    pjud/parser.ts              # Parser HTML de respuestas causaCivil.php (extrae folios + JWTs)
     database.types.ts            # Re-exports de tipos + PLAN_LIMITS (2 planes) + aliases
     cors.ts                     # CORS para chrome-extension://
     profile-helpers.ts           # checkUserLimits, incrementCounter (Free + Individual)
@@ -64,7 +67,7 @@ supabase/
 ## Esquema de Base de Datos (tablas actuales)
 ```
 profiles             → auth.users (1:1). plan_type CHECK('free'|'individual'), contadores mensuales (fast_chat/full_analysis/deep_thinking), max_causes, fingerprint. RLS por id.
-cases                → Causas judiciales. UNIQUE(user_id, rol, COALESCE(tribunal)). caratula nullable (enrichment). libro_tipo TEXT nullable (c/v/e/a/f/i). fuente_sync DEFAULT 'consulta_unificada'. materia (procedimiento). RLS por user_id.
+cases                → Causas judiciales. UNIQUE(user_id, rol, COALESCE(tribunal,'')). caratula nullable (enrichment). procedimiento TEXT nullable CHECK('ordinario'|'ejecutivo'|'sumario'|'monitorio'|'voluntario') — EJE PRINCIPAL de routing. libro_tipo TEXT nullable CHECK('c'|'v'|'e'|'a'|'f'|'i') — metadata para display/filtros. fuente_sync TEXT DEFAULT 'consulta_unificada' CHECK('consulta_unificada'|'mis_causas'). materia TEXT nullable. estado TEXT nullable. document_count INT. last_synced_at TIMESTAMPTZ. RLS por user_id.
 documents            → PDFs. FK a cases. storage_path, file_hash. RLS por user_id.
 document_hashes      → Deduplicación SHA-256. UNIQUE(user_id, hash). FK a cases. RLS por user_id.
 extracted_texts      → Texto extraído de PDFs. UNIQUE(document_id). extraction_method ('pdf-parse'|'document-ai'). status ('completed'|'needs_ocr'|'failed'). FK a documents + cases. RLS por user_id.
@@ -88,6 +91,21 @@ Relaciones: cases 1:N documents 1:1 extracted_texts 1:N document_chunks 1:1 docu
 - Validar con `CHECK` constraints para campos con valores acotados.
 - Tras crear migración: `npx supabase db push` para aplicar.
 - Tras aplicar: `npx supabase gen types typescript --project-id jszpfokzybhpngmqdezd > src/types/supabase.ts` y actualizar aliases en `src/lib/database.types.ts`.
+
+## Sincronización Obligatoria con Supabase (Backend & DB)
+- **REGLA CRÍTICA:** Todo cambio en migraciones, esquema de DB, Edge Functions o backend DEBE ser pusheado a Supabase antes de considerarse completo.
+- **Workflow obligatorio para migraciones:**
+  1. Crear archivo SQL en `supabase/migrations/YYYYMMDDHHMMSS_*.sql`
+  2. Ejecutar `npx supabase db push` para aplicar la migración al proyecto remoto
+  3. Regenerar tipos: `npx supabase gen types typescript --project-id jszpfokzybhpngmqdezd > src/types/supabase.ts`
+  4. Actualizar aliases en `src/lib/database.types.ts` si se crearon tablas nuevas
+  5. Actualizar esquema de DB en este archivo `.cursorrules` si se agregaron/modificaron tablas/columnas
+- **Edge Functions:** Desplegar con `npx supabase functions deploy <nombre-funcion>` tras cambios.
+- **Storage (buckets/policies):** Verificar en Supabase Dashboard que RLS policies se aplicaron correctamente.
+- **NUNCA** modificar migraciones ya aplicadas. Crear nueva migración para cambios incrementales.
+- **NUNCA** hacer cambios directos en Supabase Dashboard sin migración correspondiente (drift = bugs).
+- **Verificación post-push:** Confirmar que RLS policies están activas y que `select`, `insert`, `update`, `delete` policies existen para cada tabla con datos de usuario.
+- **Tipos desincronizados = errores TypeScript:** Si los tipos en `src/types/supabase.ts` no reflejan el esquema real, la aplicación fallará en runtime.
 
 ## Flujo de Autenticación (Extension ↔ Web)
 1. Usuario hace login en Dashboard web (Supabase Auth SSR).

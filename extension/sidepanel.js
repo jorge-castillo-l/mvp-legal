@@ -2,16 +2,26 @@
  * ============================================================
  * SIDEPANEL - "La Cara" del Legal Bot
  * ============================================================
- * v1.2 — Navegación por Tabs: "Sincronizar" + "Mis Causas"
+ * v1.3 — Tarea 4.18: Sync UI v2
+ *
+ *   • Preview: ROL + tribunal + carátula + N cuadernos + N folios
+ *   • Estado de sync: compara folios visibles vs cases.document_count
+ *     → "Puede haber documentos nuevos desde [fecha]. Sincronizar?"
+ *     → "Actualizada ✓"
+ *   • Sync directo a API via fetch + SSE stream (no via content script)
+ *     → El sync continúa en el servidor aunque el abogado navegue
+ *   • Barra de progreso en tiempo real: "Descargando doc 5/47…"
+ *   • Resultado: N nuevos · N existentes · N errores + lista de docs
  *
  * Estructura:
- *   1. Estado global y inicialización
+ *   1. Estado global e inicialización
  *   2. Autenticación
  *   3. Sistema de Tabs
- *   4. Tab Sincronizar (causa detection, sync)
- *   5. Tab Mis Causas (fetch, render, empty/loading states)
- *   6. Eventos del Scraper (progreso, resultados)
- *   7. Utilidades
+ *   4. Tab Sincronizar — detección y estado
+ *   5. Tab Mis Causas — fetch y render
+ *   6. Sync v2 — obtener CausaPackage + SSE
+ *   7. Eventos del Scraper
+ *   8. Utilidades
  * ============================================================
  */
 
@@ -23,7 +33,7 @@ let currentUser = null;
 let currentSession = null;
 let isSyncing = false;
 let lastDetectedCausa = null;
-let lastSyncState = null;  // { count, rol, tribunal, caratula, pageTotal } — clave: rol+tribunal+caratula
+let lastSyncState = null;  // { count, lastSyncedAt, rol, tribunal }
 let activeTab = 'sync';
 let casesLoaded = false;
 
@@ -32,7 +42,7 @@ let casesLoaded = false;
 // ══════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('[Sidepanel] Legal Bot v1.2 iniciado');
+  console.log('[Sidepanel] Legal Bot v1.3 iniciado');
 
   await checkAuthentication();
   setupTabs();
@@ -94,21 +104,11 @@ function showUnauthenticatedUI() {
 // ══════════════════════════════════════════════════════════
 
 function setupTabs() {
-  const tabButtons = document.querySelectorAll('.tab[data-tab]');
-
-  tabButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tabId = btn.dataset.tab;
-      switchTab(tabId);
-    });
+  document.querySelectorAll('.tab[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
-  // Botón "Ir a Sincronizar" desde empty state
-  document.getElementById('go-to-sync-btn')?.addEventListener('click', () => {
-    switchTab('sync');
-  });
-
-  // Botón reintentar en error de causas
+  document.getElementById('go-to-sync-btn')?.addEventListener('click', () => switchTab('sync'));
   document.getElementById('cases-retry-btn')?.addEventListener('click', () => {
     casesLoaded = false;
     loadCases();
@@ -118,24 +118,20 @@ function setupTabs() {
 function switchTab(tabId) {
   activeTab = tabId;
 
-  // Actualizar botones
   document.querySelectorAll('.tab[data-tab]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabId);
   });
-
-  // Actualizar paneles
   document.querySelectorAll('.tab-content').forEach(panel => {
     panel.classList.toggle('active', panel.id === `tab-${tabId}`);
   });
 
-  // Lazy-load causas al abrir la pestaña por primera vez
   if (tabId === 'cases' && !casesLoaded && currentUser) {
     loadCases();
   }
 }
 
 // ══════════════════════════════════════════════════════════
-// 5. EVENT LISTENERS (TAB SINCRONIZAR)
+// 5. EVENT LISTENERS
 // ══════════════════════════════════════════════════════════
 
 function setupEventListeners() {
@@ -159,7 +155,7 @@ function setupEventListeners() {
 }
 
 // ══════════════════════════════════════════════════════════
-// 6. DETECCIÓN Y CONFIRMACIÓN DE CAUSA
+// 6. DETECCIÓN DE CAUSA
 // ══════════════════════════════════════════════════════════
 
 async function requestCausaDetection() {
@@ -176,52 +172,39 @@ async function requestCausaDetection() {
 }
 
 /**
- * 4.13: Consulta sync state buscando el case por ROL y contando hashes por case_id.
- * No depende de coincidencia exacta de strings scrapeados (tribunal/carátula).
- *
- * Flujo:
- *   1. Buscar en tabla `cases` por user_id + rol → obtener case_id(s)
- *   2. Contar `document_hashes` por case_id (FK estable)
- *   3. Si hay >1 case con mismo ROL, intentar desambiguar por tribunal
+ * 4.18: Consulta cases por ROL → retorna document_count + last_synced_at.
+ * Usa document_count guardado en DB (no cuenta hashes en tiempo real).
  */
-async function fetchSyncState(userId, rol, tribunal = '', caratula = '') {
-  if (!userId || !rol || typeof supabase?.fetch !== 'function') return { count: 0 };
+async function fetchSyncState(userId, rol, tribunal = '') {
+  if (!userId || !rol || typeof supabase?.fetch !== 'function') return { count: 0, lastSyncedAt: null };
   try {
     const rolClean = (rol || '').trim();
+    const endpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,document_count,last_synced_at&limit=5`;
+    const response = await supabase.fetch(endpoint);
+    if (!response.ok) return { count: 0, lastSyncedAt: null };
+    const cases = await response.json();
+    if (!Array.isArray(cases) || cases.length === 0) return { count: 0, lastSyncedAt: null };
 
-    // Paso 1: Buscar case(s) por user_id + rol
-    const casesEndpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,caratula`;
-    const casesResponse = await supabase.fetch(casesEndpoint);
-    if (!casesResponse.ok) return { count: 0 };
-    const cases = await casesResponse.json();
-    if (!Array.isArray(cases) || cases.length === 0) return { count: 0 };
-
-    // Paso 2: Si hay >1 case con mismo ROL, desambiguar por tribunal
-    let targetCaseId = cases[0].id;
+    let target = cases[0];
     if (cases.length > 1 && tribunal) {
       const tri = tribunal.trim().toLowerCase();
       const match = cases.find(c => (c.tribunal || '').trim().toLowerCase() === tri);
-      if (match) targetCaseId = match.id;
+      if (match) target = match;
     }
 
-    // Paso 3: Contar document_hashes por case_id
-    const hashesEndpoint = `/rest/v1/document_hashes?case_id=eq.${targetCaseId}&select=id`;
-    const hashesResponse = await supabase.fetch(hashesEndpoint);
-    if (!hashesResponse.ok) return { count: 0 };
-    const hashes = await hashesResponse.json();
-    const count = Array.isArray(hashes) ? hashes.length : 0;
-
-    console.log('[4.13] fetchSyncState:', { rol, caseId: targetCaseId, total: count });
-    return { count };
+    const count = target.document_count || 0;
+    const lastSyncedAt = target.last_synced_at || null;
+    console.log('[4.18] fetchSyncState:', { rol, count, lastSyncedAt });
+    return { count, lastSyncedAt };
   } catch (e) {
-    console.error('[4.13] fetchSyncState error:', e);
-    return { count: 0 };
+    console.error('[4.18] fetchSyncState error:', e);
+    return { count: 0, lastSyncedAt: null };
   }
 }
 
 /**
- * Capa 2: Guardar causa sincronizada en registro persistente (chrome.storage.local).
- * Permite recuperar tribunal/carátula al re-entrar a la causa aunque no estén en el DOM.
+ * Persiste causa sincronizada en chrome.storage.local para recuperar
+ * tribunal/carátula al re-entrar a la causa sin DOM1 disponible.
  */
 async function saveSyncedCausaRegistry(causa) {
   if (!causa?.rol) return;
@@ -231,22 +214,13 @@ async function saveSyncedCausaRegistry(causa) {
     });
     const registry = Array.isArray(result) ? result : [];
     const key = `${causa.rol}|${(causa.tribunal || '').trim()}|${(causa.caratula || '').trim()}`;
-    // No duplicar entradas iguales
     const exists = registry.some(c =>
       `${c.rol}|${(c.tribunal || '').trim()}|${(c.caratula || '').trim()}` === key
     );
     if (!exists) {
-      registry.push({
-        rol: causa.rol,
-        tribunal: (causa.tribunal || '').trim(),
-        caratula: (causa.caratula || '').trim(),
-        savedAt: Date.now(),
-      });
-      // Limitar a 500 entradas (FIFO)
+      registry.push({ rol: causa.rol, tribunal: (causa.tribunal || '').trim(), caratula: (causa.caratula || '').trim(), savedAt: Date.now() });
       if (registry.length > 500) registry.splice(0, registry.length - 500);
-      await new Promise(resolve => {
-        chrome.storage.local.set({ synced_causas_registry: registry }, resolve);
-      });
+      await new Promise(resolve => { chrome.storage.local.set({ synced_causas_registry: registry }, resolve); });
       console.log('[SyncRegistry] Causa registrada:', key);
     }
   } catch (e) {
@@ -255,15 +229,16 @@ async function saveSyncedCausaRegistry(causa) {
 }
 
 /**
- * 4.13: Aplica UI contextual según estado de sincronización.
+ * 4.18: Aplica UI según estado de sync.
+ * Muestra "Puede haber documentos nuevos desde [fecha]" o "Actualizada ✓".
  */
 function applySyncStateUI(causa, syncState) {
   const sameCausa = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
     ? CAUSA_IDENTITY.isSameCausa(causa, lastDetectedCausa)
     : (causa && lastDetectedCausa && lastDetectedCausa.rol === causa.rol &&
-        (lastDetectedCausa.tribunal || '') === (causa.tribunal || '') &&
-        (lastDetectedCausa.caratula || '') === (causa.caratula || ''));
+        (lastDetectedCausa.tribunal || '') === (causa.tribunal || ''));
   if (!causa || !sameCausa) return;
+
   const docPreview = document.getElementById('doc-preview');
   const docCount = document.getElementById('doc-count');
   const docTypes = document.getElementById('doc-types');
@@ -272,6 +247,7 @@ function applySyncStateUI(causa, syncState) {
   if (!docPreview || !docCount || !syncBtn) return;
 
   const count = syncState?.count ?? 0;
+  const lastSyncedAt = syncState?.lastSyncedAt ?? null;
   const preview = causa.documentPreview;
   const pageTotal = preview?.total ?? 0;
 
@@ -279,17 +255,31 @@ function applySyncStateUI(causa, syncState) {
     docPreview.style.display = 'block';
     docPreview.classList.add('sync-state-synced');
     docPreview.classList.remove('sync-state-new');
+
     const hasNewDocs = pageTotal > count;
     const fullySynced = !hasNewDocs && pageTotal > 0;
-    docCount.textContent = fullySynced
-      ? `Causa sincronizada ✓ (${count} documento${count !== 1 ? 's' : ''}). Todo al día.`
-      : `Causa sincronizada ✓ (${count} documento${count !== 1 ? 's' : ''}). ${pageTotal - count} documento(s) nuevo(s).`;
-    docCount.classList.add('sync-badge-synced');
+    const syncDateStr = lastSyncedAt ? formatSyncDate(lastSyncedAt) : null;
+
+    if (hasNewDocs && syncDateStr) {
+      docCount.textContent = `Puede haber documentos nuevos desde ${syncDateStr}. Sincronizar?`;
+      docCount.classList.remove('sync-badge-synced');
+    } else if (hasNewDocs) {
+      docCount.textContent = `Puede haber documentos nuevos (${count} sincronizados). Sincronizar?`;
+      docCount.classList.remove('sync-badge-synced');
+    } else if (fullySynced) {
+      docCount.textContent = `Actualizada ✓ (${count} documento${count !== 1 ? 's' : ''})`;
+      docCount.classList.add('sync-badge-synced');
+    } else {
+      docCount.textContent = `${count} documento(s) sincronizado(s)`;
+      docCount.classList.add('sync-badge-synced');
+    }
+
     if (docTypes) {
       docTypes.innerHTML = hasNewDocs
-        ? '<span class="doc-type-badge">Hay documentos nuevos disponibles.</span>'
-        : '<span class="doc-type-badge">Todo al día.</span>';
+        ? '<span class="doc-type-badge">Hay documentos nuevos disponibles</span>'
+        : '<span class="doc-type-badge">Todo al día</span>';
     }
+
     if (fullySynced) {
       syncBtn.innerHTML = '<span class="btn-icon">✓</span> Causa sincronizada';
       syncBtn.disabled = true;
@@ -299,23 +289,29 @@ function applySyncStateUI(causa, syncState) {
       syncBtn.disabled = false;
       syncBtn.removeAttribute('data-fully-synced');
     }
+
     if (syncStateBanner) {
       syncStateBanner.style.display = 'block';
       syncStateBanner.className = 'sync-state-banner sync-state-banner-info';
-      syncStateBanner.textContent = fullySynced ? 'Esta causa está completamente sincronizada.' : 'Hay documentos nuevos.';
+      syncStateBanner.textContent = fullySynced
+        ? (syncDateStr ? `Sincronizada el ${syncDateStr}` : 'Esta causa está completamente sincronizada.')
+        : 'Hay documentos nuevos disponibles.';
     }
+
     const warn = document.getElementById('sync-context-warning');
     if (warn && hasNewDocs) {
       warn.style.display = 'block';
       warn.innerHTML = `⚠️ ${pageTotal - count} documento(s) nuevo(s). Sincronice antes de consultar a la IA.`;
-    } else if (warn) warn.style.display = 'none';
+    } else if (warn) {
+      warn.style.display = 'none';
+    }
   } else {
     docPreview.classList.remove('sync-state-synced');
     docPreview.classList.add('sync-state-new');
     docCount.classList.remove('sync-badge-synced');
     if (preview && preview.total > 0) {
       docPreview.style.display = 'block';
-      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos de la causa`;
+      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos`;
       if (docTypes) {
         docTypes.innerHTML = (Object.entries(preview.byType || {}).filter(([, c]) => c > 0)
           .map(([type, c]) => `<span class="doc-type-badge">${type}: ${c}</span>`).join('')) || '';
@@ -328,26 +324,22 @@ function applySyncStateUI(causa, syncState) {
     const warn = document.getElementById('sync-context-warning');
     if (warn) warn.style.display = 'none';
   }
+
   lastSyncState = {
     count,
+    lastSyncedAt,
     rol: causa.rol,
     tribunal: causa.tribunal || '',
-    caratula: causa.caratula || '',
-    pageTotal
   };
 }
 
 async function displayDetectedCausa(causa) {
-  // Preservar tribunal/carátula ante re-detecciones que los pierdan (misma causa: rol+tribunal+caratula)
   if (causa && lastDetectedCausa && causa.rol === lastDetectedCausa.rol) {
-    if (!causa.caratula && lastDetectedCausa.caratula) {
-      causa = { ...causa, caratula: lastDetectedCausa.caratula };
-    }
-    if (!causa.tribunal && lastDetectedCausa.tribunal) {
-      causa = { ...causa, tribunal: lastDetectedCausa.tribunal };
-    }
+    if (!causa.caratula && lastDetectedCausa.caratula) causa = { ...causa, caratula: lastDetectedCausa.caratula };
+    if (!causa.tribunal && lastDetectedCausa.tribunal) causa = { ...causa, tribunal: lastDetectedCausa.tribunal };
   }
   lastDetectedCausa = causa;
+
   const syncBtn = document.getElementById('sync-btn');
   const causaRol = document.getElementById('causa-rol');
   const causaTribunal = document.getElementById('causa-tribunal');
@@ -362,6 +354,7 @@ async function displayDetectedCausa(causa) {
     causaTribunal.textContent = 'No se detectó una causa en esta página';
     causaCaratula.textContent = '';
     docPreview.style.display = 'none';
+    hideCausaPackagePreview();
     const banner = document.getElementById('sync-state-banner');
     const warn = document.getElementById('sync-context-warning');
     if (banner) banner.style.display = 'none';
@@ -371,31 +364,19 @@ async function displayDetectedCausa(causa) {
   }
 
   causaRol.textContent = `ROL: ${causa.rol}`;
-  causaTribunal.textContent =
-    causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource}`;
-  causaCaratula.textContent =
-    causa.caratula ? `Carátula: ${causa.caratula}` : '';
+  causaTribunal.textContent = causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource || 'PJUD'}`;
+  causaCaratula.textContent = causa.caratula ? `Carátula: ${causa.caratula}` : '';
 
   if (syncBtn) syncBtn.disabled = false;
 
-  // 4.13 diagnóstico (paso 1)
-  console.log('[4.13] Diagnóstico:', {
-    tieneUsuario: !!currentUser,
-    userId: currentUser?.id,
-    rol: causa?.rol
-  });
-
   if (currentUser?.id && causa.rol) {
-    const syncState = await fetchSyncState(
-      currentUser.id, causa.rol,
-      causa.tribunal || '', causa.caratula || ''
-    );
+    const syncState = await fetchSyncState(currentUser.id, causa.rol, causa.tribunal || '');
     applySyncStateUI(causa, syncState);
   } else {
     const preview = causa.documentPreview;
     if (preview && preview.total > 0) {
       docPreview.style.display = 'block';
-      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos de la causa`;
+      docCount.textContent = `${preview.total} documento(s) encontrado(s) + anexos`;
       if (docTypes) {
         docTypes.innerHTML = Object.entries(preview.byType || {})
           .filter(([, c]) => c > 0)
@@ -409,14 +390,34 @@ async function displayDetectedCausa(causa) {
   }
 }
 
+/** Actualiza los badges de cuadernos/folios cuando llega un CausaPackage del service worker */
+function updateCausaPackagePreview(nCuadernos, nFolios) {
+  const pkgEl = document.getElementById('causa-package-preview');
+  const cuadernosEl = document.getElementById('causa-cuadernos');
+  const foliosEl = document.getElementById('causa-folios');
+  if (!pkgEl || !cuadernosEl || !foliosEl) return;
+
+  if (nCuadernos > 0 || nFolios > 0) {
+    cuadernosEl.textContent = `${nCuadernos} cuaderno${nCuadernos !== 1 ? 's' : ''}`;
+    foliosEl.textContent = `${nFolios} folio${nFolios !== 1 ? 's' : ''}`;
+    pkgEl.style.display = 'flex';
+  } else {
+    hideCausaPackagePreview();
+  }
+}
+
+function hideCausaPackagePreview() {
+  const pkgEl = document.getElementById('causa-package-preview');
+  if (pkgEl) pkgEl.style.display = 'none';
+}
+
 // ══════════════════════════════════════════════════════════
-// 7. SYNC
+// 7. SYNC v2 — Flujo directo a API + SSE (4.18)
 // ══════════════════════════════════════════════════════════
 
 async function handleSync() {
   if (isSyncing || !lastDetectedCausa) return;
   if (!currentUser) { showNotification('Debe iniciar sesión primero', 'error'); return; }
-  // Si está completamente sincronizada, no hacer nada
   if (document.getElementById('sync-btn')?.getAttribute('data-fully-synced') === '1') return;
   if (lastSyncState?.count >= lastSyncState?.pageTotal && lastSyncState?.pageTotal > 0) return;
 
@@ -424,46 +425,55 @@ async function handleSync() {
   const syncBtn = document.getElementById('sync-btn');
   const compactEl = document.getElementById('sync-compact');
   const waitBanner = document.getElementById('sync-wait-banner');
+
   syncBtn.disabled = true;
   syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando...';
   compactEl.style.display = 'block';
   if (waitBanner) waitBanner.style.display = 'flex';
+
   document.getElementById('sync-compact-result').innerHTML = '';
   document.getElementById('sync-compact-details').innerHTML = '';
-  document.getElementById('size-warnings-content').style.display = 'none';
-  document.getElementById('size-warnings-content').innerHTML = '';
-  updateProgress(0, 'Conectando con la página...');
+  const sizeWarnings = document.getElementById('size-warnings-content');
+  if (sizeWarnings) { sizeWarnings.style.display = 'none'; sizeWarnings.innerHTML = ''; }
+
+  updateProgress(0, 'Conectando...');
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) throw new Error('No hay pestaña activa');
+    // ── 1. Obtener CausaPackage (del service worker o content script)
+    updateProgress(5, 'Extrayendo paquete de la causa...');
+    const causaPackage = await getCausaPackage();
+    if (!causaPackage) throw new Error('No se pudo obtener el paquete de la causa. Asegúrese de estar viendo el modal de una causa en PJUD.');
 
-    updateProgress(10, 'Iniciando scraper resiliente...');
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'sync' });
+    // Mostrar cuadernos/folios en el preview
+    const nCuadernos = causaPackage.cuadernos?.length || 0;
+    const nFolios = causaPackage.folios?.length || 0;
+    updateCausaPackagePreview(nCuadernos, nFolios);
 
-    if (response?.error) throw new Error(response.error);
-    showSyncResults(response?.results);
+    // ── 2. Obtener sesión
+    const session = await supabase.getSession();
+    if (!session?.access_token) throw new Error('Sesión no disponible. Por favor recargue la extensión.');
 
-    // Refrescar lista de causas si está cargada
-    if (casesLoaded) {
-      casesLoaded = false;
-      loadCases();
-    }
+    // ── 3. Llamar a la API con SSE
+    updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s) · ${nFolios} folio(s) visibles...`);
+    const syncResult = await callSyncWithSSE(causaPackage, session.access_token);
 
-    // 4.13: Actualizar estado de sync tras sincronización exitosa
+    showSyncResultsV2(syncResult);
+
+    // 4.19: Guardar badge de documentos nuevos para Mis Causas
+    if (syncResult) await storeSyncBadge(syncResult);
+
+    // ── 4. Actualizar estado de sync
     if (lastDetectedCausa?.rol && currentUser?.id) {
-      const syncState = await fetchSyncState(
-        currentUser.id, lastDetectedCausa.rol,
-        lastDetectedCausa.tribunal || '', lastDetectedCausa.caratula || ''
-      );
+      const syncState = await fetchSyncState(currentUser.id, lastDetectedCausa.rol, lastDetectedCausa.tribunal || '');
       applySyncStateUI(lastDetectedCausa, syncState);
-
-      // Capa 2: Guardar registro persistente de causa sincronizada
       await saveSyncedCausaRegistry(lastDetectedCausa);
     }
 
+    if (casesLoaded) { casesLoaded = false; loadCases(); }
     syncBtn.innerHTML = '<span class="btn-icon">✓</span> Sincronizado';
+
   } catch (error) {
+    console.error('[Sync] Error:', error);
     updateProgress(100, `Error: ${error.message}`, 'error');
     renderCompactResult(null, `Error: ${error.message}`, 'error');
     syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
@@ -472,8 +482,243 @@ async function handleSync() {
   isSyncing = false;
   syncBtn.disabled = !lastDetectedCausa || syncBtn.getAttribute('data-fully-synced') === '1';
   if (waitBanner) waitBanner.style.display = 'none';
+}
 
-  // Mantener el resultado visible (éxito o error) hasta la próxima sincronización
+/**
+ * Obtiene el CausaPackage del service worker (causaPackageStore) o,
+ * si no está disponible, lo solicita al content script del tab activo.
+ */
+async function getCausaPackage() {
+  // Intentar desde el service worker primero (ya extraído por JwtExtractor)
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      const response = await chrome.runtime.sendMessage({ type: 'get_causa_package', tabId: tab.id });
+      if (response?.status === 'found' && response.package) {
+        console.log('[4.18] CausaPackage desde service worker:', response.package.rol);
+        return response.package;
+      }
+    }
+  } catch (e) {
+    console.warn('[4.18] No se pudo obtener del service worker:', e.message);
+  }
+
+  // Fallback: pedir extracción al content script
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return null;
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'extract_causa_package' });
+    if (response?.package) {
+      console.log('[4.18] CausaPackage desde content script (fallback):', response.package.rol);
+      return response.package;
+    }
+  } catch (e) {
+    console.warn('[4.18] No se pudo obtener del content script:', e.message);
+  }
+
+  return null;
+}
+
+/**
+ * Llama a /api/scraper/sync con el CausaPackage y consume el SSE stream.
+ * El servidor continúa aunque el cliente se desconecte.
+ */
+async function callSyncWithSSE(causaPackage, accessToken) {
+  const response = await fetch(CONFIG.API.SCRAPER_SYNC, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    },
+    body: JSON.stringify(causaPackage),
+  });
+
+  if (!response.ok) {
+    let errMsg = `Error del servidor: HTTP ${response.status}`;
+    try {
+      const err = await response.json();
+      if (err.error) errMsg = err.error;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!contentType.includes('text/event-stream')) {
+    // Fallback JSON (compatibilidad)
+    return await response.json();
+  }
+
+  // Consumir SSE stream
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let syncResult = null;
+  let errorMsg = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parsear bloques SSE completos (separados por \n\n)
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        const eventMatch = block.match(/^event:\s*(.+)$/m);
+        const dataMatch = block.match(/^data:\s*(.+)$/m);
+        if (!eventMatch || !dataMatch) continue;
+
+        const event = eventMatch[1].trim();
+        let data;
+        try { data = JSON.parse(dataMatch[1]); } catch { continue; }
+
+        handleSSEEvent(event, data);
+
+        if (event === 'complete') syncResult = data;
+        else if (event === 'error') errorMsg = data.message;
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+
+  if (errorMsg) throw new Error(errorMsg);
+  return syncResult;
+}
+
+/**
+ * Procesa cada evento SSE recibido y actualiza la UI.
+ */
+function handleSSEEvent(event, data) {
+  switch (event) {
+    case 'progress': {
+      const total = data.total || 0;
+      const current = data.current || 0;
+      const pct = total > 0 ? 10 + Math.round((current / total) * 80) : 15;
+      updateProgress(pct, data.message);
+
+      // Indicador de cuaderno (si viene en el evento)
+      if (data.cuaderno_current != null && data.cuaderno_total > 0) {
+        const cuadernoEl = document.getElementById('cuaderno-progress');
+        const cuadernoText = document.getElementById('cuaderno-progress-text');
+        if (cuadernoEl && cuadernoText) {
+          cuadernoEl.style.display = 'block';
+          cuadernoText.textContent = `Cuaderno ${data.cuaderno_current} de ${data.cuaderno_total}`;
+        }
+      }
+      break;
+    }
+    case 'complete':
+      updateProgress(100, '¡Sincronización completada!', 'success');
+      hideCuadernoProgress();
+      break;
+    case 'error':
+      updateProgress(100, `Error: ${data.message}`, 'error');
+      hideCuadernoProgress();
+      break;
+  }
+}
+
+function hideCuadernoProgress() {
+  const el = document.getElementById('cuaderno-progress');
+  if (el) el.style.display = 'none';
+}
+
+/**
+ * 4.18: Resultado enriquecido — N nuevos + lista + N existentes + N errores.
+ */
+function showSyncResultsV2(syncResult) {
+  if (!syncResult) return;
+
+  const newDocs = syncResult.documents_new || [];
+  const existingCount = syncResult.documents_existing || 0;
+  const failedCount = syncResult.documents_failed || 0;
+  const errors = syncResult.errors || [];
+  const duration = syncResult.duration_ms ? `${(syncResult.duration_ms / 1000).toFixed(1)}s` : '';
+
+  const el = document.getElementById('sync-compact-result');
+  if (!el) return;
+
+  let html = '';
+
+  if (newDocs.length > 0) {
+    html += `<div class="result-summary result-success">`;
+    html += `<p><strong>Se descargaron ${newDocs.length} documento(s) nuevo(s)</strong></p>`;
+    const showDocs = newDocs.slice(0, 5);
+    for (const doc of showDocs) {
+      const fecha = doc.fecha
+        ? new Date(doc.fecha).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })
+        : '';
+      const folio = doc.folio ? `folio ${doc.folio}` : '';
+      const cuaderno = doc.cuaderno ? `(${doc.cuaderno})` : '';
+      const tipo = capitalizeFirst(doc.document_type || 'Documento');
+      const parts = [tipo, folio, fecha, cuaderno].filter(Boolean);
+      html += `<p class="result-detail">· ${parts.join(' ')}</p>`;
+    }
+    if (newDocs.length > 5) {
+      html += `<p class="result-detail">… y ${newDocs.length - 5} más</p>`;
+    }
+    html += `</div>`;
+  } else if (existingCount > 0) {
+    html += `<div class="result-summary result-info"><p>No hay documentos nuevos — ${existingCount} ya sincronizado(s)</p></div>`;
+  } else {
+    html += `<div class="result-summary result-warning"><p>No se descargaron documentos nuevos</p></div>`;
+  }
+
+  // Stats secundarias
+  const stats = [];
+  if (existingCount > 0) stats.push(`${existingCount} ya existentes`);
+  if (failedCount > 0) stats.push(`${failedCount} fallidos`);
+  if (duration) stats.push(duration);
+  if (stats.length > 0) {
+    html += `<p class="result-detail stats-line">${stats.join(' · ')}</p>`;
+  }
+
+  if (errors.length > 0) {
+    html += `<div class="result-errors">${
+      errors.slice(0, 3).map(e => `<p class="result-detail error-text">• ${e}</p>`).join('')
+    }</div>`;
+  }
+
+  el.innerHTML = html;
+
+  // Mantener lastDetectedCausa enriquecida con datos del resultado
+  if (lastDetectedCausa && syncResult.rol === lastDetectedCausa.rol) {
+    const updates = {};
+    if (syncResult.tribunal && !lastDetectedCausa.tribunal) updates.tribunal = syncResult.tribunal;
+    if (Object.keys(updates).length) lastDetectedCausa = { ...lastDetectedCausa, ...updates };
+  }
+
+  // Actualizar doc-preview con totales reales
+  const totalDescargados = newDocs.length + existingCount;
+  if (totalDescargados > 0) {
+    const docPreview = document.getElementById('doc-preview');
+    const docCount = document.getElementById('doc-count');
+    if (docPreview && docCount) {
+      docPreview.style.display = 'block';
+      docCount.textContent = `${totalDescargados} documento(s) procesado(s) (${newDocs.length} nuevos)`;
+    }
+  }
+}
+
+/** Resultado de error o warning simplificado */
+function renderCompactResult(results, errorMsg, type) {
+  const el = document.getElementById('sync-compact-result');
+  if (!el) return;
+  if (errorMsg) {
+    el.innerHTML = `<div class="result-summary result-error"><p>${escapeHtml(errorMsg)}</p></div>`;
+    return;
+  }
+  if (!results) return;
+  // Delegar al nuevo renderer si es un SyncResult completo
+  if (results.documents_new !== undefined) {
+    showSyncResultsV2(results);
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -486,7 +731,6 @@ async function loadCases() {
   const skeletonEl = document.getElementById('cases-skeleton');
   const errorEl = document.getElementById('cases-error');
 
-  // Mostrar skeleton, ocultar resto
   listEl.innerHTML = '';
   emptyEl.style.display = 'none';
   errorEl.style.display = 'none';
@@ -518,7 +762,14 @@ async function loadCases() {
       return;
     }
 
-    listEl.innerHTML = cases.map(renderCaseCard).join('');
+    // 4.19: Enriquecer con badges de sync reciente (chrome.storage.local)
+    const badges = await getSyncBadges();
+    const enriched = cases.map(c => ({
+      ...c,
+      new_since_sync: badges[c.id]?.newCount || 0,
+    }));
+
+    listEl.innerHTML = enriched.map(renderCaseCard).join('');
   } catch (error) {
     console.error('[Sidepanel] Error cargando causas:', error);
     skeletonEl.style.display = 'none';
@@ -531,31 +782,88 @@ function renderCaseCard(c) {
   const docCount = c.document_count || 0;
   const timeAgo = c.last_synced_at ? getTimeAgo(c.last_synced_at) : 'Sin sincronizar';
   const tribunalDisplay = c.tribunal || 'Tribunal no disponible';
+  const newCount = c.new_since_sync || 0;
 
-  // Indicador de frescura
-  let freshness = 'stale'; // gris
+  let freshness = 'stale';
   if (c.last_synced_at) {
     const hoursSince = (Date.now() - new Date(c.last_synced_at).getTime()) / (1000 * 60 * 60);
-    if (hoursSince < 24) freshness = 'fresh';       // verde
-    else if (hoursSince < 72) freshness = 'recent';  // amarillo
+    if (hoursSince < 24) freshness = 'fresh';
+    else if (hoursSince < 72) freshness = 'recent';
   }
 
   return `
-    <div class="case-card" data-case-id="${c.id}">
+    <div class="case-card" data-case-id="${escapeHtml(c.id)}">
       <div class="case-header">
         <span class="case-rol">${escapeHtml(c.rol)}</span>
-        <span class="case-badge badge-${freshness}">${docCount} doc${docCount !== 1 ? 's' : ''}</span>
+        <div class="case-badges">
+          ${newCount > 0 ? `<span class="badge-new" title="${newCount} documento(s) nuevo(s) desde última sync">Nuevo</span>` : ''}
+          <span class="case-badge badge-${freshness}">${docCount} doc${docCount !== 1 ? 's' : ''}</span>
+        </div>
       </div>
       <p class="case-tribunal">${escapeHtml(tribunalDisplay)}</p>
       <div class="case-footer">
         <span class="case-time">${timeAgo}</span>
+        ${newCount > 0 ? `<span class="new-docs-hint">${newCount} doc${newCount !== 1 ? 's' : ''} nuevo${newCount !== 1 ? 's' : ''}</span>` : ''}
       </div>
     </div>
   `;
 }
 
 // ══════════════════════════════════════════════════════════
-// 9. EVENTOS DEL SCRAPER (progreso, resultados)
+// 4.19: SYNC BADGES — chrome.storage.local
+// Persiste la info de documentos nuevos por sync para
+// mostrar badge "Nuevo" en Mis Causas sin consultas extra a DB.
+// ══════════════════════════════════════════════════════════
+
+/**
+ * Guarda un badge de sync en chrome.storage.local.
+ * Se llama tras un sync exitoso con documentos nuevos.
+ */
+async function storeSyncBadge(syncResult) {
+  if (!syncResult?.case_id || !syncResult.documents_new?.length) return;
+  try {
+    const badges = await getSyncBadges();
+    badges[syncResult.case_id] = {
+      newCount: syncResult.documents_new.length,
+      rol: syncResult.rol,
+      syncedAt: new Date().toISOString(),
+    };
+    await new Promise(resolve => chrome.storage.local.set({ sync_badges: badges }, resolve));
+    console.log('[4.19] Badge guardado:', syncResult.rol, `(${syncResult.documents_new.length} nuevos)`);
+  } catch (e) {
+    console.warn('[4.19] Error guardando badge:', e.message);
+  }
+}
+
+/**
+ * Lee los badges de sync del storage.
+ * Descarta badges con más de 7 días de antigüedad (auto-limpieza).
+ */
+async function getSyncBadges() {
+  try {
+    const result = await new Promise(resolve =>
+      chrome.storage.local.get(['sync_badges'], r => resolve(r.sync_badges || {}))
+    );
+    // Auto-limpiar badges viejos (>7 días)
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    let changed = false;
+    for (const [id, badge] of Object.entries(result)) {
+      if (new Date(badge.syncedAt).getTime() < cutoff) {
+        delete result[id];
+        changed = true;
+      }
+    }
+    if (changed) {
+      await new Promise(resolve => chrome.storage.local.set({ sync_badges: result }, resolve));
+    }
+    return result;
+  } catch (e) {
+    return {};
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// 9. EVENTOS DEL SCRAPER
 // ══════════════════════════════════════════════════════════
 
 function setupScraperEventListener() {
@@ -573,24 +881,31 @@ function handleScraperEvent(event, data) {
   switch (event) {
     case 'status': handleStatusUpdate(data); break;
     case 'causa_detected': displayDetectedCausa(data).catch(() => {}); break;
+    case 'content_updated': if (data?.causa) displayDetectedCausa(data.causa).catch(() => {}); break;
+    case 'causa_package_ready':
+      // JwtExtractor extrajo el CausaPackage — actualizar preview de cuadernos/folios
+      if (data) {
+        updateCausaPackagePreview(data.cuadernos || 0, data.folios || 0);
+        console.log('[4.18] CausaPackage listo:', data.rol, `| ${data.cuadernos} cuadernos, ${data.folios} folios`);
+      }
+      break;
     case 'pdf_captured': showNotification(`PDF capturado: ${formatSize(data?.size)}`, 'success'); break;
     case 'pdf_uploaded': handlePdfUploaded(data); break;
     case 'upload_progress': handleUploadProgress(data); break;
     case 'upload_error': handleUploadError(data); break;
     case 'batch_summary': displayBatchSummary(data); break;
-    case 'content_updated': if (data?.causa) displayDetectedCausa(data.causa).catch(() => {}); break;
   }
 }
 
 function handleStatusUpdate(data) {
-  if (!data) return;
+  if (!data || isSyncing) return;
   const phaseProgress = {
     'initializing': 5, 'no_causa': 100, 'starting': 10,
     'analyzing': 15, 'page_detected': 20,
     'layer1': 30, 'layer1_success': 40, 'layer1_empty': 35,
     'layer2': 45, 'layer2_scoped': 48, 'layer2_table': 50,
     'layer2_found': 55, 'layer2_downloading': 65,
-    'validating': 70, 'filtered': 75, 'needs_confirmation': 76,
+    'validating': 70, 'filtered': 75,
     'uploading': 80, 'complete': 100,
     'all_rejected': 100, 'fallback': 100, 'wrong_page': 100, 'error': 100,
   };
@@ -601,72 +916,8 @@ function handleStatusUpdate(data) {
   updateProgress(progress, data.message, type);
 }
 
-function renderCompactResult(results, errorMsg, type) {
-  const el = document.getElementById('sync-compact-result');
-  if (!el) return;
-
-  if (errorMsg) {
-    el.innerHTML = `<div class="result-summary result-error"><p>${errorMsg}</p></div>`;
-    return;
-  }
-
-  if (!results) return;
-  const duration = results.duration ? `${(results.duration / 1000).toFixed(1)}s` : 'N/A';
-
-  if (results.totalUploaded > 0) {
-    el.innerHTML = `
-      <div class="result-summary result-success">
-        <p><strong>${results.totalUploaded}</strong> documento(s) sincronizado(s)</p>
-        <p class="result-detail">ROL: ${results.rol || 'N/A'} · Duración: ${duration}</p>
-      </div>
-    `;
-    if (results.rejectedReasons?.length > 0) {
-      el.innerHTML += `<div class="result-filtered"><p class="result-detail">Filtrados: ${results.rejectedReasons.join('; ')}</p></div>`;
-    }
-  } else if (results.totalFound > 0) {
-    el.innerHTML = `<div class="result-summary result-warning"><p>${results.totalFound} documento(s) encontrado(s), todos filtrados.</p></div>`;
-  } else {
-    el.innerHTML = `<div class="result-summary result-warning"><p>No se detectaron documentos.</p></div>`;
-  }
-
-  if (results.errors?.length > 0) {
-    el.innerHTML += `<div class="result-errors">${results.errors.map(e => `<p class="result-detail error-text">• ${e}</p>`).join('')}</div>`;
-  }
-}
-
-function showSyncResults(results) {
-  if (!results) return;
-  renderCompactResult(results);
-
-  // Mantener lastDetectedCausa con tribunal/caratula de results si vienen más completos
-  if (lastDetectedCausa && results.rol === lastDetectedCausa.rol) {
-    const updates = {};
-    if (results.tribunal && !lastDetectedCausa.tribunal) updates.tribunal = results.tribunal;
-    if (results.caratula && !lastDetectedCausa.caratula) updates.caratula = results.caratula;
-    if (Object.keys(updates).length) lastDetectedCausa = { ...lastDetectedCausa, ...updates };
-  }
-
-  // Actualizar "documentos encontrados" con el total real capturado (incl. anexos)
-  if (typeof results.totalFound === 'number' && results.totalFound >= 0) {
-    const docPreview = document.getElementById('doc-preview');
-    const docCount = document.getElementById('doc-count');
-    const docTypes = document.getElementById('doc-types');
-    if (docPreview && docCount) {
-      docPreview.style.display = 'block';
-      docCount.textContent = `${results.totalFound} documento(s) encontrado(s)`;
-      if (docTypes && results.totalUploaded !== undefined) {
-        const badges = [`subidos: ${results.totalUploaded}`];
-        if (results.totalFound > results.totalValidated && results.totalValidated !== undefined) {
-          badges.push(`descartados: ${results.totalFound - results.totalValidated}`);
-        }
-        docTypes.innerHTML = badges.map(b => `<span class="doc-type-badge">${b}</span>`).join('');
-      }
-    }
-  }
-}
-
 // ══════════════════════════════════════════════════════════
-// 10. ARCHIVOS GRANDES — Batch Summary (dentro de sync-compact)
+// 10. ARCHIVOS GRANDES — Batch Summary
 // ══════════════════════════════════════════════════════════
 
 function displayBatchSummary(summary) {
@@ -693,23 +944,13 @@ function displayBatchSummary(summary) {
 
 function handleUploadProgress(data) {
   if (!data) return;
-  const el = document.getElementById('resumable-progress');
-  const bar = document.getElementById('resumable-bar');
-  const status = document.getElementById('resumable-status');
-  if (el && bar && status) {
-    el.style.display = 'block';
-    bar.style.width = `${data.percent}%`;
-    status.textContent = `${data.filename}: ${data.formatted} (${data.percent}%)`;
-  }
+  showNotification(`${data.filename}: ${data.formatted} (${data.percent}%)`, 'info');
 }
 
 function handlePdfUploaded(data) {
   if (!data) return;
   const progress = data.total ? ` [${data.index}/${data.total}]` : '';
   showNotification(`Subido${progress}: ${data.filename}`, 'success');
-  if (data.uploadStrategy === 'resumable') {
-    setTimeout(() => { const el = document.getElementById('resumable-progress'); if (el) el.style.display = 'none'; }, 1000);
-  }
 }
 
 function handleUploadError(data) {
@@ -733,9 +974,9 @@ function showNotification(message, type = 'info') {
   if (details) {
     const entry = document.createElement('p');
     entry.className = `notification notification-${type}`;
-    entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+    entry.textContent = `${new Date().toLocaleTimeString()} — ${message}`;
     details.prepend(entry);
-    while (details.children.length > 10) details.removeChild(details.lastChild);
+    while (details.children.length > 8) details.removeChild(details.lastChild);
   }
 }
 
@@ -746,9 +987,9 @@ function formatSize(bytes) {
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
-function truncate(str, max) {
+function capitalizeFirst(str) {
   if (!str) return '';
-  return str.length > max ? str.substring(0, max) + '...' : str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
 function escapeHtml(str) {
@@ -773,4 +1014,17 @@ function getTimeAgo(dateStr) {
   if (days < 7) return `Hace ${days} días`;
   if (days < 30) return `Hace ${Math.floor(days / 7)} sem`;
   return new Date(dateStr).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' });
+}
+
+/**
+ * Formatea una fecha ISO para mostrar en el mensaje de estado de sync.
+ * Ej: "28 feb 2026 14:35"
+ */
+function formatSyncDate(isoStr) {
+  try {
+    return new Date(isoStr).toLocaleDateString('es-CL', {
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return ''; }
 }

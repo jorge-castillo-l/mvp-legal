@@ -747,6 +747,108 @@ h2 {
   100% { background-position: -200% 0; }
 }
 
+/* ══════ SYNC UI v2 — Tarea 4.18 ══════ */
+
+/* Banner de sync: verde-azulado indicando que el servidor trabaja */
+.sync-wait-banner {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1e40af !important;
+}
+.sync-wait-banner .sync-wait-icon {
+  font-size: 18px;
+  animation: spin 1.5s linear infinite;
+  display: inline-block;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Preview de cuadernos/folios detectados por JwtExtractor */
+.causa-package-preview {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.pkg-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  line-height: 1.6;
+}
+.pkg-badge-cuadernos {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+.pkg-badge-folios {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+/* Indicador de cuaderno actual durante el sync */
+.cuaderno-progress {
+  margin-top: 4px;
+  padding: 2px 0;
+}
+.cuaderno-progress-text {
+  font-size: 11px;
+  color: var(--accent-color);
+  font-weight: 500;
+}
+
+/* Resultado: stats-line (N existentes · N fallidos · 12.3s) */
+.stats-line {
+  color: var(--muted-color);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+/* Resultado tipo "info" (no hay nuevos pero hay existentes) */
+.result-info {
+  background: #eff6ff;
+  border-left: 3px solid #93c5fd;
+  padding: 8px 12px;
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 6px;
+}
+.result-info p { margin: 0; font-size: 13px; color: #1d4ed8; }
+
+/* 4.19: Badge "Nuevo" en tarjetas de Mis Causas */
+.case-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.badge-new {
+  display: inline-block;
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  line-height: 1.6;
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.new-docs-hint {
+  font-size: 11px;
+  color: var(--success-color);
+  font-weight: 600;
+}
+
 /* ══════ FOOTER ══════ */
 
 footer {
