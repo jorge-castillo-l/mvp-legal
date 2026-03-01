@@ -114,6 +114,35 @@ export interface CausaPackage {
 }
 
 // ════════════════════════════════════════════════════════
+// Tarea 4.20 — Secciones adicionales PJUD
+// ════════════════════════════════════════════════════════
+
+/**
+ * Datos del Modal Receptor (#modalReceptorCivil).
+ * Obtenidos llamando a receptorCivil.php con jwt_receptor.
+ * La estructura exacta se confirmará al validar contra HTML real de PJUD.
+ */
+export interface ReceptorCertificacion {
+  fecha: string
+  tipo: string
+  resultado: string
+  obs: string
+}
+
+export interface ReceptorDiligencia {
+  fecha: string
+  tipo: string
+  descripcion: string
+}
+
+export interface ReceptorData {
+  receptor_nombre: string | null
+  tipo_receptor: string | null
+  certificaciones: ReceptorCertificacion[]
+  diligencias: ReceptorDiligencia[]
+}
+
+// ════════════════════════════════════════════════════════
 // Resultado de sync — retornado al sidepanel
 // ════════════════════════════════════════════════════════
 
@@ -140,6 +169,9 @@ export interface SyncResult {
   total_downloaded: number
   errors: string[]
   duration_ms: number
+  // 4.20: datos adicionales almacenados
+  tabs_stored: boolean
+  receptor_stored: boolean
 }
 
 // ════════════════════════════════════════════════════════

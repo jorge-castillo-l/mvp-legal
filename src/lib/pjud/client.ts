@@ -193,6 +193,81 @@ export class PjudClient {
   }
 
   /**
+   * POST to receptorCivil.php to get the HTML for the Receptor modal (4.20).
+   * Uses the jwt_receptor JWT extracted from the cause page by JwtExtractor.
+   *
+   * NOTE: The exact endpoint URL and parameter name are inferred from PJUD patterns.
+   * Validate against real PJUD HTML after first test with a cause that has receptor data.
+   */
+  async fetchReceptorHtml(
+    jwt: string,
+    csrfToken: string | null,
+    cookies: PjudCookies | null
+  ): Promise<string | null> {
+    await this.throttle()
+
+    const url = `${PJUD_BASE_URL}/ADIR_871/civil/modal/receptorCivil.php`
+
+    const headers: Record<string, string> = {
+      ...this.baseHeaders(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: PJUD_ORIGIN,
+    }
+
+    const cookie = this.cookieHeader(cookies)
+    if (cookie) headers['Cookie'] = cookie
+
+    // Try POST with dtaDoc (same pattern as causaCivil.php)
+    const bodyParams: Record<string, string> = { dtaDoc: jwt }
+    if (csrfToken) bodyParams.token = csrfToken
+    const body = new URLSearchParams(bodyParams).toString()
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'follow',
+      })
+
+      if (!response.ok) {
+        console.warn(
+          `[PjudClient] receptorCivil.php failed: ${response.status} ${response.statusText}`
+        )
+        return null
+      }
+
+      const html = await response.text()
+
+      if (html.length < 50) {
+        console.warn(
+          `[PjudClient] receptorCivil.php response too small (${html.length} chars)`
+        )
+        return null
+      }
+
+      console.log(
+        `[PjudClient] receptorCivil.php: ${html.length} chars recibidos`
+      )
+      return html
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('[PjudClient] receptorCivil.php request timeout')
+      } else {
+        console.error('[PjudClient] receptorCivil.php error:', error)
+      }
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
    * Build the full URL for a PJUD document download.
    */
   private resolveUrl(action: string, param: string, jwt: string): string {

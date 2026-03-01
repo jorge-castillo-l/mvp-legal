@@ -38,7 +38,7 @@ import { createHash } from 'crypto'
 import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { PjudClient } from '@/lib/pjud/client'
-import { parseFoliosFromHtml } from '@/lib/pjud/parser'
+import { parseFoliosFromHtml, parseReceptorData } from '@/lib/pjud/parser'
 import type {
   CausaPackage,
   PdfDownloadTask,
@@ -46,6 +46,7 @@ import type {
   SyncedDocument,
   Folio,
   JwtRef,
+  ReceptorData,
 } from '@/lib/pjud/types'
 import type {
   CaseInsert,
@@ -258,7 +259,73 @@ export async function POST(request: NextRequest) {
         }
 
         // ────────────────────────────────────────────
-        // PASO 8: ACTUALIZAR CASE STATS
+        // PASO 8: DATOS ADICIONALES (4.20)
+        //   8a) Tabs data (notificaciones, escritos, exhortos, litigantes)
+        //   8b) Receptor data (si jwt_receptor presente)
+        // ────────────────────────────────────────────
+        let tabsStored = false
+        let receptorStored = false
+
+        // 8a: Guardar tabs_data (ya extraído por JwtExtractor, sin request extra a PJUD)
+        if (pkg.tabs && Object.keys(pkg.tabs).length > 0) {
+          emit('progress', { message: 'Guardando datos tabulares (notificaciones, escritos, exhortos)…', current: totalTasks, total: totalTasks })
+
+          const { error: tabsError } = await supabase
+            .from('cases')
+            .update({ tabs_data: pkg.tabs })
+            .eq('id', caseId)
+
+          if (tabsError) {
+            console.warn('[sync] tabs_data update error:', tabsError.message)
+          } else {
+            tabsStored = true
+            const nNotif = pkg.tabs.notificaciones?.length ?? 0
+            const nEscr  = pkg.tabs.escritos_por_resolver?.length ?? 0
+            const nExh   = pkg.tabs.exhortos?.length ?? 0
+            console.log(
+              `[sync] tabs_data guardados: ${nNotif} notif, ${nEscr} escritos, ${nExh} exhortos`
+            )
+          }
+        }
+
+        // 8b: Receptor — fetch HTML + parse + guardar
+        if (pkg.jwt_receptor) {
+          emit('progress', { message: 'Obteniendo datos del receptor…', current: totalTasks, total: totalTasks })
+
+          try {
+            const receptorHtml = await pjud.fetchReceptorHtml(
+              pkg.jwt_receptor,
+              pkg.csrf_token,
+              pkg.cookies
+            )
+
+            if (receptorHtml) {
+              const receptorData: ReceptorData = parseReceptorData(receptorHtml)
+
+              const { error: receptorError } = await supabase
+                .from('cases')
+                .update({ receptor_data: receptorData })
+                .eq('id', caseId)
+
+              if (receptorError) {
+                console.warn('[sync] receptor_data update error:', receptorError.message)
+              } else {
+                receptorStored = true
+                console.log(
+                  `[sync] receptor_data: ${receptorData.receptor_nombre ?? 'sin nombre'} — ` +
+                  `${receptorData.certificaciones.length} cert, ${receptorData.diligencias.length} dilig`
+                )
+              }
+            } else {
+              console.warn('[sync] receptorCivil.php no retornó HTML útil')
+            }
+          } catch (receptorErr) {
+            console.error('[sync] Error procesando receptor:', receptorErr)
+          }
+        }
+
+        // ────────────────────────────────────────────
+        // PASO 9: ACTUALIZAR CASE STATS
         // ────────────────────────────────────────────
         emit('progress', { message: 'Actualizando estadísticas de la causa…', current: totalTasks, total: totalTasks })
 
@@ -276,7 +343,7 @@ export async function POST(request: NextRequest) {
           .eq('id', caseId)
 
         // ────────────────────────────────────────────
-        // PASO 9: TRIGGER PROCESAMIENTO ASYNC
+        // PASO 10: TRIGGER PROCESAMIENTO ASYNC
         // ────────────────────────────────────────────
         const pipelineKey = process.env.PIPELINE_SECRET_KEY
         const appUrl =
@@ -301,7 +368,7 @@ export async function POST(request: NextRequest) {
         }
 
         // ────────────────────────────────────────────
-        // PASO 10: EVENTO COMPLETE
+        // PASO 11: EVENTO COMPLETE
         // ────────────────────────────────────────────
         const syncResult: SyncResult = {
           success: true,
@@ -315,6 +382,8 @@ export async function POST(request: NextRequest) {
           total_downloaded: results.length,
           errors,
           duration_ms: Date.now() - startTime,
+          tabs_stored: tabsStored,
+          receptor_stored: receptorStored,
         }
 
         console.log(

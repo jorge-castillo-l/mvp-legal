@@ -1,19 +1,22 @@
 /**
  * ============================================================
- * PJUD HTML Parser — Tarea 4.17
+ * PJUD HTML Parser — Tarea 4.17 + 4.20
  * ============================================================
- * Parsea las respuestas HTML de causaCivil.php para extraer
- * folios y sus JWTs asociados.
- *
- * Se usa cuando el API Sync necesita obtener folios de cuadernos
- * distintos al visible en el momento del scraping.
+ * Parsea las respuestas HTML de endpoints PJUD server-side:
+ *   - causaCivil.php  → folios con JWTs (4.17)
+ *   - receptorCivil.php → datos del receptor (4.20)
  *
  * Utiliza node-html-parser para parsing robusto del DOM server-side.
+ *
+ * NOTA RECEPTOR (4.20): El parser es best-effort basado en los
+ * patrones generales de tablas PJUD. Validar contra HTML real
+ * de #modalReceptorCivil al probar con causa que tenga actuaciones
+ * de receptor. Ajustar selectores según el HTML capturado.
  * ============================================================
  */
 
 import { parse as parseHtml, HTMLElement } from 'node-html-parser'
-import type { Folio, JwtRef } from './types'
+import type { Folio, JwtRef, ReceptorData } from './types'
 
 /**
  * Extract folios from the HTML response of causaCivil.php.
@@ -138,4 +141,113 @@ function cleanText(text: string | undefined): string {
     .replace(/\u00A0/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// ════════════════════════════════════════════════════════
+// RECEPTOR PARSER — Tarea 4.20
+// ════════════════════════════════════════════════════════
+
+/**
+ * Parsea la respuesta HTML de receptorCivil.php.
+ *
+ * El parser identifica tablas por sus encabezados (th) y clasifica
+ * las filas como certificaciones o diligencias según el contenido.
+ * Diseñado para los patrones generales de tablas PJUD; validar y
+ * ajustar selectores contra HTML real (#modalReceptorCivil).
+ *
+ * Estrategia defensiva: si no se reconoce ninguna tabla conocida,
+ * retorna arrays vacíos sin lanzar error (graceful degradation).
+ */
+export function parseReceptorData(html: string): ReceptorData {
+  const root = parseHtml(html, {
+    lowerCaseTagName: true,
+    comment: false,
+    voidTag: { closingSlash: true },
+  })
+
+  let receptor_nombre: string | null = null
+  let tipo_receptor: string | null = null
+  const certificaciones: ReceptorData['certificaciones'] = []
+  const diligencias: ReceptorData['diligencias'] = []
+
+  // ── Nombre del receptor: buscar en encabezados / celdas destacadas
+  const nameSelectors = [
+    '.nombre-receptor',
+    '.receptor-nombre',
+    'h4',
+    'h3',
+    'strong',
+    'b',
+  ]
+  for (const sel of nameSelectors) {
+    const el = root.querySelector(sel)
+    if (el) {
+      const txt = cleanText(el.text)
+      if (txt.length > 3 && txt.length < 120) {
+        receptor_nombre = txt
+        break
+      }
+    }
+  }
+
+  // ── Tipo de receptor: buscar en celdas con la etiqueta "Tipo"
+  const allCells = root.querySelectorAll('td, th')
+  for (let i = 0; i < allCells.length - 1; i++) {
+    const label = cleanText(allCells[i].text).toLowerCase()
+    if (label === 'tipo' || label === 'tipo receptor') {
+      tipo_receptor = cleanText(allCells[i + 1].text) || null
+      break
+    }
+  }
+
+  // ── Tablas: identificar por encabezados (th)
+  const tables = root.querySelectorAll('table')
+  for (const table of tables) {
+    const ths = table.querySelectorAll('th').map((th) => cleanText(th.text).toLowerCase())
+    const rows = table.querySelectorAll('tbody tr')
+
+    const isCertTable =
+      ths.some((h) => h.includes('certificaci') || h.includes('resultado') || h.includes('certif'))
+
+    const isDiligTable =
+      ths.some((h) => h.includes('diligencia') || h.includes('actuaci') || h.includes('servicio'))
+
+    if (isCertTable) {
+      // Mapeo por posición: fecha | tipo | resultado | obs
+      for (const row of rows) {
+        const cells = row.querySelectorAll('td')
+        if (cells.length < 2) continue
+        certificaciones.push({
+          fecha:     cleanText(cells[0]?.text),
+          tipo:      cleanText(cells[1]?.text),
+          resultado: cleanText(cells[2]?.text) || '',
+          obs:       cleanText(cells[3]?.text) || '',
+        })
+      }
+    } else if (isDiligTable) {
+      // Mapeo por posición: fecha | tipo | descripcion
+      for (const row of rows) {
+        const cells = row.querySelectorAll('td')
+        if (cells.length < 2) continue
+        diligencias.push({
+          fecha:       cleanText(cells[0]?.text),
+          tipo:        cleanText(cells[1]?.text),
+          descripcion: cleanText(cells[2]?.text) || '',
+        })
+      }
+    } else if (ths.length >= 2 && rows.length > 0) {
+      // Tabla genérica con datos: tratar como diligencias (fallback)
+      for (const row of rows) {
+        const cells = row.querySelectorAll('td')
+        if (cells.length < 2) continue
+        diligencias.push({
+          fecha:       cleanText(cells[0]?.text),
+          tipo:        cleanText(cells[1]?.text),
+          descripcion: cells.slice(2).map((c) => cleanText(c.text)).filter(Boolean).join(' | '),
+        })
+      }
+    }
+  }
+
+  return { receptor_nombre, tipo_receptor, certificaciones, diligencias }
 }
