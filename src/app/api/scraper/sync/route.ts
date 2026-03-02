@@ -250,7 +250,8 @@ export async function POST(request: NextRequest) {
 
           try {
             const result = await processOneDocument(
-              pjud, supabase, supabaseAdmin, user.id, caseId, task
+              pjud, supabase, supabaseAdmin, user.id, caseId, task,
+              { rol: pkg.rol, tribunal: pkg.tribunal, caratula: pkg.caratula },
             )
             if (result === 'duplicate') {
               existingCount++
@@ -757,7 +758,8 @@ async function processOneDocument(
   supabaseAdmin: ReturnType<typeof createAdminClient>,
   userId: string,
   caseId: string,
-  task: PdfDownloadTask
+  task: PdfDownloadTask,
+  causaMeta: { rol: string; tribunal?: string; caratula?: string },
 ): Promise<SyncedDocument | 'duplicate' | 'failed'> {
   // 1. Download PDF from PJUD
   const pdf = await pjud.downloadPdf(task.endpoint, task.param, task.jwt)
@@ -836,11 +838,13 @@ async function processOneDocument(
   // 6. Insert hash for dedup
   const newHash: DocumentHashInsert = {
     user_id: userId,
-    rol: task.filename.split('_')[0] || 'sin_rol',
+    rol: causaMeta.rol,
     case_id: caseId,
     hash: fileHash,
     filename: sanitizedName,
     document_type: task.document_type,
+    tribunal: causaMeta.tribunal || null,
+    caratula: causaMeta.caratula || null,
   }
 
   const { error: hashError } = await supabase

@@ -179,22 +179,23 @@ async function fetchSyncState(userId, rol, tribunal = '') {
   if (!userId || !rol || typeof supabase?.fetch !== 'function') return { count: 0, lastSyncedAt: null };
   try {
     const rolClean = (rol || '').trim();
-    const endpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,document_count,last_synced_at&limit=5`;
+    const triClean = (tribunal || '').trim();
+    let endpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,document_count,last_synced_at&limit=5`;
+    if (triClean) {
+      endpoint += `&tribunal=eq.${encodeURIComponent(triClean)}`;
+    }
     const response = await supabase.fetch(endpoint);
     if (!response.ok) return { count: 0, lastSyncedAt: null };
     const cases = await response.json();
     if (!Array.isArray(cases) || cases.length === 0) return { count: 0, lastSyncedAt: null };
 
-    let target = cases[0];
-    if (cases.length > 1 && tribunal) {
-      const tri = tribunal.trim().toLowerCase();
-      const match = cases.find(c => (c.tribunal || '').trim().toLowerCase() === tri);
-      if (match) target = match;
-    }
+    const tri = triClean.toLowerCase();
+    const target = cases.find(c => (c.tribunal || '').trim().toLowerCase() === tri) || null;
+    if (!target) return { count: 0, lastSyncedAt: null };
 
     const count = target.document_count || 0;
     const lastSyncedAt = target.last_synced_at || null;
-    console.log('[4.18] fetchSyncState:', { rol, count, lastSyncedAt });
+    console.log('[4.18] fetchSyncState:', { rol, tribunal: triClean, count, lastSyncedAt });
     return { count, lastSyncedAt };
   } catch (e) {
     console.error('[4.18] fetchSyncState error:', e);
@@ -334,11 +335,29 @@ function applySyncStateUI(causa, syncState) {
 }
 
 async function displayDetectedCausa(causa) {
-  if (causa && lastDetectedCausa && causa.rol === lastDetectedCausa.rol) {
+  const isSame = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
+    ? CAUSA_IDENTITY.isSameCausa(causa, lastDetectedCausa)
+    : false;
+
+  if (causa && lastDetectedCausa && isSame) {
     if (!causa.caratula && lastDetectedCausa.caratula) causa = { ...causa, caratula: lastDetectedCausa.caratula };
     if (!causa.tribunal && lastDetectedCausa.tribunal) causa = { ...causa, tribunal: lastDetectedCausa.tribunal };
   }
+
+  const causaChanged = !isSame;
   lastDetectedCausa = causa;
+
+  if (causaChanged) {
+    lastSyncState = null;
+    const compactEl = document.getElementById('sync-compact');
+    if (compactEl) {
+      compactEl.style.display = 'none';
+      const resultEl = document.getElementById('sync-compact-result');
+      const detailsEl = document.getElementById('sync-compact-details');
+      if (resultEl) resultEl.innerHTML = '';
+      if (detailsEl) detailsEl.innerHTML = '';
+    }
+  }
 
   const syncBtn = document.getElementById('sync-btn');
   const causaRol = document.getElementById('causa-rol');
@@ -349,7 +368,6 @@ async function displayDetectedCausa(causa) {
   const docTypes = document.getElementById('doc-types');
 
   if (!causa) {
-    lastSyncState = null;
     causaRol.textContent = '--';
     causaTribunal.textContent = 'No se detectó una causa en esta página';
     causaCaratula.textContent = '';
@@ -692,8 +710,9 @@ function showSyncResultsV2(syncResult) {
 
   el.innerHTML = html;
 
-  // Mantener lastDetectedCausa enriquecida con datos del resultado
-  if (lastDetectedCausa && syncResult.rol === lastDetectedCausa.rol) {
+  // Enriquecer lastDetectedCausa solo si es la misma causa (rol + tribunal)
+  if (lastDetectedCausa && syncResult.rol === lastDetectedCausa.rol &&
+      (syncResult.tribunal || '') === (lastDetectedCausa.tribunal || '')) {
     const updates = {};
     if (syncResult.tribunal && !lastDetectedCausa.tribunal) updates.tribunal = syncResult.tribunal;
     if (Object.keys(updates).length) lastDetectedCausa = { ...lastDetectedCausa, ...updates };
