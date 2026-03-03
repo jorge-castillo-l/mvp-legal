@@ -451,6 +451,10 @@ async function upsertCase(
     if (pkg.libro_tipo) updateData.libro_tipo = pkg.libro_tipo
     if (pkg.fuente) updateData.fuente_sync = pkg.fuente
     if (pkg.estado_adm) updateData.estado = pkg.estado_adm
+    if (pkg.etapa) updateData.etapa = pkg.etapa
+    if (pkg.ubicacion) updateData.ubicacion = pkg.ubicacion
+    if (pkg.fecha_ingreso) updateData.fecha_ingreso = pkg.fecha_ingreso
+    if (pkg.estado_procesal) updateData.estado_procesal = pkg.estado_procesal
 
     await supabase.from('cases').update(updateData).eq('id', existingCase.id)
     return existingCase.id
@@ -463,6 +467,10 @@ async function upsertCase(
     caratula: pkg.caratula,
     materia: pkg.materia,
     estado: pkg.estado_adm,
+    etapa: pkg.etapa,
+    ubicacion: pkg.ubicacion,
+    fecha_ingreso: pkg.fecha_ingreso,
+    estado_procesal: pkg.estado_procesal,
     last_synced_at: new Date().toISOString(),
   }
 
@@ -591,6 +599,16 @@ function folioToTasks(
 
   const docType = inferDocType(folio.tramite)
 
+  const folioMeta: import('@/lib/pjud/types').FolioMetadata = {
+    folio_numero: folio.numero,
+    etapa: folio.etapa || null,
+    tramite: folio.tramite || null,
+    desc_tramite: folio.desc_tramite || null,
+    fecha_tramite: folio.fecha_tramite || null,
+    foja: folio.foja || null,
+    cuaderno,
+  }
+
   if (folio.jwt_doc_principal) {
     tasks.push({
       jwt: folio.jwt_doc_principal.jwt,
@@ -602,6 +620,7 @@ function folioToTasks(
       cuaderno,
       fecha: folio.fecha_tramite,
       source_url: folio.jwt_doc_principal.action,
+      folio_metadata: folioMeta,
     })
   }
 
@@ -616,6 +635,7 @@ function folioToTasks(
       cuaderno,
       fecha: folio.fecha_tramite,
       source_url: folio.jwt_certificado_escrito.action,
+      folio_metadata: folioMeta,
     })
   }
 
@@ -822,6 +842,7 @@ async function processOneDocument(
     source: 'sync',
     source_url: task.source_url || null,
     captured_at: now.toISOString(),
+    metadata: task.folio_metadata ?? {},
   }
 
   const { data: createdDoc, error: docError } = await supabase

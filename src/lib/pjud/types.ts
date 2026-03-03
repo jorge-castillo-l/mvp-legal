@@ -184,6 +184,16 @@ export interface SyncResult {
 // Tipos internos del pipeline
 // ════════════════════════════════════════════════════════
 
+export interface FolioMetadata {
+  folio_numero: number | null
+  etapa: string | null
+  tramite: string | null
+  desc_tramite: string | null
+  fecha_tramite: string | null
+  foja: number | null
+  cuaderno: string | null
+}
+
 export interface PdfDownloadTask {
   jwt: string
   endpoint: string
@@ -194,6 +204,7 @@ export interface PdfDownloadTask {
   cuaderno: string | null
   fecha: string | null
   source_url: string
+  folio_metadata?: FolioMetadata
 }
 
 export type Procedimiento = 'ordinario' | 'ejecutivo' | 'sumario' | 'monitorio' | 'voluntario'

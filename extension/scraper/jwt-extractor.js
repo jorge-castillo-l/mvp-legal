@@ -94,6 +94,11 @@ class JwtExtractor {
       estado: metadata.estado_adm,
       procedimiento: metadata.procedimiento,
       libro_tipo: metadata.libro_tipo,
+      etapa: metadata.etapa,
+      ubicacion: metadata.ubicacion,
+      estado_procesal: metadata.estado_procesal,
+      fecha_ingreso: metadata.fecha_ingreso,
+      tabs: this._extractTabsData(modalBody),
       hasDocumentZone: true,
       documentZoneType: 'pjud_modal',
       documentPreview: {

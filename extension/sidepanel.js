@@ -172,35 +172,85 @@ async function requestCausaDetection() {
 }
 
 /**
- * 4.18: Consulta cases por ROL → retorna document_count + last_synced_at.
- * Usa document_count guardado en DB (no cuenta hashes en tiempo real).
+ * 4.18+: Consulta cases por ROL → retorna document_count + last_synced_at + metadata completa.
+ * La metadata se usa para detectar cambios al revisitar (compareCausaState).
  */
 async function fetchSyncState(userId, rol, tribunal = '') {
-  if (!userId || !rol || typeof supabase?.fetch !== 'function') return { count: 0, lastSyncedAt: null };
+  const empty = { count: 0, lastSyncedAt: null, stored: null };
+  if (!userId || !rol || typeof supabase?.fetch !== 'function') return empty;
   try {
     const rolClean = (rol || '').trim();
     const triClean = (tribunal || '').trim();
-    let endpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,document_count,last_synced_at&limit=5`;
+    let endpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,document_count,last_synced_at,estado,estado_procesal,etapa,ubicacion,procedimiento,tabs_data&limit=5`;
     if (triClean) {
       endpoint += `&tribunal=eq.${encodeURIComponent(triClean)}`;
     }
     const response = await supabase.fetch(endpoint);
-    if (!response.ok) return { count: 0, lastSyncedAt: null };
+    if (!response.ok) return empty;
     const cases = await response.json();
-    if (!Array.isArray(cases) || cases.length === 0) return { count: 0, lastSyncedAt: null };
+    if (!Array.isArray(cases) || cases.length === 0) return empty;
 
     const tri = triClean.toLowerCase();
     const target = cases.find(c => (c.tribunal || '').trim().toLowerCase() === tri) || null;
-    if (!target) return { count: 0, lastSyncedAt: null };
+    if (!target) return empty;
 
     const count = target.document_count || 0;
     const lastSyncedAt = target.last_synced_at || null;
     console.log('[4.18] fetchSyncState:', { rol, tribunal: triClean, count, lastSyncedAt });
-    return { count, lastSyncedAt };
+    return { count, lastSyncedAt, stored: target };
   } catch (e) {
     console.error('[4.18] fetchSyncState error:', e);
-    return { count: 0, lastSyncedAt: null };
+    return empty;
   }
+}
+
+/**
+ * Compara la metadata almacenada en DB contra lo detectado en el DOM actual.
+ * Retorna array de cambios encontrados (vacio si no hay cambios).
+ */
+function compareCausaState(stored, detected) {
+  const changes = [];
+  if (!stored || !detected) return changes;
+
+  const metaFields = [
+    { key: 'estado',          label: 'Est. Adm.',      newKey: 'estado' },
+    { key: 'estado_procesal', label: 'Estado Proc.',    newKey: 'estado_procesal' },
+    { key: 'etapa',           label: 'Etapa',           newKey: 'etapa' },
+    { key: 'ubicacion',       label: 'Ubicación',       newKey: 'ubicacion' },
+    { key: 'procedimiento',   label: 'Procedimiento',   newKey: 'procedimiento' },
+  ];
+
+  for (const f of metaFields) {
+    const oldVal = (stored[f.key] || '').trim();
+    const newVal = (detected[f.newKey] || '').trim();
+    if (oldVal && newVal && oldVal !== newVal) {
+      changes.push({ type: 'metadata_changed', field: f.label, oldValue: oldVal, newValue: newVal });
+    }
+  }
+
+  const oldDocs = stored.document_count || 0;
+  const newDocs = detected.totalDocuments || 0;
+  if (newDocs > oldDocs) {
+    changes.push({ type: 'new_documents', count: newDocs - oldDocs });
+  }
+
+  if (stored.tabs_data) {
+    const tabChecks = [
+      { key: 'litigantes',            label: 'Litigantes' },
+      { key: 'notificaciones',        label: 'Notificaciones' },
+      { key: 'escritos_por_resolver', label: 'Escritos por Resolver' },
+      { key: 'exhortos',             label: 'Exhortos' },
+    ];
+    for (const t of tabChecks) {
+      const oldCount = stored.tabs_data[t.key]?.length || 0;
+      const newCount = detected.tabs?.[t.key]?.length || 0;
+      if (newCount > oldCount) {
+        changes.push({ type: 'tab_new_rows', tab: t.label, oldCount, newCount });
+      }
+    }
+  }
+
+  return changes;
 }
 
 /**
@@ -230,8 +280,8 @@ async function saveSyncedCausaRegistry(causa) {
 }
 
 /**
- * 4.18: Aplica UI según estado de sync.
- * Muestra "Puede haber documentos nuevos desde [fecha]" o "Actualizada ✓".
+ * 4.18+: Aplica UI según estado de sync.
+ * Muestra cambios de metadata, documentos nuevos, o "Actualizada".
  */
 function applySyncStateUI(causa, syncState) {
   const sameCausa = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
@@ -245,27 +295,57 @@ function applySyncStateUI(causa, syncState) {
   const docTypes = document.getElementById('doc-types');
   const syncBtn = document.getElementById('sync-btn');
   const syncStateBanner = document.getElementById('sync-state-banner');
+  const changesBanner = document.getElementById('changes-detected-banner');
   if (!docPreview || !docCount || !syncBtn) return;
 
   const count = syncState?.count ?? 0;
   const lastSyncedAt = syncState?.lastSyncedAt ?? null;
+  const stored = syncState?.stored ?? null;
   const preview = causa.documentPreview;
   const pageTotal = preview?.total ?? 0;
+
+  // Detect metadata + tab changes
+  const changes = stored ? compareCausaState(stored, causa) : [];
+  const hasMetaChanges = changes.some(c => c.type === 'metadata_changed' || c.type === 'tab_new_rows');
+  const hasNewDocs = changes.some(c => c.type === 'new_documents') || (pageTotal > count && count > 0);
+  const hasAnyChanges = changes.length > 0 || hasNewDocs;
+
+  if (changesBanner) {
+    if (hasAnyChanges && count > 0) {
+      let html = '<strong>Cambios detectados:</strong><ul class="changes-list">';
+      for (const c of changes) {
+        if (c.type === 'metadata_changed') {
+          html += `<li><strong>${escapeHtml(c.field)}:</strong> "${escapeHtml(c.oldValue)}" → "${escapeHtml(c.newValue)}"</li>`;
+        } else if (c.type === 'new_documents') {
+          html += `<li>${c.count} documento(s) nuevo(s)</li>`;
+        } else if (c.type === 'tab_new_rows') {
+          html += `<li>${c.newCount - c.oldCount} nuevo(s) en ${escapeHtml(c.tab)}</li>`;
+        }
+      }
+      if (hasNewDocs && !changes.some(c => c.type === 'new_documents')) {
+        html += `<li>${pageTotal - count} documento(s) nuevo(s)</li>`;
+      }
+      html += '</ul>';
+      changesBanner.innerHTML = html;
+      changesBanner.style.display = 'block';
+    } else {
+      changesBanner.style.display = 'none';
+    }
+  }
 
   if (count > 0) {
     docPreview.style.display = 'block';
     docPreview.classList.add('sync-state-synced');
     docPreview.classList.remove('sync-state-new');
 
-    const hasNewDocs = pageTotal > count;
-    const fullySynced = !hasNewDocs && pageTotal > 0;
+    const fullySynced = !hasAnyChanges && pageTotal > 0;
     const syncDateStr = lastSyncedAt ? formatSyncDate(lastSyncedAt) : null;
 
-    if (hasNewDocs && syncDateStr) {
-      docCount.textContent = `Puede haber documentos nuevos desde ${syncDateStr}. Sincronizar?`;
+    if (hasAnyChanges && syncDateStr) {
+      docCount.textContent = `Hay cambios desde ${syncDateStr}. Sincronizar?`;
       docCount.classList.remove('sync-badge-synced');
-    } else if (hasNewDocs) {
-      docCount.textContent = `Puede haber documentos nuevos (${count} sincronizados). Sincronizar?`;
+    } else if (hasAnyChanges) {
+      docCount.textContent = `Hay cambios detectados (${count} sincronizados). Sincronizar?`;
       docCount.classList.remove('sync-badge-synced');
     } else if (fullySynced) {
       docCount.textContent = `Actualizada ✓ (${count} documento${count !== 1 ? 's' : ''})`;
@@ -276,9 +356,13 @@ function applySyncStateUI(causa, syncState) {
     }
 
     if (docTypes) {
-      docTypes.innerHTML = hasNewDocs
-        ? '<span class="doc-type-badge">Hay documentos nuevos disponibles</span>'
-        : '<span class="doc-type-badge">Todo al día</span>';
+      if (hasMetaChanges && !hasNewDocs) {
+        docTypes.innerHTML = '<span class="doc-type-badge">Metadata actualizada en PJUD</span>';
+      } else if (hasNewDocs) {
+        docTypes.innerHTML = '<span class="doc-type-badge">Hay documentos nuevos disponibles</span>';
+      } else {
+        docTypes.innerHTML = '<span class="doc-type-badge">Todo al día</span>';
+      }
     }
 
     if (fullySynced) {
@@ -286,7 +370,9 @@ function applySyncStateUI(causa, syncState) {
       syncBtn.disabled = true;
       syncBtn.setAttribute('data-fully-synced', '1');
     } else {
-      syncBtn.innerHTML = '<span class="btn-icon">↻</span> Sincronizar documentos nuevos';
+      syncBtn.innerHTML = hasMetaChanges && !hasNewDocs
+        ? '<span class="btn-icon">↻</span> Sincronizar cambios'
+        : '<span class="btn-icon">↻</span> Sincronizar documentos nuevos';
       syncBtn.disabled = false;
       syncBtn.removeAttribute('data-fully-synced');
     }
@@ -296,13 +382,13 @@ function applySyncStateUI(causa, syncState) {
       syncStateBanner.className = 'sync-state-banner sync-state-banner-info';
       syncStateBanner.textContent = fullySynced
         ? (syncDateStr ? `Sincronizada el ${syncDateStr}` : 'Esta causa está completamente sincronizada.')
-        : 'Hay documentos nuevos disponibles.';
+        : hasMetaChanges ? 'Hay cambios de estado en la causa.' : 'Hay documentos nuevos disponibles.';
     }
 
     const warn = document.getElementById('sync-context-warning');
-    if (warn && hasNewDocs) {
+    if (warn && hasAnyChanges) {
       warn.style.display = 'block';
-      warn.innerHTML = '⚠️ Hay documentos nuevos (anexos u otros). Sincronice antes de consultar a la IA.';
+      warn.innerHTML = '⚠️ Hay cambios en la causa. Sincronice antes de consultar a la IA.';
     } else if (warn) {
       warn.style.display = 'none';
     }
@@ -322,6 +408,7 @@ function applySyncStateUI(causa, syncState) {
     syncBtn.disabled = false;
     syncBtn.removeAttribute('data-fully-synced');
     if (syncStateBanner) syncStateBanner.style.display = 'none';
+    if (changesBanner) changesBanner.style.display = 'none';
     const warn = document.getElementById('sync-context-warning');
     if (warn) warn.style.display = 'none';
   }
