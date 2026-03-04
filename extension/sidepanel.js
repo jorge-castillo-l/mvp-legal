@@ -37,6 +37,7 @@ let lastSyncState = null;  // { count, lastSyncedAt, rol, tribunal }
 let activeTab = 'sync';
 let casesLoaded = false;
 let isDetecting = false;
+let syncingCausaInfo = null;
 
 // ══════════════════════════════════════════════════════════
 // 2. INICIALIZACIÓN
@@ -170,7 +171,9 @@ function showDetectingState() {
   if (causaTribunal) causaTribunal.textContent = 'Analizando página…';
   if (causaCaratula) causaCaratula.textContent = '';
   const syncBtn = document.getElementById('sync-btn');
-  if (syncBtn) syncBtn.disabled = true;
+  if (syncBtn) { syncBtn.disabled = true; syncBtn.style.display = 'none'; }
+  const docPreview = document.getElementById('doc-preview');
+  if (docPreview) docPreview.style.display = 'none';
 }
 
 function setupTabChangeDetection() {
@@ -209,6 +212,8 @@ async function requestCausaDetection() {
     }
   } catch (e) {
     isDetecting = false;
+    const syncBtn = document.getElementById('sync-btn');
+    if (syncBtn) syncBtn.style.display = '';
   }
 }
 
@@ -267,12 +272,6 @@ function compareCausaState(stored, detected) {
     if (oldVal && newVal && oldVal !== newVal) {
       changes.push({ type: 'metadata_changed', field: f.label, oldValue: oldVal, newValue: newVal });
     }
-  }
-
-  const oldDocs = stored.document_count || 0;
-  const newDocs = detected.totalDocuments || 0;
-  if (newDocs > oldDocs) {
-    changes.push({ type: 'new_documents', count: newDocs - oldDocs });
   }
 
   if (stored.tabs_data) {
@@ -342,14 +341,10 @@ function applySyncStateUI(causa, syncState) {
   const count = syncState?.count ?? 0;
   const lastSyncedAt = syncState?.lastSyncedAt ?? null;
   const stored = syncState?.stored ?? null;
-  const preview = causa.documentPreview;
-  const pageTotal = preview?.total ?? 0;
 
-  // Detect metadata + tab changes
   const changes = stored ? compareCausaState(stored, causa) : [];
   const hasMetaChanges = changes.some(c => c.type === 'metadata_changed' || c.type === 'tab_new_rows');
-  const hasNewDocs = changes.some(c => c.type === 'new_documents') || (pageTotal > count && count > 0);
-  const hasAnyChanges = changes.length > 0 || hasNewDocs;
+  const hasAnyChanges = changes.length > 0;
 
   if (changesBanner) {
     if (hasAnyChanges && count > 0) {
@@ -357,14 +352,9 @@ function applySyncStateUI(causa, syncState) {
       for (const c of changes) {
         if (c.type === 'metadata_changed') {
           html += `<li><strong>${escapeHtml(c.field)}:</strong> "${escapeHtml(c.oldValue)}" → "${escapeHtml(c.newValue)}"</li>`;
-        } else if (c.type === 'new_documents') {
-          html += `<li>${c.count} documento(s) nuevo(s)</li>`;
         } else if (c.type === 'tab_new_rows') {
           html += `<li>${c.newCount - c.oldCount} nuevo(s) en ${escapeHtml(c.tab)}</li>`;
         }
-      }
-      if (hasNewDocs && !changes.some(c => c.type === 'new_documents')) {
-        html += `<li>${pageTotal - count} documento(s) nuevo(s)</li>`;
       }
       html += '</ul>';
       changesBanner.innerHTML = html;
@@ -379,7 +369,7 @@ function applySyncStateUI(causa, syncState) {
     docPreview.classList.add('sync-state-synced');
     docPreview.classList.remove('sync-state-new');
 
-    const fullySynced = !hasAnyChanges && pageTotal > 0;
+    const fullySynced = !hasAnyChanges;
     const syncDateStr = lastSyncedAt ? formatSyncDate(lastSyncedAt) : null;
 
     if (hasAnyChanges && syncDateStr) {
@@ -397,10 +387,8 @@ function applySyncStateUI(causa, syncState) {
     }
 
     if (docTypes) {
-      if (hasMetaChanges && !hasNewDocs) {
+      if (hasMetaChanges) {
         docTypes.innerHTML = '<span class="doc-type-badge">Metadata actualizada en PJUD</span>';
-      } else if (hasNewDocs) {
-        docTypes.innerHTML = '<span class="doc-type-badge">Hay documentos nuevos disponibles</span>';
       } else {
         docTypes.innerHTML = '<span class="doc-type-badge">Todo al día</span>';
       }
@@ -411,9 +399,7 @@ function applySyncStateUI(causa, syncState) {
       syncBtn.disabled = true;
       syncBtn.setAttribute('data-fully-synced', '1');
     } else {
-      syncBtn.innerHTML = hasMetaChanges && !hasNewDocs
-        ? '<span class="btn-icon">↻</span> Sincronizar cambios'
-        : '<span class="btn-icon">↻</span> Sincronizar documentos nuevos';
+      syncBtn.innerHTML = '<span class="btn-icon">↻</span> Sincronizar cambios';
       syncBtn.disabled = false;
       syncBtn.removeAttribute('data-fully-synced');
     }
@@ -423,7 +409,7 @@ function applySyncStateUI(causa, syncState) {
       syncStateBanner.className = 'sync-state-banner sync-state-banner-info';
       syncStateBanner.textContent = fullySynced
         ? (syncDateStr ? `Sincronizada el ${syncDateStr}` : 'Esta causa está completamente sincronizada.')
-        : hasMetaChanges ? 'Hay cambios de estado en la causa.' : 'Hay documentos nuevos disponibles.';
+        : 'Hay cambios de estado en la causa.';
     }
 
     const warn = document.getElementById('sync-context-warning');
@@ -434,17 +420,8 @@ function applySyncStateUI(causa, syncState) {
       warn.style.display = 'none';
     }
   } else {
+    docPreview.style.display = 'none';
     docPreview.classList.remove('sync-state-synced');
-    docPreview.classList.add('sync-state-new');
-    docCount.classList.remove('sync-badge-synced');
-    if (preview && preview.total > 0) {
-      docPreview.style.display = 'block';
-      docCount.textContent = `${preview.total} folio(s) en cuaderno visible + docs directos y otros cuadernos`;
-      if (docTypes) {
-        docTypes.innerHTML = (Object.entries(preview.byType || {}).filter(([, c]) => c > 0)
-          .map(([type, c]) => `<span class="doc-type-badge">${type}: ${c}</span>`).join('')) || '';
-      }
-    }
     syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
     syncBtn.disabled = false;
     syncBtn.removeAttribute('data-fully-synced');
@@ -464,6 +441,9 @@ function applySyncStateUI(causa, syncState) {
 
 async function displayDetectedCausa(causa) {
   isDetecting = false;
+
+  // During sync, freeze UI to keep showing the syncing causa
+  if (isSyncing) return;
 
   const isSame = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
     ? CAUSA_IDENTITY.isSameCausa(causa, lastDetectedCausa)
@@ -487,6 +467,10 @@ async function displayDetectedCausa(causa) {
       if (resultEl) resultEl.innerHTML = '';
       if (detailsEl) detailsEl.innerHTML = '';
     }
+    const btn = document.getElementById('sync-btn');
+    if (btn) btn.removeAttribute('data-fully-synced');
+    const stateBanner = document.getElementById('sync-state-banner');
+    if (stateBanner) stateBanner.style.display = 'none';
   }
 
   const syncBtn = document.getElementById('sync-btn');
@@ -496,6 +480,8 @@ async function displayDetectedCausa(causa) {
   const docPreview = document.getElementById('doc-preview');
   const docCount = document.getElementById('doc-count');
   const docTypes = document.getElementById('doc-types');
+
+  if (syncBtn) syncBtn.style.display = '';
 
   if (!causa) {
     causaRol.textContent = '--';
@@ -517,24 +503,11 @@ async function displayDetectedCausa(causa) {
 
   if (syncBtn) syncBtn.disabled = false;
 
+  docPreview.style.display = 'none';
+
   if (currentUser?.id && causa.rol) {
     const syncState = await fetchSyncState(currentUser.id, causa.rol, causa.tribunal || '');
     applySyncStateUI(causa, syncState);
-  } else {
-    const preview = causa.documentPreview;
-    if (preview && preview.total > 0) {
-      docPreview.style.display = 'block';
-      docCount.textContent = `${preview.total} folio(s) en cuaderno visible + docs directos y otros cuadernos`;
-      if (docTypes) {
-        docTypes.innerHTML = Object.entries(preview.byType || {})
-          .filter(([, c]) => c > 0)
-          .map(([type, c]) => `<span class="doc-type-badge">${type}: ${c}</span>`)
-          .join('');
-      }
-      syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
-    } else {
-      docPreview.style.display = 'none';
-    }
   }
 }
 
@@ -567,17 +540,29 @@ async function handleSync() {
   if (isSyncing || !lastDetectedCausa) return;
   if (!currentUser) { showNotification('Debe iniciar sesión primero', 'error'); return; }
   if (document.getElementById('sync-btn')?.getAttribute('data-fully-synced') === '1') return;
-  if (lastSyncState?.count >= lastSyncState?.pageTotal && lastSyncState?.pageTotal > 0) return;
 
   isSyncing = true;
+  syncingCausaInfo = {
+    rol: lastDetectedCausa.rol,
+    tribunal: lastDetectedCausa.tribunal || '',
+    caratula: lastDetectedCausa.caratula || '',
+  };
+
   const syncBtn = document.getElementById('sync-btn');
   const compactEl = document.getElementById('sync-compact');
   const waitBanner = document.getElementById('sync-wait-banner');
+  const causaRol = document.getElementById('causa-rol');
 
   syncBtn.disabled = true;
-  syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando...';
+  syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando…';
   compactEl.style.display = 'block';
-  if (waitBanner) waitBanner.style.display = 'flex';
+  if (waitBanner) {
+    const parts = [`<strong>${escapeHtml(syncingCausaInfo.rol)}</strong>`];
+    if (syncingCausaInfo.tribunal) parts.push(escapeHtml(syncingCausaInfo.tribunal));
+    if (syncingCausaInfo.caratula) parts.push(escapeHtml(syncingCausaInfo.caratula));
+    waitBanner.innerHTML = `<span class="sync-wait-icon">⟳</span><span>Sincronizando: ${parts.join(' · ')}</span>`;
+    waitBanner.style.display = 'flex';
+  }
 
   document.getElementById('sync-compact-result').innerHTML = '';
   document.getElementById('sync-compact-details').innerHTML = '';
@@ -586,31 +571,27 @@ async function handleSync() {
 
   updateProgress(0, 'Conectando...');
 
+  let syncSuccess = false;
+
   try {
-    // ── 1. Obtener CausaPackage (del service worker o content script)
     updateProgress(5, 'Extrayendo paquete de la causa...');
     const causaPackage = await getCausaPackage();
     if (!causaPackage) throw new Error('No se pudo obtener el paquete de la causa. Asegúrese de estar viendo el modal de una causa en PJUD.');
 
-    // Mostrar cuadernos/folios en el preview
     const nCuadernos = causaPackage.cuadernos?.length || 0;
     const nFolios = causaPackage.folios?.length || 0;
     updateCausaPackagePreview(nCuadernos, nFolios);
 
-    // ── 2. Obtener sesión
     const session = await supabase.getSession();
     if (!session?.access_token) throw new Error('Sesión no disponible. Por favor recargue la extensión.');
 
-    // ── 3. Llamar a la API con SSE
     updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s) · ${nFolios} folio(s) visibles...`);
     const syncResult = await callSyncWithSSE(causaPackage, session.access_token);
 
     showSyncResultsV2(syncResult);
 
-    // 4.19: Guardar badge de documentos nuevos para Mis Causas
     if (syncResult) await storeSyncBadge(syncResult);
 
-    // ── 4. Actualizar estado de sync
     if (lastDetectedCausa?.rol && currentUser?.id) {
       const syncState = await fetchSyncState(currentUser.id, lastDetectedCausa.rol, lastDetectedCausa.tribunal || '');
       applySyncStateUI(lastDetectedCausa, syncState);
@@ -618,18 +599,45 @@ async function handleSync() {
     }
 
     if (casesLoaded) { casesLoaded = false; loadCases(); }
-    syncBtn.innerHTML = '<span class="btn-icon">✓</span> Sincronizado';
+    syncSuccess = true;
 
   } catch (error) {
     console.error('[Sync] Error:', error);
     updateProgress(100, `Error: ${error.message}`, 'error');
     renderCompactResult(null, `Error: ${error.message}`, 'error');
-    syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
   }
 
   isSyncing = false;
-  syncBtn.disabled = !lastDetectedCausa || syncBtn.getAttribute('data-fully-synced') === '1';
-  if (waitBanner) waitBanner.style.display = 'none';
+
+  if (syncSuccess) {
+    const info = syncingCausaInfo;
+    if (waitBanner) {
+      const parts = [`<strong>${escapeHtml(info.rol)}</strong>`];
+      if (info.tribunal) parts.push(escapeHtml(info.tribunal));
+      if (info.caratula) parts.push(escapeHtml(info.caratula));
+      waitBanner.innerHTML = `<span class="sync-wait-icon">✓</span><span>Sincronizado: ${parts.join(' · ')}</span>`;
+      waitBanner.style.display = 'flex';
+    }
+    syncBtn.innerHTML = '<span class="btn-icon">✓</span> Sincronizado';
+    syncBtn.disabled = true;
+
+    setTimeout(() => {
+      if (waitBanner) {
+        waitBanner.style.display = 'none';
+        waitBanner.innerHTML = '<span class="sync-wait-icon">⟳</span><span>Sincronización en progreso en el servidor. Puede seguir navegando con libertad.</span>';
+      }
+      syncingCausaInfo = null;
+      requestCausaDetection();
+    }, 3500);
+  } else {
+    if (waitBanner) {
+      waitBanner.style.display = 'none';
+      waitBanner.innerHTML = '<span class="sync-wait-icon">⟳</span><span>Sincronización en progreso en el servidor. Puede seguir navegando con libertad.</span>';
+    }
+    syncingCausaInfo = null;
+    syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
+    syncBtn.disabled = !lastDetectedCausa || syncBtn.getAttribute('data-fully-synced') === '1';
+  }
 }
 
 /**
