@@ -351,6 +351,145 @@ export class PjudClient {
   }
 
   /**
+   * POST to anexoSolicitudCivil.php to get the HTML for the per-folio anexo modal.
+   * Contains documents attached to a specific filing (escrito).
+   *
+   * Confirmed via DevTools Network capture (2026-03-04).
+   */
+  async fetchAnexoSolicitudHtml(
+    jwt: string,
+    cookies: PjudCookies | null
+  ): Promise<string | null> {
+    await this.throttle()
+
+    const url = `${PJUD_BASE_URL}/ADIR_871/civil/modal/anexoCausaSolicitudCivil.php`
+
+    const headers: Record<string, string> = {
+      ...this.baseHeaders(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: PJUD_ORIGIN,
+    }
+
+    const cookie = this.cookieHeader(cookies)
+    if (cookie) headers['Cookie'] = cookie
+
+    const body = new URLSearchParams({ dtaCausaAnex: jwt }).toString()
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'follow',
+      })
+
+      if (!response.ok) {
+        console.warn(
+          `[PjudClient] anexoCausaSolicitudCivil.php failed: ${response.status} ${response.statusText}`
+        )
+        return null
+      }
+
+      const html = await response.text()
+
+      if (html.length < 50 || !html.includes('table')) {
+        console.warn(
+          `[PjudClient] anexoCausaSolicitudCivil.php response too small or invalid (${html.length} chars)`
+        )
+        return null
+      }
+
+      console.log(
+        `[PjudClient] anexoCausaSolicitudCivil.php: ${html.length} chars recibidos`
+      )
+      return html
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('[PjudClient] anexoCausaSolicitudCivil.php request timeout')
+      } else {
+        console.error('[PjudClient] anexoCausaSolicitudCivil.php error:', error)
+      }
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
+   * POST to detalleExhortos.php to get the HTML for the exhorto detail modal.
+   * Returns a table with documents downloadable via docDetalleExhorto.php.
+   * Confirmed via DevTools Network capture (2026-03-04).
+   */
+  async fetchExhortoDetalleHtml(
+    jwtDetalle: string,
+    cookies: PjudCookies | null
+  ): Promise<string | null> {
+    await this.throttle()
+
+    const url = `${PJUD_BASE_URL}/ADIR_871/civil/modal/detalleExhortos.php`
+
+    const headers: Record<string, string> = {
+      ...this.baseHeaders(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: PJUD_ORIGIN,
+    }
+
+    const cookie = this.cookieHeader(cookies)
+    if (cookie) headers['Cookie'] = cookie
+
+    const body = new URLSearchParams({ valExhorto: jwtDetalle }).toString()
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'follow',
+      })
+
+      if (!response.ok) {
+        console.warn(
+          `[PjudClient] detalleExhortos.php failed: ${response.status} ${response.statusText}`
+        )
+        return null
+      }
+
+      const html = await response.text()
+
+      if (html.length < 50) {
+        console.warn(
+          `[PjudClient] detalleExhortos.php response too small (${html.length} chars)`
+        )
+        return null
+      }
+
+      console.log(
+        `[PjudClient] detalleExhortos.php: ${html.length} chars recibidos`
+      )
+      return html
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('[PjudClient] detalleExhortos.php request timeout')
+      } else {
+        console.error('[PjudClient] detalleExhortos.php error:', error)
+      }
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
    * Build the full URL for a PJUD document download.
    */
   private resolveUrl(action: string, param: string, jwt: string): string {

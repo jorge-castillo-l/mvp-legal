@@ -36,6 +36,7 @@ let lastDetectedCausa = null;
 let lastSyncState = null;  // { count, lastSyncedAt, rol, tribunal }
 let activeTab = 'sync';
 let casesLoaded = false;
+let isDetecting = false;
 
 // ══════════════════════════════════════════════════════════
 // 2. INICIALIZACIÓN
@@ -48,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTabs();
   setupEventListeners();
   setupScraperEventListener();
+  setupTabChangeDetection();
 
   setTimeout(requestCausaDetection, 1000);
   setInterval(checkAuthentication, 30000);
@@ -158,17 +160,56 @@ function setupEventListeners() {
 // 6. DETECCIÓN DE CAUSA
 // ══════════════════════════════════════════════════════════
 
+function showDetectingState() {
+  if (isSyncing) return;
+  isDetecting = true;
+  const causaRol = document.getElementById('causa-rol');
+  const causaTribunal = document.getElementById('causa-tribunal');
+  const causaCaratula = document.getElementById('causa-caratula');
+  if (causaRol) causaRol.innerHTML = '<span class="spinner">⟳</span> Detectando…';
+  if (causaTribunal) causaTribunal.textContent = 'Analizando página…';
+  if (causaCaratula) causaCaratula.textContent = '';
+  const syncBtn = document.getElementById('sync-btn');
+  if (syncBtn) syncBtn.disabled = true;
+}
+
+function setupTabChangeDetection() {
+  chrome.tabs.onActivated.addListener(() => {
+    showDetectingState();
+    setTimeout(requestCausaDetection, 800);
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === 'loading') {
+      chrome.tabs.query({ active: true, currentWindow: true }).then(([active]) => {
+        if (active?.id === tabId) {
+          showDetectingState();
+        }
+      });
+    }
+    if (changeInfo.status === 'complete') {
+      chrome.tabs.query({ active: true, currentWindow: true }).then(([active]) => {
+        if (active?.id === tabId) {
+          setTimeout(requestCausaDetection, 1000);
+        }
+      });
+    }
+  });
+}
+
 async function requestCausaDetection() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'detect_causa' });
+    isDetecting = false;
     if (response?.causa) {
       await displayDetectedCausa(response.causa);
     } else if (response && !response.error) {
       await displayDetectedCausa(null);
     }
-  } catch (e) { /* Content script no cargado */ }
+  } catch (e) {
+    isDetecting = false;
+  }
 }
 
 /**
@@ -422,6 +463,8 @@ function applySyncStateUI(causa, syncState) {
 }
 
 async function displayDetectedCausa(causa) {
+  isDetecting = false;
+
   const isSame = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
     ? CAUSA_IDENTITY.isSameCausa(causa, lastDetectedCausa)
     : false;

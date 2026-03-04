@@ -38,10 +38,11 @@ import { createHash } from 'crypto'
 import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { PjudClient } from '@/lib/pjud/client'
-import { parseAnexosFromHtml, parseFoliosFromHtml, parseReceptorData } from '@/lib/pjud/parser'
+import { mergeTabsData, parseAnexosFromHtml, parseExhortoDetalleFromHtml, parseFoliosFromHtml, parseReceptorData, parseTabsFromHtml } from '@/lib/pjud/parser'
 import type {
   AnexoFile,
   CausaPackage,
+  ExhortoDetalleDoc,
   PdfDownloadTask,
   SyncResult,
   SyncedDocument,
@@ -133,7 +134,8 @@ export async function POST(request: NextRequest) {
     pkg.jwt_certificado_envio ||
     pkg.jwt_ebook ||
     (pkg.folios && pkg.folios.length > 0) ||
-    (pkg.cuadernos && pkg.cuadernos.length > 0)
+    (pkg.cuadernos && pkg.cuadernos.length > 0) ||
+    (pkg.tabs?.exhortos?.some((e) => e.jwt_detalle))
 
   if (!hasJwts) {
     return NextResponse.json(
@@ -207,12 +209,33 @@ export async function POST(request: NextRequest) {
         const anexosTasks = await fetchAnexos(pjud, pkg, emit)
         downloadTasks.push(...anexosTasks)
 
+        // ────────────────────────────────────────────
+        // PASO 6c: FETCH DOCUMENTOS DE EXHORTOS
+        // ────────────────────────────────────────────
+        const exhortoDocTasks = await fetchExhortoDocuments(pjud, pkg, supabase, caseId, emit)
+        downloadTasks.push(...exhortoDocTasks)
+
+        // ────────────────────────────────────────────
+        // PASO 6d: DOCUMENTOS DE ESCRITOS POR RESOLVER
+        // ────────────────────────────────────────────
+        const escritosTasks = buildEscritosDownloadTasks(pkg)
+        downloadTasks.push(...escritosTasks)
+
+        // ────────────────────────────────────────────
+        // PASO 6e: ANEXOS POR FOLIO (anexoSolicitudCivil)
+        // ────────────────────────────────────────────
+        const folioAnexoTasks = await fetchFolioAnexos(pjud, pkg, emit)
+        downloadTasks.push(...folioAnexoTasks)
+
         const totalTasks = downloadTasks.length
         console.log(
           `[sync] ${pkg.rol} — ${totalTasks} PDFs a descargar ` +
           `(${pkg.folios?.length || 0} folios visibles + ` +
           `${extraFolioTasks.length} de otros cuadernos + ` +
-          `${anexosTasks.length} anexos)`
+          `${anexosTasks.length} anexos + ` +
+          `${exhortoDocTasks.length} docs exhortos + ` +
+          `${escritosTasks.length} escritos + ` +
+          `${folioAnexoTasks.length} anexos solicitud)`
         )
 
         if (totalTasks === 0) {
@@ -269,14 +292,36 @@ export async function POST(request: NextRequest) {
         }
 
         // ────────────────────────────────────────────
-        // PASO 8: DATOS ADICIONALES (4.20)
-        //   8a) Tabs data (notificaciones, escritos, exhortos, litigantes)
-        //   8b) Receptor data (si jwt_receptor presente)
+        // PASO 8: DATOS ADICIONALES (4.20 + exhortos)
+        //   8a) Causa origen (para causas tipo E)
+        //   8b) Tabs data (notificaciones, escritos, exhortos con jwt_detalle, litigantes)
+        //   8c) Receptor data (si jwt_receptor presente)
         // ────────────────────────────────────────────
         let tabsStored = false
         let receptorStored = false
+        let causaOrigenStored = false
 
-        // 8a: Guardar tabs_data (ya extraído por JwtExtractor, sin request extra a PJUD)
+        // 8a: Guardar causa_origen (causas tipo E → referencia a la C de origen)
+        if (pkg.exhorto?.causa_origen) {
+          const { error: origenError } = await supabase
+            .from('cases')
+            .update({
+              causa_origen_rol: pkg.exhorto.causa_origen,
+              causa_origen_tribunal: pkg.exhorto.tribunal_origen,
+            })
+            .eq('id', caseId)
+
+          if (origenError) {
+            console.warn('[sync] causa_origen update error:', origenError.message)
+          } else {
+            causaOrigenStored = true
+            console.log(
+              `[sync] causa_origen guardada: ${pkg.exhorto.causa_origen} — ${pkg.exhorto.tribunal_origen}`
+            )
+          }
+        }
+
+        // 8b: Guardar tabs_data (ya extraído por JwtExtractor, sin request extra a PJUD)
         if (pkg.tabs && Object.keys(pkg.tabs).length > 0) {
           emit('progress', { message: 'Guardando datos tabulares (notificaciones, escritos, exhortos)…', current: totalTasks, total: totalTasks })
 
@@ -298,7 +343,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 8b: Receptor — fetch HTML + parse + guardar
+        // 8c: Receptor — fetch HTML + parse + guardar
         if (pkg.jwt_receptor) {
           emit('progress', { message: 'Obteniendo datos del receptor…', current: totalTasks, total: totalTasks })
 
@@ -394,11 +439,15 @@ export async function POST(request: NextRequest) {
           duration_ms: Date.now() - startTime,
           tabs_stored: tabsStored,
           receptor_stored: receptorStored,
+          causa_origen_stored: causaOrigenStored,
+          exhortos_count: pkg.tabs?.exhortos?.length ?? 0,
+          exhortos_docs_downloaded: exhortoDocTasks.length,
         }
 
         console.log(
           `[sync] ${pkg.rol} — Completado en ${syncResult.duration_ms}ms: ` +
-          `${results.length} nuevos, ${existingCount} existentes, ${failedCount} fallidos`
+          `${results.length} nuevos, ${existingCount} existentes, ${failedCount} fallidos` +
+          (exhortoDocTasks.length > 0 ? ` (${exhortoDocTasks.length} docs exhortos)` : '')
         )
 
         emit('complete', syncResult)
@@ -701,6 +750,23 @@ async function fetchOtherCuadernos(
         const folioTasks = folioToTasks(folio, pkg.rol, cuaderno.nombre)
         tasks.push(...folioTasks)
       }
+
+      // Also parse and merge tabs from this cuaderno (Gap 6)
+      if (pkg.tabs) {
+        try {
+          const cuadernoTabs = parseTabsFromHtml(html)
+          const merged = mergeTabsData(pkg.tabs, cuadernoTabs)
+          pkg.tabs = merged
+          const newRows =
+            (merged.notificaciones.length - (pkg.tabs.notificaciones?.length ?? 0)) +
+            (merged.escritos_por_resolver.length - (pkg.tabs.escritos_por_resolver?.length ?? 0))
+          if (newRows > 0) {
+            console.log(`[sync] Cuaderno "${cuaderno.nombre}": ${newRows} filas nuevas en tabs`)
+          }
+        } catch {
+          // Tab parsing failed for this cuaderno — continue with folios
+        }
+      }
     } catch (err) {
       console.error(`[sync] Error fetching cuaderno "${cuaderno.nombre}":`, err)
     }
@@ -763,6 +829,222 @@ async function fetchAnexos(
     }
   } catch (err) {
     console.error('[sync] Error fetching anexos:', err)
+  }
+
+  return tasks
+}
+
+// ════════════════════════════════════════════════════════
+// ESCRITOS POR RESOLVER DOWNLOAD TASKS
+// ════════════════════════════════════════════════════════
+
+function buildEscritosDownloadTasks(pkg: CausaPackage): PdfDownloadTask[] {
+  const tasks: PdfDownloadTask[] = []
+  const escritos = pkg.tabs?.escritos_por_resolver ?? []
+
+  for (let i = 0; i < escritos.length; i++) {
+    const escrito = escritos[i]
+    if (!escrito.jwt_doc) continue
+
+    const cleanTipo = (escrito.tipo_escrito || `escrito_${i + 1}`)
+      .replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '')
+      .trim()
+      .substring(0, 30)
+      .replace(/\s+/g, '_')
+
+    tasks.push({
+      jwt: escrito.jwt_doc.jwt,
+      endpoint: escrito.jwt_doc.action,
+      param: escrito.jwt_doc.param,
+      filename: `${pkg.rol}_escrito_${i + 1}_${cleanTipo}.pdf`,
+      document_type: 'escrito',
+      folio: null,
+      cuaderno: null,
+      fecha: escrito.fecha_ingreso || null,
+      source_url: escrito.jwt_doc.action,
+    })
+  }
+
+  return tasks
+}
+
+// ════════════════════════════════════════════════════════
+// FETCH PER-FOLIO ANEXOS (anexoSolicitudCivil)
+// ════════════════════════════════════════════════════════
+
+async function fetchFolioAnexos(
+  pjud: PjudClient,
+  pkg: CausaPackage,
+  emit?: SseEmitter,
+): Promise<PdfDownloadTask[]> {
+  const tasks: PdfDownloadTask[] = []
+
+  const foliosWithAnexos = (pkg.folios ?? []).filter((f) => f.jwt_anexo_solicitud)
+  if (foliosWithAnexos.length === 0) return tasks
+
+  emit?.('progress', {
+    message: `Obteniendo anexos de ${foliosWithAnexos.length} folio(s)…`,
+    current: 0,
+    total: 0,
+  })
+
+  for (const folio of foliosWithAnexos) {
+    try {
+      console.log(`[sync] Fetching anexo solicitud for folio ${folio.numero}...`)
+
+      const html = await pjud.fetchAnexoSolicitudHtml(
+        folio.jwt_anexo_solicitud!,
+        pkg.cookies
+      )
+
+      if (!html) {
+        console.warn(`[sync] anexoSolicitudCivil.php no retornó HTML útil para folio ${folio.numero}`)
+        continue
+      }
+
+      const anexos: AnexoFile[] = parseAnexosFromHtml(html)
+      console.log(`[sync] Folio ${folio.numero}: ${anexos.length} anexo(s) de solicitud`)
+
+      for (let i = 0; i < anexos.length; i++) {
+        const anexo = anexos[i]
+        const cleanRef = (anexo.referencia || `anexo_${i + 1}`)
+          .replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '')
+          .trim()
+          .substring(0, 30)
+          .replace(/\s+/g, '_')
+
+        tasks.push({
+          jwt: anexo.jwt.jwt,
+          endpoint: anexo.jwt.action,
+          param: anexo.jwt.param,
+          filename: `${pkg.rol}_f${folio.numero}_anexo_${i + 1}_${cleanRef}.pdf`,
+          document_type: 'anexo',
+          folio: folio.numero,
+          cuaderno: null,
+          fecha: anexo.fecha || null,
+          source_url: anexo.jwt.action,
+        })
+      }
+    } catch (err) {
+      console.error(`[sync] Error fetching anexo solicitud for folio ${folio.numero}:`, err)
+    }
+  }
+
+  return tasks
+}
+
+// ════════════════════════════════════════════════════════
+// FETCH EXHORTO DOCUMENTS
+// ════════════════════════════════════════════════════════
+
+async function fetchExhortoDocuments(
+  pjud: PjudClient,
+  pkg: CausaPackage,
+  supabase: ReturnType<typeof createClientWithToken>,
+  caseId: string,
+  emit?: SseEmitter,
+): Promise<PdfDownloadTask[]> {
+  const tasks: PdfDownloadTask[] = []
+
+  const allExhortos = pkg.tabs?.exhortos?.filter((e) => e.jwt_detalle) ?? []
+  if (allExhortos.length === 0) return tasks
+
+  // Only fetch exhortos not previously synced (compare against stored tabs_data)
+  let exhortos = allExhortos
+  try {
+    const { data: caseData } = await supabase
+      .from('cases')
+      .select('tabs_data')
+      .eq('id', caseId)
+      .single()
+
+    const prevExhortos: Array<{ rol_destino?: string }> = (caseData?.tabs_data as any)?.exhortos ?? []
+    const prevRoles = new Set(prevExhortos.map((e) => e.rol_destino).filter(Boolean))
+
+    if (prevRoles.size > 0) {
+      exhortos = allExhortos.filter((e) => !prevRoles.has(e.rol_destino))
+      const skipped = allExhortos.length - exhortos.length
+      if (skipped > 0) {
+        console.log(`[sync] Exhortos: ${skipped} ya sincronizados, ${exhortos.length} nuevos`)
+      }
+    }
+  } catch {
+    // First sync or DB read failed — process all exhortos
+  }
+
+  if (exhortos.length === 0) {
+    console.log('[sync] No hay exhortos nuevos que procesar')
+    return tasks
+  }
+
+  emit?.('progress', {
+    message: `Obteniendo documentos de ${exhortos.length} exhorto(s) nuevo(s)…`,
+    current: 0,
+    total: 0,
+  })
+
+  for (let idx = 0; idx < exhortos.length; idx++) {
+    const exhorto = exhortos[idx]
+    const rolDestino = exhorto.rol_destino || `exhorto_${idx + 1}`
+
+    try {
+      console.log(`[sync] Fetching exhorto detalle "${rolDestino}" via detalleExhortosCivil.php...`)
+
+      emit?.('progress', {
+        message: `Obteniendo exhorto ${idx + 1}/${exhortos.length}: ${rolDestino}…`,
+        current: 0,
+        total: 0,
+      })
+
+      const html = await pjud.fetchExhortoDetalleHtml(
+        exhorto.jwt_detalle!,
+        pkg.cookies
+      )
+
+      if (!html) {
+        console.warn(`[sync] detalleExhortosCivil.php no retornó HTML útil para "${rolDestino}"`)
+        continue
+      }
+
+      const docs: ExhortoDetalleDoc[] = parseExhortoDetalleFromHtml(html)
+      console.log(`[sync] Exhorto "${rolDestino}": ${docs.length} documento(s) encontrado(s)`)
+
+      for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i]
+        const cleanRef = (doc.referencia || `doc_${i + 1}`)
+          .replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '')
+          .trim()
+          .substring(0, 40)
+          .replace(/\s+/g, '_')
+
+        const cleanRolDestino = rolDestino
+          .replace(/[^a-zA-Z0-9-]/g, '')
+          .trim()
+
+        tasks.push({
+          jwt: doc.jwt.jwt,
+          endpoint: doc.jwt.action,
+          param: doc.jwt.param,
+          filename: `${pkg.rol}_exh_${cleanRolDestino}_${i + 1}_${cleanRef}.pdf`,
+          document_type: inferDocType(doc.tramite),
+          folio: null,
+          cuaderno: null,
+          fecha: doc.fecha || null,
+          source_url: doc.jwt.action,
+          folio_metadata: {
+            folio_numero: null,
+            etapa: null,
+            tramite: doc.tramite || null,
+            desc_tramite: doc.referencia || null,
+            fecha_tramite: doc.fecha || null,
+            foja: null,
+            cuaderno: `Exhorto ${cleanRolDestino}`,
+          },
+        })
+      }
+    } catch (err) {
+      console.error(`[sync] Error fetching exhorto detalle "${rolDestino}":`, err)
+    }
   }
 
   return tasks

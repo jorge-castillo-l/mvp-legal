@@ -20,6 +20,7 @@ https://oficinajudicialvirtual.pjud.cl/
 | `ADIR_871/civil/documentos/docCertificadoEscrito.php` | `dtaCert=JWT` | Certificado envío escrito | DOM2, DOM4 |
 | `ADIR_871/civil/documentos/newebookcivil.php` | `dtaEbook=JWT` | Ebook causa completa | DOM2 |
 | `ADIR_871/civil/documentos/anexoDocCivil.php` | `dtaDoc=JWT` | Anexo individual | DOM3 |
+| `ADIR_871/civil/documentos/docDetalleExhorto.php` | `dtaDoc=JWT` | Documento de exhorto (confirmado) | DOM-C-17655 |
 
 ### Diferencia docuS vs docuN
 
@@ -34,14 +35,16 @@ https://oficinajudicialvirtual.pjud.cl/
 | cambio `#selCuaderno` | `ADIR_871/civil/modal/causaCivil.php` | POST | `dtaCausa=JWT&token=CSRF` | HTML modal completo regenerado | DOM4 |
 | `anexoCausaCivil(JWT)` | `ADIR_871/civil/modal/anexoCausaCivil.php` | POST | `dtaAnexCau=JWT` | HTML tabla anexos | DOM3 |
 | `receptorCivil(JWT)` | `ADIR_871/civil/modal/receptorCivil.php` | POST | `valReceptor=JWT` | HTML tabla receptor | DOM5 |
-| `detalleExhortosCivil(JWT)` | ? (no capturado) | ? | ? | HTML detalle exhorto | — |
+| `anexoSolicitudCivil(JWT)` | `ADIR_871/civil/modal/anexoCausaSolicitudCivil.php` | POST | `dtaCausaAnex=JWT` | HTML tabla anexos por folio | Captura DevTools 2026-03-04 |
+| `detalleExhortosCivil(JWT)` | `ADIR_871/civil/modal/detalleExhortos.php` | POST | `valExhorto=JWT` | HTML tabla docs exhorto | Captura DevTools 2026-03-04 |
 | `detalleCausaApelaciones(JWT)` | ? (no capturado) | ? | ? | HTML detalle apelaciones | — |
 | `geoReferencia(JWT)` | ? (no capturado, baja prioridad) | ? | ? | HTML/JS mapa | — |
 
 ### Observaciones
 
 - `causaCivil.php` se usa tanto para abrir el modal inicial (DOM2) como para cambiar cuaderno (DOM4). Mismo endpoint, mismos parámetros. La respuesta siempre es el modal completo regenerado.
-- `detalleExhortosCivil` y `detalleCausaApelaciones` fueron descubiertos en DOM4 pero sus endpoints no se capturaron. No son críticos para MVP v1.
+- `detalleExhortosCivil`: endpoint confirmado como `detalleExhortos.php` con param `valExhorto` (captura DevTools 2026-03-04). Los documentos dentro del modal se descargan vía `docDetalleExhorto.php` con param `dtaDoc` (confirmado desde HTML).
+- `detalleCausaApelaciones` fue descubierto en DOM4 pero su endpoint no se capturó. No es crítico para MVP v1.
 
 ## 3. Tabs (#loadHistCuadernoCiv)
 
@@ -135,6 +138,9 @@ Aparece cuando la causa tiene recursos ante Corte de Apelaciones. Descubierta en
 | `docCertificadoEscrito.php` | `dtaCert` |
 | `newebookcivil.php` | `dtaEbook` |
 | `anexoDocCivil.php` | `dtaDoc` |
+| `anexoCausaSolicitudCivil.php` | `dtaCausaAnex` |
+| `detalleExhortos.php` | `valExhorto` |
+| `docDetalleExhorto.php` | `dtaDoc` (confirmado) |
 
 ## 7. Archivos de referencia DOM
 

@@ -16,7 +16,7 @@
  */
 
 import { parse as parseHtml, HTMLElement } from 'node-html-parser'
-import type { AnexoFile, Folio, JwtRef, ReceptorData } from './types'
+import type { AnexoFile, ExhortoDetalleDoc, Folio, JwtRef, ReceptorData, TabsData } from './types'
 
 /**
  * Extract folios from the HTML response of causaCivil.php.
@@ -71,6 +71,17 @@ function parseFolioRow(cells: HTMLElement[]): Folio | null {
   const jwtDocPrincipal = extractFormJwt(docCell, 'docuS.php', 'docuN.php')
   const jwtCertEscrito = extractFormJwt(docCell, 'docCertificadoEscrito.php')
 
+  let jwtAnexoSolicitud: string | null = null
+  if (cells[2]) {
+    const anexoLink = cells[2].querySelector('a[onclick*="anexoSolicitudCivil"]')
+    if (anexoLink) {
+      jwtAnexoSolicitud = extractJwtFromOnclick(
+        anexoLink.getAttribute('onclick') || '',
+        'anexoSolicitudCivil'
+      )
+    }
+  }
+
   const geoCell = cells[cells.length - 1]
   let jwtGeoref: string | null = null
   if (geoCell) {
@@ -93,6 +104,7 @@ function parseFolioRow(cells: HTMLElement[]): Folio | null {
     jwt_doc_principal: jwtDocPrincipal,
     jwt_certificado_escrito: jwtCertEscrito,
     jwt_georef: jwtGeoref,
+    jwt_anexo_solicitud: jwtAnexoSolicitud,
   }
 }
 
@@ -177,6 +189,157 @@ export function parseAnexosFromHtml(html: string): AnexoFile[] {
   }
 
   return anexos
+}
+
+// ════════════════════════════════════════════════════════
+// TABS PARSER (server-side equivalent of JwtExtractor._extractTabsData)
+// ════════════════════════════════════════════════════════
+
+export function parseTabsFromHtml(html: string): TabsData {
+  const root = parseHtml(html, {
+    lowerCaseTagName: true,
+    comment: false,
+    voidTag: { closingSlash: true },
+  })
+
+  const litigantes: TabsData['litigantes'] = []
+  const litTab = root.querySelector('#litigantesCiv')
+  if (litTab) {
+    for (const row of litTab.querySelectorAll('tbody tr')) {
+      const cells = row.querySelectorAll('td')
+      const entry = {
+        participante: cleanText(cells[0]?.text),
+        rut: cleanText(cells[1]?.text),
+        persona: cleanText(cells[2]?.text),
+        nombre: cleanText(cells[3]?.text),
+      }
+      if (entry.participante || entry.nombre) litigantes.push(entry)
+    }
+  }
+
+  const notificaciones: TabsData['notificaciones'] = []
+  const notifTab = root.querySelector('#notificacionesCiv')
+  if (notifTab) {
+    for (const row of notifTab.querySelectorAll('tbody tr')) {
+      const cells = row.querySelectorAll('td')
+      const entry = {
+        rol: cleanText(cells[0]?.text),
+        estado_notif: cleanText(cells[1]?.text),
+        tipo_notif: cleanText(cells[2]?.text),
+        fecha_tramite: cleanText(cells[3]?.text),
+        tipo_participante: cleanText(cells[4]?.text),
+        nombre: cleanText(cells[5]?.text),
+        tramite: cleanText(cells[6]?.text),
+        obs_fallida: cleanText(cells[7]?.text),
+      }
+      if (entry.rol || entry.tipo_notif) notificaciones.push(entry)
+    }
+  }
+
+  const escritos_por_resolver: TabsData['escritos_por_resolver'] = []
+  const escritosTab = root.querySelector('#escritosCiv')
+  if (escritosTab) {
+    for (const row of escritosTab.querySelectorAll('tbody tr')) {
+      const cells = row.querySelectorAll('td')
+      const jwt_doc = cells[0] ? extractFormJwt(cells[0], 'docuS.php', 'docuN.php') : null
+      const entry = {
+        doc: cleanText(cells[0]?.text),
+        anexo: cleanText(cells[1]?.text),
+        fecha_ingreso: cleanText(cells[2]?.text),
+        tipo_escrito: cleanText(cells[3]?.text),
+        solicitante: cleanText(cells[4]?.text),
+        jwt_doc,
+      }
+      if (entry.tipo_escrito || entry.fecha_ingreso) escritos_por_resolver.push(entry)
+    }
+  }
+
+  const exhortos: TabsData['exhortos'] = []
+  const exhTab = root.querySelector('#exhortosCiv')
+  if (exhTab) {
+    for (const row of exhTab.querySelectorAll('tbody tr')) {
+      const cells = row.querySelectorAll('td')
+      let jwt_detalle: string | null = null
+      if (cells[2]) {
+        const label = cells[2].querySelector('label[onclick*="detalleExhortosCivil"]')
+        if (label) {
+          jwt_detalle = extractJwtFromOnclick(
+            label.getAttribute('onclick') || '', 'detalleExhortosCivil'
+          )
+        }
+      }
+      const entry = {
+        rol_origen: cleanText(cells[0]?.text),
+        tipo_exhorto: cleanText(cells[1]?.text),
+        rol_destino: cleanText(cells[2]?.text),
+        fecha_ordena: cleanText(cells[3]?.text),
+        fecha_ingreso: cleanText(cells[4]?.text),
+        tribunal_destino: cleanText(cells[5]?.text),
+        estado_exhorto: cleanText(cells[6]?.text),
+        jwt_detalle,
+      }
+      if (entry.rol_origen || entry.tipo_exhorto) exhortos.push(entry)
+    }
+  }
+
+  return { litigantes, notificaciones, escritos_por_resolver, exhortos }
+}
+
+/**
+ * Merge tabs from a secondary cuaderno into the primary tabs.
+ * Adds rows that don't already exist (dedup by stringified comparison).
+ */
+export function mergeTabsData(primary: TabsData, secondary: TabsData): TabsData {
+  const dedup = <T>(existing: T[], incoming: T[]): T[] => {
+    const seen = new Set(existing.map(r => JSON.stringify(r)))
+    const newRows = incoming.filter(r => !seen.has(JSON.stringify(r)))
+    return [...existing, ...newRows]
+  }
+
+  return {
+    litigantes: dedup(primary.litigantes, secondary.litigantes),
+    notificaciones: dedup(primary.notificaciones, secondary.notificaciones),
+    escritos_por_resolver: dedup(primary.escritos_por_resolver, secondary.escritos_por_resolver),
+    exhortos: dedup(primary.exhortos, secondary.exhortos),
+  }
+}
+
+// ════════════════════════════════════════════════════════
+// EXHORTO DETALLE PARSER
+// ════════════════════════════════════════════════════════
+
+/**
+ * Parse the HTML response of detalleExhortosCivil.php.
+ * The modal contains a table with columns: Doc | Fecha | Referencia | Trámite
+ * where Doc has forms with action="docDetalleExhorto.php" and input[name="dtaDoc"].
+ */
+export function parseExhortoDetalleFromHtml(html: string): ExhortoDetalleDoc[] {
+  const root = parseHtml(html, {
+    lowerCaseTagName: true,
+    comment: false,
+    voidTag: { closingSlash: true },
+  })
+
+  const docs: ExhortoDetalleDoc[] = []
+  const rows = root.querySelectorAll('tbody tr')
+
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td')
+    if (cells.length < 3) continue
+
+    const docCell = cells[0]
+    const jwt = extractFormJwt(docCell, 'docDetalleExhorto.php')
+    if (!jwt) continue
+
+    docs.push({
+      jwt,
+      fecha: cleanText(cells[1]?.text),
+      referencia: cleanText(cells[2]?.text),
+      tramite: cleanText(cells[3]?.text),
+    })
+  }
+
+  return docs
 }
 
 // ════════════════════════════════════════════════════════

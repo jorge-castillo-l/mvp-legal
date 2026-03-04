@@ -31,6 +31,7 @@ export interface Folio {
   jwt_doc_principal: JwtRef | null
   jwt_certificado_escrito: JwtRef | null
   jwt_georef: string | null
+  jwt_anexo_solicitud: string | null
   _source?: string
 }
 
@@ -57,6 +58,7 @@ export interface TabsData {
     fecha_ingreso: string
     tipo_escrito: string
     solicitante: string
+    jwt_doc: JwtRef | null
   }>
   exhortos: Array<{
     rol_origen: string
@@ -66,6 +68,7 @@ export interface TabsData {
     fecha_ingreso: string
     tribunal_destino: string
     estado_exhorto: string
+    jwt_detalle: string | null
   }>
 }
 
@@ -79,6 +82,13 @@ export interface ExhortoData {
   causa_origen: string | null
   tribunal_origen: string | null
   jwt_causa_origen: string | null
+}
+
+export interface ExhortoDetalleDoc {
+  jwt: JwtRef
+  fecha: string
+  referencia: string
+  tramite: string
 }
 
 export interface PjudCookies {
@@ -175,9 +185,11 @@ export interface SyncResult {
   total_downloaded: number
   errors: string[]
   duration_ms: number
-  // 4.20: datos adicionales almacenados
   tabs_stored: boolean
   receptor_stored: boolean
+  causa_origen_stored: boolean
+  exhortos_count: number
+  exhortos_docs_downloaded: number
 }
 
 // ════════════════════════════════════════════════════════

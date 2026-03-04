@@ -546,12 +546,19 @@ class JwtExtractor {
     const rows = tab.querySelectorAll('tbody tr');
     return Array.from(rows).map(row => {
       const cells = row.querySelectorAll('td');
+
+      let jwt_doc = null;
+      if (cells[0]) {
+        jwt_doc = this._extractFormJwt(cells[0], 'docuS.php', 'docuN.php');
+      }
+
       return {
         doc: this._cleanText(cells[0]?.textContent),
         anexo: this._cleanText(cells[1]?.textContent),
         fecha_ingreso: this._cleanText(cells[2]?.textContent),
         tipo_escrito: this._cleanText(cells[3]?.textContent),
         solicitante: this._cleanText(cells[4]?.textContent),
+        jwt_doc: jwt_doc,
       };
     }).filter(r => r.tipo_escrito || r.fecha_ingreso);
   }
@@ -563,6 +570,17 @@ class JwtExtractor {
     const rows = tab.querySelectorAll('tbody tr');
     return Array.from(rows).map(row => {
       const cells = row.querySelectorAll('td');
+
+      let jwt_detalle = null;
+      if (cells[2]) {
+        const label = cells[2].querySelector('label[onclick*="detalleExhortosCivil"]');
+        if (label) {
+          jwt_detalle = this._extractJwtFromOnclick(
+            label.getAttribute('onclick') || '', 'detalleExhortosCivil'
+          );
+        }
+      }
+
       return {
         rol_origen: this._cleanText(cells[0]?.textContent),
         tipo_exhorto: this._cleanText(cells[1]?.textContent),
@@ -571,6 +589,7 @@ class JwtExtractor {
         fecha_ingreso: this._cleanText(cells[4]?.textContent),
         tribunal_destino: this._cleanText(cells[5]?.textContent),
         estado_exhorto: this._cleanText(cells[6]?.textContent),
+        jwt_detalle: jwt_detalle,
       };
     }).filter(r => r.rol_origen || r.tipo_exhorto);
   }
@@ -621,6 +640,17 @@ class JwtExtractor {
     const jwtDocPrincipal = this._extractFormJwt(docCell, 'docuS.php', 'docuN.php');
     const jwtCertEscrito = this._extractFormJwt(docCell, 'docCertificadoEscrito.php');
 
+    // Anexo cell (cells[2]): onclick="anexoSolicitudCivil('JWT')"
+    let jwtAnexoSolicitud = null;
+    if (cells[2]) {
+      const anexoLink = cells[2].querySelector('a[onclick*="anexoSolicitudCivil"]');
+      if (anexoLink) {
+        jwtAnexoSolicitud = this._extractJwtFromOnclick(
+          anexoLink.getAttribute('onclick') || '', 'anexoSolicitudCivil'
+        );
+      }
+    }
+
     // Georref cell (last cell): onclick="geoReferencia('JWT')"
     const geoCell = cells[cells.length - 1];
     let jwtGeoref = null;
@@ -643,6 +673,7 @@ class JwtExtractor {
       jwt_doc_principal: jwtDocPrincipal,
       jwt_certificado_escrito: jwtCertEscrito,
       jwt_georef: jwtGeoref,
+      jwt_anexo_solicitud: jwtAnexoSolicitud,
     };
   }
 
