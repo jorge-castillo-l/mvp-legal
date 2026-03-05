@@ -81,7 +81,7 @@ class JwtExtractor {
     const metadata = this._extractMetadata(modalBody);
     if (!metadata.rol) return null;
 
-    const caratula = await this._resolveCaratula(metadata.rol, metadata._partialCaratula);
+    const caratula = await this._resolveCaratula(metadata.rol, metadata.tribunal, metadata._partialCaratula);
     const docCount = this._countAllVisibleDocuments(modalBody);
 
     this.detectedCausa = {
@@ -125,7 +125,7 @@ class JwtExtractor {
     const metadata = this._extractMetadata(modalBody);
     if (!metadata.rol) return null;
 
-    const caratula = await this._resolveCaratula(metadata.rol, metadata._partialCaratula);
+    const caratula = await this._resolveCaratula(metadata.rol, metadata.tribunal, metadata._partialCaratula);
     const directJwts = this._extractDirectJwts(modalBody);
     const cuadernos = this._extractCuadernos(modalBody);
     const receptorJwt = this._extractReceptorJwt(modalBody);
@@ -706,11 +706,12 @@ class JwtExtractor {
   // 9) CARÁTULA — from DOM1 click or chrome.storage
   // ════════════════════════════════════════════════════════
 
-  async _resolveCaratula(rol, partialCaratula) {
+  async _resolveCaratula(rol, tribunal, partialCaratula) {
     // Priority 1: window.__pjudLastClickedRow (set by content.js on row click)
     try {
       const cached = typeof window !== 'undefined' && window.__pjudLastClickedRow;
-      if (cached?.caratulado && this._rolMatch(cached.rol, rol)) {
+      if (cached?.caratulado && this._rolMatch(cached.rol, rol) &&
+          this._tribunalMatch(cached.tribunal, tribunal)) {
         const notExpired = cached.clickedAt && (Date.now() - cached.clickedAt) < 300000;
         if (notExpired) return cached.caratulado.substring(0, 120);
       }
@@ -724,7 +725,8 @@ class JwtExtractor {
             resolve(r?.__pjudLastClickedRow)
           );
         });
-        if (data?.caratulado && this._rolMatch(data.rol, rol)) {
+        if (data?.caratulado && this._rolMatch(data.rol, rol) &&
+            this._tribunalMatch(data.tribunal, tribunal)) {
           return data.caratulado.substring(0, 120);
         }
       }
@@ -739,7 +741,9 @@ class JwtExtractor {
           );
         });
         if (Array.isArray(registry)) {
-          const match = registry.find(c => this._rolMatch(c.rol, rol));
+          const match = registry.find(c =>
+            this._rolMatch(c.rol, rol) && this._tribunalMatch(c.tribunal, tribunal)
+          );
           if (match?.caratula) return match.caratula.substring(0, 120);
         }
       }
@@ -954,6 +958,11 @@ class JwtExtractor {
     if (!rolA || !rolB) return false;
     return String(rolA).replace(/\s/g, '').toUpperCase() ===
            String(rolB).replace(/\s/g, '').toUpperCase();
+  }
+
+  _tribunalMatch(triA, triB) {
+    if (!triA || !triB) return true;
+    return triA.trim().toLowerCase() === triB.trim().toLowerCase();
   }
 
   _countVisibleFolios(modalBody) {

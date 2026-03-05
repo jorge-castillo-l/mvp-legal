@@ -452,6 +452,9 @@ async function displayDetectedCausa(causa) {
   if (causa && lastDetectedCausa && isSame) {
     if (!causa.caratula && lastDetectedCausa.caratula) causa = { ...causa, caratula: lastDetectedCausa.caratula };
     if (!causa.tribunal && lastDetectedCausa.tribunal) causa = { ...causa, tribunal: lastDetectedCausa.tribunal };
+    lastDetectedCausa = causa;
+    // Causa unchanged + sync state already fetched → skip re-render to avoid flickering
+    if (lastSyncState) return;
   }
 
   const causaChanged = !isSame;
