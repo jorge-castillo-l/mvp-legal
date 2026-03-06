@@ -136,26 +136,20 @@ export interface CausaPackage {
 /**
  * Datos del Modal Receptor (#modalReceptorCivil).
  * Obtenidos llamando a receptorCivil.php con jwt_receptor.
- * La estructura exacta se confirmará al validar contra HTML real de PJUD.
+ *
+ * HTML real PJUD: tabla con columnas
+ *   Cuaderno | Datos del Retiro | Fecha Retiro | Estado
  */
-export interface ReceptorCertificacion {
-  fecha: string
-  tipo: string
-  resultado: string
-  obs: string
-}
-
-export interface ReceptorDiligencia {
-  fecha: string
-  tipo: string
-  descripcion: string
+export interface ReceptorRetiro {
+  cuaderno: string
+  datos_retiro: string
+  fecha_retiro: string
+  estado: string
 }
 
 export interface ReceptorData {
   receptor_nombre: string | null
-  tipo_receptor: string | null
-  certificaciones: ReceptorCertificacion[]
-  diligencias: ReceptorDiligencia[]
+  retiros: ReceptorRetiro[]
 }
 
 // ════════════════════════════════════════════════════════
@@ -171,6 +165,47 @@ export interface SyncedDocument {
   fecha: string | null
   storage_path: string
   is_new: boolean
+}
+
+export interface SyncChange {
+  category: 'folio' | 'cuaderno' | 'anexo' | 'exhorto' | 'receptor' | 'metadata' | 'tab'
+  description: string
+}
+
+export interface SyncSnapshot {
+  cuadernos: Array<{
+    nombre: string
+    folio_count: number
+    folio_numeros: number[]
+  }>
+  anexos: Array<{
+    fecha: string
+    referencia: string
+  }>
+  exhortos: Array<{
+    rol_destino: string
+    estado: string
+    doc_count: number
+  }>
+  receptor_retiros: Array<{
+    cuaderno: string
+    fecha_retiro: string
+    estado: string
+  }>
+  metadata: {
+    estado: string
+    estado_procesal: string
+    etapa: string
+    ubicacion: string
+    procedimiento: string
+  }
+  tabs_counts: {
+    litigantes: number
+    notificaciones: number
+    escritos_por_resolver: number
+    exhortos: number
+  }
+  snapshot_at: string
 }
 
 export interface SyncResult {
@@ -190,6 +225,8 @@ export interface SyncResult {
   causa_origen_stored: boolean
   exhortos_count: number
   exhortos_docs_downloaded: number
+  changes: SyncChange[]
+  is_first_sync: boolean
 }
 
 // ════════════════════════════════════════════════════════
@@ -204,6 +241,7 @@ export interface FolioMetadata {
   fecha_tramite: string | null
   foja: number | null
   cuaderno: string | null
+  source_tab?: 'historia' | 'piezas_exhorto'
 }
 
 export interface PdfDownloadTask {
@@ -217,6 +255,7 @@ export interface PdfDownloadTask {
   fecha: string | null
   source_url: string
   folio_metadata?: FolioMetadata
+  referencia?: string
 }
 
 export type Procedimiento = 'ordinario' | 'ejecutivo' | 'sumario' | 'monitorio' | 'voluntario'

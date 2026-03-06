@@ -161,6 +161,10 @@ function setupEventListeners() {
 // 6. DETECCIÓN DE CAUSA
 // ══════════════════════════════════════════════════════════
 
+function isPjudUrl(url) {
+  return url && /pjud\.cl/i.test(url);
+}
+
 function showDetectingState() {
   if (isSyncing) return;
   isDetecting = true;
@@ -172,26 +176,66 @@ function showDetectingState() {
   if (causaCaratula) causaCaratula.textContent = '';
   const syncBtn = document.getElementById('sync-btn');
   if (syncBtn) { syncBtn.disabled = true; syncBtn.style.display = 'none'; }
-  const docPreview = document.getElementById('doc-preview');
-  if (docPreview) docPreview.style.display = 'none';
+  const syncStatus = document.getElementById('sync-status');
+  if (syncStatus) syncStatus.style.display = 'none';
+  const changesBanner = document.getElementById('changes-detected-banner');
+  if (changesBanner) changesBanner.style.display = 'none';
+}
+
+/**
+ * Restaura la UI con la última causa detectada (sin spinner).
+ * Se usa al navegar a pestañas no-PJUD o cuando falla la detección.
+ */
+function restoreLastDetectedCausaUI() {
+  const causaRol = document.getElementById('causa-rol');
+  const causaTribunal = document.getElementById('causa-tribunal');
+  const causaCaratula = document.getElementById('causa-caratula');
+  const syncBtn = document.getElementById('sync-btn');
+
+  if (lastDetectedCausa) {
+    if (causaRol) causaRol.textContent = `ROL: ${lastDetectedCausa.rol}`;
+    if (causaTribunal) causaTribunal.textContent = lastDetectedCausa.tribunal
+      ? `Tribunal: ${lastDetectedCausa.tribunal}`
+      : `Fuente: ${lastDetectedCausa.rolSource || 'PJUD'}`;
+    if (causaCaratula) causaCaratula.textContent = lastDetectedCausa.caratula
+      ? `Carátula: ${lastDetectedCausa.caratula}`
+      : '';
+    if (syncBtn) syncBtn.style.display = '';
+    if (lastSyncState) {
+      applySyncStateUI(lastDetectedCausa, lastSyncState);
+    }
+  } else {
+    if (causaRol) causaRol.textContent = '--';
+    if (causaTribunal) causaTribunal.textContent = 'Navegue a una causa en PJUD';
+    if (causaCaratula) causaCaratula.textContent = '';
+    if (syncBtn) { syncBtn.disabled = true; syncBtn.style.display = ''; }
+  }
 }
 
 function setupTabChangeDetection() {
-  chrome.tabs.onActivated.addListener(() => {
-    showDetectingState();
-    setTimeout(requestCausaDetection, 800);
+  chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+      const tab = await chrome.tabs.get(activeInfo.tabId);
+      if (isPjudUrl(tab.url)) {
+        showDetectingState();
+        setTimeout(requestCausaDetection, 800);
+      }
+    } catch (e) {
+      // Tab may have closed
+    }
   });
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'loading') {
       chrome.tabs.query({ active: true, currentWindow: true }).then(([active]) => {
-        if (active?.id === tabId) {
+        const url = changeInfo.url || active?.url;
+        if (active?.id === tabId && isPjudUrl(url)) {
           showDetectingState();
         }
       });
     }
     if (changeInfo.status === 'complete') {
       chrome.tabs.query({ active: true, currentWindow: true }).then(([active]) => {
-        if (active?.id === tabId) {
+        if (active?.id === tabId && isPjudUrl(active.url)) {
           setTimeout(requestCausaDetection, 1000);
         }
       });
@@ -203,6 +247,13 @@ async function requestCausaDetection() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
+
+    if (!isPjudUrl(tab.url)) {
+      isDetecting = false;
+      restoreLastDetectedCausaUI();
+      return;
+    }
+
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'detect_causa' });
     isDetecting = false;
     if (response?.causa) {
@@ -212,22 +263,20 @@ async function requestCausaDetection() {
     }
   } catch (e) {
     isDetecting = false;
-    const syncBtn = document.getElementById('sync-btn');
-    if (syncBtn) syncBtn.style.display = '';
+    restoreLastDetectedCausaUI();
   }
 }
 
 /**
- * 4.18+: Consulta cases por ROL → retorna document_count + last_synced_at + metadata completa.
- * La metadata se usa para detectar cambios al revisitar (compareCausaState).
+ * Consulta la fecha de última sincronización de una causa.
  */
 async function fetchSyncState(userId, rol, tribunal = '') {
-  const empty = { count: 0, lastSyncedAt: null, stored: null };
+  const empty = { lastSyncedAt: null };
   if (!userId || !rol || typeof supabase?.fetch !== 'function') return empty;
   try {
     const rolClean = (rol || '').trim();
     const triClean = (tribunal || '').trim();
-    let endpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,document_count,last_synced_at,estado,estado_procesal,etapa,ubicacion,procedimiento,tabs_data&limit=5`;
+    let endpoint = `/rest/v1/cases?user_id=eq.${userId}&rol=eq.${encodeURIComponent(rolClean)}&select=id,tribunal,last_synced_at&limit=5`;
     if (triClean) {
       endpoint += `&tribunal=eq.${encodeURIComponent(triClean)}`;
     }
@@ -240,57 +289,11 @@ async function fetchSyncState(userId, rol, tribunal = '') {
     const target = cases.find(c => (c.tribunal || '').trim().toLowerCase() === tri) || null;
     if (!target) return empty;
 
-    const count = target.document_count || 0;
-    const lastSyncedAt = target.last_synced_at || null;
-    console.log('[4.18] fetchSyncState:', { rol, tribunal: triClean, count, lastSyncedAt });
-    return { count, lastSyncedAt, stored: target };
+    return { lastSyncedAt: target.last_synced_at || null };
   } catch (e) {
-    console.error('[4.18] fetchSyncState error:', e);
+    console.error('[fetchSyncState] error:', e);
     return empty;
   }
-}
-
-/**
- * Compara la metadata almacenada en DB contra lo detectado en el DOM actual.
- * Retorna array de cambios encontrados (vacio si no hay cambios).
- */
-function compareCausaState(stored, detected) {
-  const changes = [];
-  if (!stored || !detected) return changes;
-
-  const metaFields = [
-    { key: 'estado',          label: 'Est. Adm.',      newKey: 'estado' },
-    { key: 'estado_procesal', label: 'Estado Proc.',    newKey: 'estado_procesal' },
-    { key: 'etapa',           label: 'Etapa',           newKey: 'etapa' },
-    { key: 'ubicacion',       label: 'Ubicación',       newKey: 'ubicacion' },
-    { key: 'procedimiento',   label: 'Procedimiento',   newKey: 'procedimiento' },
-  ];
-
-  for (const f of metaFields) {
-    const oldVal = (stored[f.key] || '').trim();
-    const newVal = (detected[f.newKey] || '').trim();
-    if (oldVal && newVal && oldVal !== newVal) {
-      changes.push({ type: 'metadata_changed', field: f.label, oldValue: oldVal, newValue: newVal });
-    }
-  }
-
-  if (stored.tabs_data) {
-    const tabChecks = [
-      { key: 'litigantes',            label: 'Litigantes' },
-      { key: 'notificaciones',        label: 'Notificaciones' },
-      { key: 'escritos_por_resolver', label: 'Escritos por Resolver' },
-      { key: 'exhortos',             label: 'Exhortos' },
-    ];
-    for (const t of tabChecks) {
-      const oldCount = stored.tabs_data[t.key]?.length || 0;
-      const newCount = detected.tabs?.[t.key]?.length || 0;
-      if (newCount > oldCount) {
-        changes.push({ type: 'tab_new_rows', tab: t.label, oldCount, newCount });
-      }
-    }
-  }
-
-  return changes;
 }
 
 /**
@@ -320,122 +323,39 @@ async function saveSyncedCausaRegistry(causa) {
 }
 
 /**
- * 4.18+: Aplica UI según estado de sync.
- * Muestra cambios de metadata, documentos nuevos, o "Actualizada".
+ * Aplica UI según estado de sync.
+ * Solo muestra la fecha de última sincronización y el botón apropiado.
  */
 function applySyncStateUI(causa, syncState) {
-  const sameCausa = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
-    ? CAUSA_IDENTITY.isSameCausa(causa, lastDetectedCausa)
-    : (causa && lastDetectedCausa && lastDetectedCausa.rol === causa.rol &&
-        (lastDetectedCausa.tribunal || '') === (causa.tribunal || ''));
-  if (!causa || !sameCausa) return;
-
-  const docPreview = document.getElementById('doc-preview');
-  const docCount = document.getElementById('doc-count');
-  const docTypes = document.getElementById('doc-types');
-  const syncBtn = document.getElementById('sync-btn');
-  const syncStateBanner = document.getElementById('sync-state-banner');
+  const syncStatus = document.getElementById('sync-status');
+  const syncStatusLine = document.getElementById('sync-status-line');
   const changesBanner = document.getElementById('changes-detected-banner');
-  if (!docPreview || !docCount || !syncBtn) return;
+  const syncBtn = document.getElementById('sync-btn');
+  if (!syncBtn) return;
 
-  const count = syncState?.count ?? 0;
+  if (changesBanner) changesBanner.style.display = 'none';
+
   const lastSyncedAt = syncState?.lastSyncedAt ?? null;
-  const stored = syncState?.stored ?? null;
 
-  const changes = stored ? compareCausaState(stored, causa) : [];
-  const hasMetaChanges = changes.some(c => c.type === 'metadata_changed' || c.type === 'tab_new_rows');
-  const hasAnyChanges = changes.length > 0;
-
-  if (changesBanner) {
-    if (hasAnyChanges && count > 0) {
-      let html = '<strong>Cambios detectados:</strong><ul class="changes-list">';
-      for (const c of changes) {
-        if (c.type === 'metadata_changed') {
-          html += `<li><strong>${escapeHtml(c.field)}:</strong> "${escapeHtml(c.oldValue)}" → "${escapeHtml(c.newValue)}"</li>`;
-        } else if (c.type === 'tab_new_rows') {
-          html += `<li>${c.newCount - c.oldCount} nuevo(s) en ${escapeHtml(c.tab)}</li>`;
-        }
-      }
-      html += '</ul>';
-      changesBanner.innerHTML = html;
-      changesBanner.style.display = 'block';
-    } else {
-      changesBanner.style.display = 'none';
+  if (lastSyncedAt) {
+    const syncDateStr = formatSyncDate(lastSyncedAt);
+    if (syncStatus && syncStatusLine) {
+      syncStatusLine.textContent = `Sincronizada el ${syncDateStr}`;
+      syncStatus.className = 'sync-status sync-status-ok';
+      syncStatus.style.display = 'block';
     }
-  }
-
-  if (count > 0) {
-    docPreview.style.display = 'block';
-    docPreview.classList.add('sync-state-synced');
-    docPreview.classList.remove('sync-state-new');
-
-    const fullySynced = !hasAnyChanges;
-    const syncDateStr = lastSyncedAt ? formatSyncDate(lastSyncedAt) : null;
-
-    if (hasAnyChanges && syncDateStr) {
-      docCount.textContent = `Hay cambios desde ${syncDateStr}. Sincronizar?`;
-      docCount.classList.remove('sync-badge-synced');
-    } else if (hasAnyChanges) {
-      docCount.textContent = `Hay cambios detectados (${count} sincronizados). Sincronizar?`;
-      docCount.classList.remove('sync-badge-synced');
-    } else if (fullySynced) {
-      docCount.textContent = `Actualizada ✓ (${count} documento${count !== 1 ? 's' : ''})`;
-      docCount.classList.add('sync-badge-synced');
-    } else {
-      docCount.textContent = `${count} documento(s) sincronizado(s)`;
-      docCount.classList.add('sync-badge-synced');
-    }
-
-    if (docTypes) {
-      if (hasMetaChanges) {
-        docTypes.innerHTML = '<span class="doc-type-badge">Metadata actualizada en PJUD</span>';
-      } else {
-        docTypes.innerHTML = '<span class="doc-type-badge">Todo al día</span>';
-      }
-    }
-
-    if (fullySynced) {
-      syncBtn.innerHTML = '<span class="btn-icon">✓</span> Causa sincronizada';
-      syncBtn.disabled = true;
-      syncBtn.setAttribute('data-fully-synced', '1');
-    } else {
-      syncBtn.innerHTML = '<span class="btn-icon">↻</span> Sincronizar cambios';
-      syncBtn.disabled = false;
-      syncBtn.removeAttribute('data-fully-synced');
-    }
-
-    if (syncStateBanner) {
-      syncStateBanner.style.display = 'block';
-      syncStateBanner.className = 'sync-state-banner sync-state-banner-info';
-      syncStateBanner.textContent = fullySynced
-        ? (syncDateStr ? `Sincronizada el ${syncDateStr}` : 'Esta causa está completamente sincronizada.')
-        : 'Hay cambios de estado en la causa.';
-    }
-
-    const warn = document.getElementById('sync-context-warning');
-    if (warn && hasAnyChanges) {
-      warn.style.display = 'block';
-      warn.innerHTML = '⚠️ Hay cambios en la causa. Sincronice antes de consultar a la IA.';
-    } else if (warn) {
-      warn.style.display = 'none';
-    }
+    syncBtn.innerHTML = '<span class="btn-icon">↻</span> Buscar actualizaciones';
+    syncBtn.disabled = false;
   } else {
-    docPreview.style.display = 'none';
-    docPreview.classList.remove('sync-state-synced');
+    if (syncStatus) syncStatus.style.display = 'none';
     syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
     syncBtn.disabled = false;
-    syncBtn.removeAttribute('data-fully-synced');
-    if (syncStateBanner) syncStateBanner.style.display = 'none';
-    if (changesBanner) changesBanner.style.display = 'none';
-    const warn = document.getElementById('sync-context-warning');
-    if (warn) warn.style.display = 'none';
   }
 
   lastSyncState = {
-    count,
     lastSyncedAt,
-    rol: causa.rol,
-    tribunal: causa.tribunal || '',
+    rol: causa?.rol || '',
+    tribunal: causa?.tribunal || '',
   };
 }
 
@@ -470,19 +390,16 @@ async function displayDetectedCausa(causa) {
       if (resultEl) resultEl.innerHTML = '';
       if (detailsEl) detailsEl.innerHTML = '';
     }
-    const btn = document.getElementById('sync-btn');
-    if (btn) btn.removeAttribute('data-fully-synced');
-    const stateBanner = document.getElementById('sync-state-banner');
-    if (stateBanner) stateBanner.style.display = 'none';
+    const syncStatus = document.getElementById('sync-status');
+    if (syncStatus) syncStatus.style.display = 'none';
+    const changesBanner = document.getElementById('changes-detected-banner');
+    if (changesBanner) changesBanner.style.display = 'none';
   }
 
   const syncBtn = document.getElementById('sync-btn');
   const causaRol = document.getElementById('causa-rol');
   const causaTribunal = document.getElementById('causa-tribunal');
   const causaCaratula = document.getElementById('causa-caratula');
-  const docPreview = document.getElementById('doc-preview');
-  const docCount = document.getElementById('doc-count');
-  const docTypes = document.getElementById('doc-types');
 
   if (syncBtn) syncBtn.style.display = '';
 
@@ -490,12 +407,11 @@ async function displayDetectedCausa(causa) {
     causaRol.textContent = '--';
     causaTribunal.textContent = 'No se detectó una causa en esta página';
     causaCaratula.textContent = '';
-    docPreview.style.display = 'none';
     hideCausaPackagePreview();
-    const banner = document.getElementById('sync-state-banner');
-    const warn = document.getElementById('sync-context-warning');
-    if (banner) banner.style.display = 'none';
-    if (warn) warn.style.display = 'none';
+    const syncStatus = document.getElementById('sync-status');
+    if (syncStatus) syncStatus.style.display = 'none';
+    const changesBanner = document.getElementById('changes-detected-banner');
+    if (changesBanner) changesBanner.style.display = 'none';
     if (syncBtn) syncBtn.disabled = true;
     return;
   }
@@ -503,10 +419,6 @@ async function displayDetectedCausa(causa) {
   causaRol.textContent = `ROL: ${causa.rol}`;
   causaTribunal.textContent = causa.tribunal ? `Tribunal: ${causa.tribunal}` : `Fuente: ${causa.rolSource || 'PJUD'}`;
   causaCaratula.textContent = causa.caratula ? `Carátula: ${causa.caratula}` : '';
-
-  if (syncBtn) syncBtn.disabled = false;
-
-  docPreview.style.display = 'none';
 
   if (currentUser?.id && causa.rol) {
     const syncState = await fetchSyncState(currentUser.id, causa.rol, causa.tribunal || '');
@@ -542,7 +454,6 @@ function hideCausaPackagePreview() {
 async function handleSync() {
   if (isSyncing || !lastDetectedCausa) return;
   if (!currentUser) { showNotification('Debe iniciar sesión primero', 'error'); return; }
-  if (document.getElementById('sync-btn')?.getAttribute('data-fully-synced') === '1') return;
 
   isSyncing = true;
   syncingCausaInfo = {
@@ -612,34 +523,22 @@ async function handleSync() {
 
   isSyncing = false;
 
-  if (syncSuccess) {
-    const info = syncingCausaInfo;
-    if (waitBanner) {
-      const parts = [`<strong>${escapeHtml(info.rol)}</strong>`];
-      if (info.tribunal) parts.push(escapeHtml(info.tribunal));
-      if (info.caratula) parts.push(escapeHtml(info.caratula));
-      waitBanner.innerHTML = `<span class="sync-wait-icon">✓</span><span>Sincronizado: ${parts.join(' · ')}</span>`;
-      waitBanner.style.display = 'flex';
-    }
-    syncBtn.innerHTML = '<span class="btn-icon">✓</span> Sincronizado';
-    syncBtn.disabled = true;
+  if (waitBanner) {
+    waitBanner.style.display = 'none';
+    waitBanner.innerHTML = '<span class="sync-wait-icon">⟳</span><span>Sincronizando en el servidor. Puede seguir navegando.</span>';
+  }
 
+  if (syncSuccess) {
+    syncBtn.innerHTML = '<span class="btn-icon">↻</span> Buscar actualizaciones';
+    syncBtn.disabled = false;
     setTimeout(() => {
-      if (waitBanner) {
-        waitBanner.style.display = 'none';
-        waitBanner.innerHTML = '<span class="sync-wait-icon">⟳</span><span>Sincronización en progreso en el servidor. Puede seguir navegando con libertad.</span>';
-      }
       syncingCausaInfo = null;
       requestCausaDetection();
-    }, 3500);
+    }, 2000);
   } else {
-    if (waitBanner) {
-      waitBanner.style.display = 'none';
-      waitBanner.innerHTML = '<span class="sync-wait-icon">⟳</span><span>Sincronización en progreso en el servidor. Puede seguir navegando con libertad.</span>';
-    }
     syncingCausaInfo = null;
     syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
-    syncBtn.disabled = !lastDetectedCausa || syncBtn.getAttribute('data-fully-synced') === '1';
+    syncBtn.disabled = !lastDetectedCausa;
   }
 }
 
@@ -794,79 +693,79 @@ function hideCuadernoProgress() {
 }
 
 /**
- * 4.18: Resultado enriquecido — N nuevos + lista + N existentes + N errores.
+ * Muestra resultado de sync/actualización.
+ * Solo info relevante para el abogado: qué hay nuevo, qué falló.
  */
 function showSyncResultsV2(syncResult) {
   if (!syncResult) return;
 
   const newDocs = syncResult.documents_new || [];
-  const existingCount = syncResult.documents_existing || 0;
+  const changes = syncResult.changes || [];
   const failedCount = syncResult.documents_failed || 0;
   const errors = syncResult.errors || [];
-  const duration = syncResult.duration_ms ? `${(syncResult.duration_ms / 1000).toFixed(1)}s` : '';
+  const isFirstSync = syncResult.is_first_sync;
 
   const el = document.getElementById('sync-compact-result');
   if (!el) return;
 
   let html = '';
+  const hasNovelties = newDocs.length > 0 || changes.length > 0;
 
-  if (newDocs.length > 0) {
+  if (isFirstSync && newDocs.length > 0) {
     html += `<div class="result-summary result-success">`;
-    html += `<p><strong>Se descargaron ${newDocs.length} documento(s) nuevo(s)</strong></p>`;
-    const showDocs = newDocs.slice(0, 5);
-    for (const doc of showDocs) {
-      const fecha = doc.fecha
-        ? new Date(doc.fecha).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })
-        : '';
-      const folio = doc.folio ? `folio ${doc.folio}` : '';
-      const cuaderno = doc.cuaderno ? `(${doc.cuaderno})` : '';
-      const tipo = capitalizeFirst(doc.document_type || 'Documento');
-      const parts = [tipo, folio, fecha, cuaderno].filter(Boolean);
-      html += `<p class="result-detail">· ${parts.join(' ')}</p>`;
-    }
-    if (newDocs.length > 5) {
-      html += `<p class="result-detail">… y ${newDocs.length - 5} más</p>`;
-    }
+    html += `<p><strong>${newDocs.length} documento${newDocs.length !== 1 ? 's' : ''} sincronizado${newDocs.length !== 1 ? 's' : ''}</strong></p>`;
     html += `</div>`;
-  } else if (existingCount > 0) {
-    html += `<div class="result-summary result-info"><p>No hay documentos nuevos — ${existingCount} ya sincronizado(s)</p></div>`;
+  } else if (hasNovelties) {
+    // Documentos nuevos
+    if (newDocs.length > 0) {
+      html += `<div class="result-summary result-success">`;
+      html += `<p><strong>${newDocs.length} documento${newDocs.length !== 1 ? 's' : ''} nuevo${newDocs.length !== 1 ? 's' : ''}</strong></p>`;
+      const showDocs = newDocs.slice(0, 5);
+      for (const doc of showDocs) {
+        const parts = [];
+        if (doc.document_type) parts.push(capitalizeFirst(doc.document_type));
+        if (doc.folio) parts.push(`folio ${doc.folio}`);
+        if (doc.cuaderno) parts.push(doc.cuaderno);
+        html += `<p class="result-detail">· ${parts.join(' — ') || doc.filename}</p>`;
+      }
+      if (newDocs.length > 5) {
+        html += `<p class="result-detail">… y ${newDocs.length - 5} más</p>`;
+      }
+      html += `</div>`;
+    }
+
+    // Cambios detectados (diff)
+    if (changes.length > 0) {
+      html += `<div class="result-changes">`;
+      html += `<p class="result-changes-title"><strong>Cambios detectados:</strong></p>`;
+      for (const c of changes.slice(0, 10)) {
+        html += `<p class="result-detail">· ${escapeHtml(c.description)}</p>`;
+      }
+      if (changes.length > 10) {
+        html += `<p class="result-detail">… y ${changes.length - 10} más</p>`;
+      }
+      html += `</div>`;
+    }
   } else {
-    html += `<div class="result-summary result-warning"><p>No se descargaron documentos nuevos</p></div>`;
+    html += `<div class="result-summary result-info"><p>Sin novedades — todo al día</p></div>`;
   }
 
-  // Stats secundarias
-  const stats = [];
-  if (existingCount > 0) stats.push(`${existingCount} ya existentes`);
-  if (failedCount > 0) stats.push(`${failedCount} fallidos`);
-  if (duration) stats.push(duration);
-  if (stats.length > 0) {
-    html += `<p class="result-detail stats-line">${stats.join(' · ')}</p>`;
+  if (failedCount > 0) {
+    html += `<p class="result-detail error-text">${failedCount} documento${failedCount !== 1 ? 's' : ''} no se pudo descargar</p>`;
   }
 
   if (errors.length > 0) {
     html += `<div class="result-errors">${
-      errors.slice(0, 3).map(e => `<p class="result-detail error-text">• ${e}</p>`).join('')
+      errors.slice(0, 3).map(e => `<p class="result-detail error-text">· ${escapeHtml(e)}</p>`).join('')
     }</div>`;
   }
 
   el.innerHTML = html;
 
-  // Enriquecer lastDetectedCausa solo si es la misma causa (rol + tribunal)
   if (lastDetectedCausa && syncResult.rol === lastDetectedCausa.rol &&
       (syncResult.tribunal || '') === (lastDetectedCausa.tribunal || '')) {
-    const updates = {};
-    if (syncResult.tribunal && !lastDetectedCausa.tribunal) updates.tribunal = syncResult.tribunal;
-    if (Object.keys(updates).length) lastDetectedCausa = { ...lastDetectedCausa, ...updates };
-  }
-
-  // Actualizar doc-preview con totales reales
-  const totalDescargados = newDocs.length + existingCount;
-  if (totalDescargados > 0) {
-    const docPreview = document.getElementById('doc-preview');
-    const docCount = document.getElementById('doc-count');
-    if (docPreview && docCount) {
-      docPreview.style.display = 'block';
-      docCount.textContent = `${totalDescargados} documento(s) procesado(s) (${newDocs.length} nuevos)`;
+    if (syncResult.tribunal && !lastDetectedCausa.tribunal) {
+      lastDetectedCausa = { ...lastDetectedCausa, tribunal: syncResult.tribunal };
     }
   }
 }

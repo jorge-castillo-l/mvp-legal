@@ -347,15 +347,14 @@ export function parseExhortoDetalleFromHtml(html: string): ExhortoDetalleDoc[] {
 // ════════════════════════════════════════════════════════
 
 /**
- * Parsea la respuesta HTML de receptorCivil.php.
+ * Parsea la respuesta HTML de receptorCivil.php (#modalReceptorCivil).
  *
- * El parser identifica tablas por sus encabezados (th) y clasifica
- * las filas como certificaciones o diligencias según el contenido.
- * Diseñado para los patrones generales de tablas PJUD; validar y
- * ajustar selectores contra HTML real (#modalReceptorCivil).
+ * HTML real PJUD — tabla única con headers:
+ *   Cuaderno | Datos del Retiro | Fecha Retiro | Estado
  *
- * Estrategia defensiva: si no se reconoce ninguna tabla conocida,
- * retorna arrays vacíos sin lanzar error (graceful degradation).
+ * "Datos del Retiro" contiene el nombre del receptor (idéntico en todas
+ * las filas de una misma causa). receptor_nombre se infiere del valor
+ * más frecuente en esa columna.
  */
 export function parseReceptorData(html: string): ReceptorData {
   const root = parseHtml(html, {
@@ -364,89 +363,40 @@ export function parseReceptorData(html: string): ReceptorData {
     voidTag: { closingSlash: true },
   })
 
+  const retiros: ReceptorData['retiros'] = []
+
+  const rows = root.querySelectorAll('tbody tr')
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td')
+    if (cells.length < 4) continue
+
+    const cuaderno = cleanText(cells[0]?.text)
+    const datos_retiro = cleanText(cells[1]?.text)
+    const fecha_retiro = cleanText(cells[2]?.text)
+    const estado = cleanText(cells[3]?.text)
+
+    if (!cuaderno && !datos_retiro) continue
+
+    retiros.push({ cuaderno, datos_retiro, fecha_retiro, estado })
+  }
+
+  // Inferir receptor_nombre del valor más frecuente en "Datos del Retiro"
   let receptor_nombre: string | null = null
-  let tipo_receptor: string | null = null
-  const certificaciones: ReceptorData['certificaciones'] = []
-  const diligencias: ReceptorData['diligencias'] = []
-
-  // ── Nombre del receptor: buscar en encabezados / celdas destacadas
-  const nameSelectors = [
-    '.nombre-receptor',
-    '.receptor-nombre',
-    'h4',
-    'h3',
-    'strong',
-    'b',
-  ]
-  for (const sel of nameSelectors) {
-    const el = root.querySelector(sel)
-    if (el) {
-      const txt = cleanText(el.text)
-      if (txt.length > 3 && txt.length < 120) {
-        receptor_nombre = txt
-        break
+  if (retiros.length > 0) {
+    const freq = new Map<string, number>()
+    for (const r of retiros) {
+      if (r.datos_retiro) {
+        freq.set(r.datos_retiro, (freq.get(r.datos_retiro) || 0) + 1)
+      }
+    }
+    let maxCount = 0
+    for (const [name, count] of freq) {
+      if (count > maxCount) {
+        maxCount = count
+        receptor_nombre = name
       }
     }
   }
 
-  // ── Tipo de receptor: buscar en celdas con la etiqueta "Tipo"
-  const allCells = root.querySelectorAll('td, th')
-  for (let i = 0; i < allCells.length - 1; i++) {
-    const label = cleanText(allCells[i].text).toLowerCase()
-    if (label === 'tipo' || label === 'tipo receptor') {
-      tipo_receptor = cleanText(allCells[i + 1].text) || null
-      break
-    }
-  }
-
-  // ── Tablas: identificar por encabezados (th)
-  const tables = root.querySelectorAll('table')
-  for (const table of tables) {
-    const ths = table.querySelectorAll('th').map((th) => cleanText(th.text).toLowerCase())
-    const rows = table.querySelectorAll('tbody tr')
-
-    const isCertTable =
-      ths.some((h) => h.includes('certificaci') || h.includes('resultado') || h.includes('certif'))
-
-    const isDiligTable =
-      ths.some((h) => h.includes('diligencia') || h.includes('actuaci') || h.includes('servicio'))
-
-    if (isCertTable) {
-      // Mapeo por posición: fecha | tipo | resultado | obs
-      for (const row of rows) {
-        const cells = row.querySelectorAll('td')
-        if (cells.length < 2) continue
-        certificaciones.push({
-          fecha:     cleanText(cells[0]?.text),
-          tipo:      cleanText(cells[1]?.text),
-          resultado: cleanText(cells[2]?.text) || '',
-          obs:       cleanText(cells[3]?.text) || '',
-        })
-      }
-    } else if (isDiligTable) {
-      // Mapeo por posición: fecha | tipo | descripcion
-      for (const row of rows) {
-        const cells = row.querySelectorAll('td')
-        if (cells.length < 2) continue
-        diligencias.push({
-          fecha:       cleanText(cells[0]?.text),
-          tipo:        cleanText(cells[1]?.text),
-          descripcion: cleanText(cells[2]?.text) || '',
-        })
-      }
-    } else if (ths.length >= 2 && rows.length > 0) {
-      // Tabla genérica con datos: tratar como diligencias (fallback)
-      for (const row of rows) {
-        const cells = row.querySelectorAll('td')
-        if (cells.length < 2) continue
-        diligencias.push({
-          fecha:       cleanText(cells[0]?.text),
-          tipo:        cleanText(cells[1]?.text),
-          descripcion: cells.slice(2).map((c) => cleanText(c.text)).filter(Boolean).join(' | '),
-        })
-      }
-    }
-  }
-
-  return { receptor_nombre, tipo_receptor, certificaciones, diligencias }
+  return { receptor_nombre, retiros }
 }

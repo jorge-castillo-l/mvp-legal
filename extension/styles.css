@@ -300,6 +300,24 @@ h2 {
   color: var(--error-color) !important;
 }
 
+.result-changes {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 6px;
+}
+
+.result-changes-title {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  color: #9a3412;
+}
+
+.result-changes .result-detail {
+  color: #78350f;
+}
+
 /* ══════ DRAG & DROP ZONE ══════ */
 
 .drop-zone {
@@ -411,65 +429,30 @@ h2 {
   line-height: 1.4;
 }
 
-.doc-preview {
+/* ══════ SYNC STATUS (línea única de estado) ══════ */
+
+.sync-status {
   padding: 8px 12px;
-  background-color: #fafbfc;
-  border: 1px solid var(--border-color);
   border-radius: 6px;
+  font-size: 12px;
   margin-bottom: 10px;
 }
 
-.preview-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--secondary-color);
-  margin: 0 0 6px 0;
+.sync-status-line {
+  margin: 0;
+  font-weight: 500;
 }
 
-.doc-types {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.doc-type-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 10px;
-  font-weight: 600;
-  background-color: #e0e7ff;
-  color: #4338ca;
-}
-
-/* 4.13 Re-Sync Awareness: estados visuales */
-.doc-preview.sync-state-synced {
+.sync-status-ok {
   background-color: #f0fdf4;
-  border-color: #86efac;
+  border: 1px solid #86efac;
+  color: #166534;
 }
-.sync-badge-synced {
-  color: var(--success-color) !important;
-}
-.sync-state-banner {
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  margin-bottom: 8px;
-}
-.sync-state-banner-info {
-  background-color: #eff6ff;
-  border: 1px solid #93c5fd;
-  color: #1e40af;
-}
-.sync-context-warning {
-  padding: 10px 12px;
-  background-color: #fef3c7;
-  border: 1px solid #fcd34d;
-  border-radius: 6px;
-  font-size: 12px;
-  margin-bottom: 10px;
-  color: #92400e;
-  line-height: 1.4;
+
+.sync-status-warning {
+  background-color: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
 }
 
 .btn-confirm {
@@ -800,13 +783,6 @@ h2 {
   font-size: 11px;
   color: var(--accent-color);
   font-weight: 500;
-}
-
-/* Resultado: stats-line (N existentes · N fallidos · 12.3s) */
-.stats-line {
-  color: var(--muted-color);
-  font-size: 11px;
-  margin-top: 4px;
 }
 
 /* Resultado tipo "info" (no hay nuevos pero hay existentes) */

@@ -45,6 +45,8 @@ import type {
   ExhortoDetalleDoc,
   PdfDownloadTask,
   SyncResult,
+  SyncChange,
+  SyncSnapshot,
   SyncedDocument,
   Folio,
   JwtRef,
@@ -178,6 +180,30 @@ export async function POST(request: NextRequest) {
         }
 
         // ────────────────────────────────────────────
+        // PASO 3b: LEER SNAPSHOT PREVIO (para diff)
+        // ────────────────────────────────────────────
+        let prevSnapshot: SyncSnapshot | null = null
+        try {
+          const { data: snapRow } = await supabase
+            .from('cases')
+            .select('sync_snapshot')
+            .eq('id', caseId)
+            .single()
+          if (snapRow?.sync_snapshot) {
+            prevSnapshot = snapRow.sync_snapshot as SyncSnapshot
+          }
+        } catch {
+          // First sync — no snapshot
+        }
+        const isFirstSync = !prevSnapshot
+
+        // Collectors for the new snapshot
+        const snapshotCuadernos: SyncSnapshot['cuadernos'] = []
+        const snapshotAnexos: SyncSnapshot['anexos'] = []
+        const snapshotExhortos: SyncSnapshot['exhortos'] = []
+        let snapshotReceptorRetiros: SyncSnapshot['receptor_retiros'] = []
+
+        // ────────────────────────────────────────────
         // PASO 4–5: CONSTRUIR TAREAS DE DESCARGA
         // ────────────────────────────────────────────
         emit('progress', { message: 'Calculando documentos a descargar…', current: 0, total: 0 })
@@ -185,6 +211,16 @@ export async function POST(request: NextRequest) {
         const pjud = new PjudClient()
         pjud.setCookies(pkg.cookies)
         const downloadTasks = buildDownloadTasks(pkg)
+
+        // Snapshot: folios del cuaderno visible
+        const selectedCuadernoName = pkg.cuadernos?.find(c => c.selected)?.nombre || 'Principal'
+        if (pkg.folios && pkg.folios.length > 0) {
+          snapshotCuadernos.push({
+            nombre: selectedCuadernoName,
+            folio_count: pkg.folios.length,
+            folio_numeros: pkg.folios.map(f => f.numero),
+          })
+        }
 
         // ────────────────────────────────────────────
         // PASO 6: FETCH CUADERNOS ADICIONALES
@@ -200,19 +236,19 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        const extraFolioTasks = await fetchOtherCuadernos(pjud, pkg, emit, nonSelectedCount)
+        const extraFolioTasks = await fetchOtherCuadernos(pjud, pkg, emit, nonSelectedCount, snapshotCuadernos)
         downloadTasks.push(...extraFolioTasks)
 
         // ────────────────────────────────────────────
         // PASO 6b: FETCH ANEXOS DE LA CAUSA
         // ────────────────────────────────────────────
-        const anexosTasks = await fetchAnexos(pjud, pkg, emit)
+        const anexosTasks = await fetchAnexos(pjud, pkg, emit, snapshotAnexos)
         downloadTasks.push(...anexosTasks)
 
         // ────────────────────────────────────────────
         // PASO 6c: FETCH DOCUMENTOS DE EXHORTOS
         // ────────────────────────────────────────────
-        const exhortoDocTasks = await fetchExhortoDocuments(pjud, pkg, supabase, caseId, emit)
+        const exhortoDocTasks = await fetchExhortoDocuments(pjud, pkg, emit, snapshotExhortos)
         downloadTasks.push(...exhortoDocTasks)
 
         // ────────────────────────────────────────────
@@ -366,9 +402,14 @@ export async function POST(request: NextRequest) {
                 console.warn('[sync] receptor_data update error:', receptorError.message)
               } else {
                 receptorStored = true
+                snapshotReceptorRetiros = receptorData.retiros.map(r => ({
+                  cuaderno: r.cuaderno,
+                  fecha_retiro: r.fecha_retiro,
+                  estado: r.estado,
+                }))
                 console.log(
                   `[sync] receptor_data: ${receptorData.receptor_nombre ?? 'sin nombre'} — ` +
-                  `${receptorData.certificaciones.length} cert, ${receptorData.diligencias.length} dilig`
+                  `${receptorData.retiros.length} retiro(s)`
                 )
               }
             } else {
@@ -380,9 +421,35 @@ export async function POST(request: NextRequest) {
         }
 
         // ────────────────────────────────────────────
-        // PASO 9: ACTUALIZAR CASE STATS
+        // PASO 9: GENERAR SNAPSHOT + DIFF
         // ────────────────────────────────────────────
-        emit('progress', { message: 'Actualizando estadísticas de la causa…', current: totalTasks, total: totalTasks })
+        const newSnapshot: SyncSnapshot = {
+          cuadernos: snapshotCuadernos,
+          anexos: snapshotAnexos,
+          exhortos: snapshotExhortos,
+          receptor_retiros: snapshotReceptorRetiros,
+          metadata: {
+            estado: pkg.estado_adm || '',
+            estado_procesal: pkg.estado_procesal || '',
+            etapa: pkg.etapa || '',
+            ubicacion: pkg.ubicacion || '',
+            procedimiento: pkg.procedimiento || '',
+          },
+          tabs_counts: {
+            litigantes: pkg.tabs?.litigantes?.length ?? 0,
+            notificaciones: pkg.tabs?.notificaciones?.length ?? 0,
+            escritos_por_resolver: pkg.tabs?.escritos_por_resolver?.length ?? 0,
+            exhortos: pkg.tabs?.exhortos?.length ?? 0,
+          },
+          snapshot_at: new Date().toISOString(),
+        }
+
+        const changes: SyncChange[] = isFirstSync ? [] : generateDiff(prevSnapshot!, newSnapshot)
+
+        // ────────────────────────────────────────────
+        // PASO 10: ACTUALIZAR CASE STATS + SNAPSHOT
+        // ────────────────────────────────────────────
+        emit('progress', { message: 'Actualizando estadísticas…', current: totalTasks, total: totalTasks })
 
         const { count: docCount } = await supabase
           .from('documents')
@@ -394,11 +461,12 @@ export async function POST(request: NextRequest) {
           .update({
             document_count: docCount ?? 0,
             last_synced_at: new Date().toISOString(),
+            sync_snapshot: newSnapshot,
           })
           .eq('id', caseId)
 
         // ────────────────────────────────────────────
-        // PASO 10: TRIGGER PROCESAMIENTO ASYNC
+        // PASO 11: TRIGGER PROCESAMIENTO ASYNC
         // ────────────────────────────────────────────
         const pipelineKey = process.env.PIPELINE_SECRET_KEY
         const appUrl =
@@ -423,7 +491,7 @@ export async function POST(request: NextRequest) {
         }
 
         // ────────────────────────────────────────────
-        // PASO 11: EVENTO COMPLETE
+        // PASO 12: EVENTO COMPLETE
         // ────────────────────────────────────────────
         const syncResult: SyncResult = {
           success: true,
@@ -442,12 +510,14 @@ export async function POST(request: NextRequest) {
           causa_origen_stored: causaOrigenStored,
           exhortos_count: pkg.tabs?.exhortos?.length ?? 0,
           exhortos_docs_downloaded: exhortoDocTasks.length,
+          changes,
+          is_first_sync: isFirstSync,
         }
 
         console.log(
           `[sync] ${pkg.rol} — Completado en ${syncResult.duration_ms}ms: ` +
           `${results.length} nuevos, ${existingCount} existentes, ${failedCount} fallidos` +
-          (exhortoDocTasks.length > 0 ? ` (${exhortoDocTasks.length} docs exhortos)` : '')
+          (changes.length > 0 ? ` | ${changes.length} cambio(s) detectado(s)` : '')
         )
 
         emit('complete', syncResult)
@@ -656,6 +726,7 @@ function folioToTasks(
     fecha_tramite: folio.fecha_tramite || null,
     foja: folio.foja || null,
     cuaderno,
+    source_tab: folio._source === 'piezas_exhorto' ? 'piezas_exhorto' : 'historia',
   }
 
   if (folio.jwt_doc_principal) {
@@ -709,6 +780,7 @@ async function fetchOtherCuadernos(
   pkg: CausaPackage,
   emit?: SseEmitter,
   totalCuadernos?: number,
+  snapshotCuadernos?: SyncSnapshot['cuadernos'],
 ): Promise<PdfDownloadTask[]> {
   const tasks: PdfDownloadTask[] = []
 
@@ -745,6 +817,12 @@ async function fetchOtherCuadernos(
 
       const folios = parseFoliosFromHtml(html)
       console.log(`[sync] Cuaderno "${cuaderno.nombre}": ${folios.length} folios encontrados`)
+
+      snapshotCuadernos?.push({
+        nombre: cuaderno.nombre,
+        folio_count: folios.length,
+        folio_numeros: folios.map(f => f.numero),
+      })
 
       for (const folio of folios) {
         const folioTasks = folioToTasks(folio, pkg.rol, cuaderno.nombre)
@@ -783,6 +861,7 @@ async function fetchAnexos(
   pjud: PjudClient,
   pkg: CausaPackage,
   emit?: SseEmitter,
+  snapshotAnexos?: SyncSnapshot['anexos'],
 ): Promise<PdfDownloadTask[]> {
   const tasks: PdfDownloadTask[] = []
 
@@ -807,6 +886,10 @@ async function fetchAnexos(
     const anexos: AnexoFile[] = parseAnexosFromHtml(html)
     console.log(`[sync] Anexos de la causa: ${anexos.length} archivo(s) encontrado(s)`)
 
+    for (const a of anexos) {
+      snapshotAnexos?.push({ fecha: a.fecha || '', referencia: a.referencia || '' })
+    }
+
     for (let i = 0; i < anexos.length; i++) {
       const anexo = anexos[i]
       const cleanRef = (anexo.referencia || `anexo_${i + 1}`)
@@ -825,6 +908,7 @@ async function fetchAnexos(
         cuaderno: null,
         fecha: anexo.fecha || null,
         source_url: anexo.jwt.action,
+        referencia: anexo.referencia || undefined,
       })
     }
   } catch (err) {
@@ -923,6 +1007,7 @@ async function fetchFolioAnexos(
           cuaderno: null,
           fecha: anexo.fecha || null,
           source_url: anexo.jwt.action,
+          referencia: anexo.referencia || undefined,
         })
       }
     } catch (err) {
@@ -940,45 +1025,16 @@ async function fetchFolioAnexos(
 async function fetchExhortoDocuments(
   pjud: PjudClient,
   pkg: CausaPackage,
-  supabase: ReturnType<typeof createClientWithToken>,
-  caseId: string,
   emit?: SseEmitter,
+  snapshotExhortos?: SyncSnapshot['exhortos'],
 ): Promise<PdfDownloadTask[]> {
   const tasks: PdfDownloadTask[] = []
 
-  const allExhortos = pkg.tabs?.exhortos?.filter((e) => e.jwt_detalle) ?? []
-  if (allExhortos.length === 0) return tasks
-
-  // Only fetch exhortos not previously synced (compare against stored tabs_data)
-  let exhortos = allExhortos
-  try {
-    const { data: caseData } = await supabase
-      .from('cases')
-      .select('tabs_data')
-      .eq('id', caseId)
-      .single()
-
-    const prevExhortos: Array<{ rol_destino?: string }> = (caseData?.tabs_data as any)?.exhortos ?? []
-    const prevRoles = new Set(prevExhortos.map((e) => e.rol_destino).filter(Boolean))
-
-    if (prevRoles.size > 0) {
-      exhortos = allExhortos.filter((e) => !prevRoles.has(e.rol_destino))
-      const skipped = allExhortos.length - exhortos.length
-      if (skipped > 0) {
-        console.log(`[sync] Exhortos: ${skipped} ya sincronizados, ${exhortos.length} nuevos`)
-      }
-    }
-  } catch {
-    // First sync or DB read failed — process all exhortos
-  }
-
-  if (exhortos.length === 0) {
-    console.log('[sync] No hay exhortos nuevos que procesar')
-    return tasks
-  }
+  const exhortos = pkg.tabs?.exhortos?.filter((e) => e.jwt_detalle) ?? []
+  if (exhortos.length === 0) return tasks
 
   emit?.('progress', {
-    message: `Obteniendo documentos de ${exhortos.length} exhorto(s) nuevo(s)…`,
+    message: `Obteniendo documentos de ${exhortos.length} exhorto(s)…`,
     current: 0,
     total: 0,
   })
@@ -1008,6 +1064,12 @@ async function fetchExhortoDocuments(
 
       const docs: ExhortoDetalleDoc[] = parseExhortoDetalleFromHtml(html)
       console.log(`[sync] Exhorto "${rolDestino}": ${docs.length} documento(s) encontrado(s)`)
+
+      snapshotExhortos?.push({
+        rol_destino: rolDestino,
+        estado: exhorto.estado_exhorto || '',
+        doc_count: docs.length,
+      })
 
       for (let i = 0; i < docs.length; i++) {
         const doc = docs[i]
@@ -1112,6 +1174,12 @@ async function processOneDocument(
   }
 
   // 5. Insert document record
+  const docMetadata: Record<string, unknown> = {
+    ...(task.folio_metadata ?? {}),
+  }
+  if (task.fecha) docMetadata.fecha_documento = task.fecha
+  if (task.referencia) docMetadata.referencia = task.referencia
+
   const newDoc: DocumentInsert = {
     case_id: caseId,
     user_id: userId,
@@ -1124,7 +1192,7 @@ async function processOneDocument(
     source: 'sync',
     source_url: task.source_url || null,
     captured_at: now.toISOString(),
-    metadata: task.folio_metadata ?? {},
+    metadata: docMetadata,
   }
 
   const { data: createdDoc, error: docError } = await supabase
@@ -1184,4 +1252,128 @@ async function processOneDocument(
     storage_path: uploadData.path,
     is_new: true,
   }
+}
+
+// ════════════════════════════════════════════════════════
+// DIFF ENGINE — compara snapshot previo vs actual
+// ════════════════════════════════════════════════════════
+
+function generateDiff(prev: SyncSnapshot, curr: SyncSnapshot): SyncChange[] {
+  const changes: SyncChange[] = []
+
+  // ── Metadata ──
+  const metaLabels: Record<string, string> = {
+    estado: 'Estado Adm.',
+    estado_procesal: 'Estado Procesal',
+    etapa: 'Etapa',
+    ubicacion: 'Ubicación',
+    procedimiento: 'Procedimiento',
+  }
+  for (const [key, label] of Object.entries(metaLabels)) {
+    const oldVal = (prev.metadata[key as keyof typeof prev.metadata] || '').trim()
+    const newVal = (curr.metadata[key as keyof typeof curr.metadata] || '').trim()
+    if (newVal && oldVal !== newVal) {
+      changes.push({
+        category: 'metadata',
+        description: oldVal
+          ? `${label}: ${oldVal} → ${newVal}`
+          : `${label}: ${newVal}`,
+      })
+    }
+  }
+
+  // ── Cuadernos nuevos ──
+  const prevCuadernoNames = new Set(prev.cuadernos.map(c => c.nombre))
+  for (const c of curr.cuadernos) {
+    if (!prevCuadernoNames.has(c.nombre)) {
+      changes.push({
+        category: 'cuaderno',
+        description: `Cuaderno nuevo: ${c.nombre} (${c.folio_count} folios)`,
+      })
+    }
+  }
+
+  // ── Folios nuevos por cuaderno ──
+  const prevCuadernoMap = new Map(prev.cuadernos.map(c => [c.nombre, new Set(c.folio_numeros)]))
+  for (const c of curr.cuadernos) {
+    const prevFolios = prevCuadernoMap.get(c.nombre)
+    if (!prevFolios) continue
+    const newFolios = c.folio_numeros.filter(n => !prevFolios.has(n))
+    if (newFolios.length > 0) {
+      const folioList = newFolios.length <= 3
+        ? newFolios.join(', ')
+        : `${newFolios.slice(0, 3).join(', ')}… (+${newFolios.length - 3})`
+      changes.push({
+        category: 'folio',
+        description: `${newFolios.length} folio(s) nuevo(s) en ${c.nombre}: ${folioList}`,
+      })
+    }
+  }
+
+  // ── Anexos nuevos ──
+  const prevAnexoKeys = new Set(prev.anexos.map(a => `${a.fecha}|${a.referencia}`))
+  const newAnexos = curr.anexos.filter(a => !prevAnexoKeys.has(`${a.fecha}|${a.referencia}`))
+  if (newAnexos.length > 0) {
+    for (const a of newAnexos) {
+      changes.push({
+        category: 'anexo',
+        description: `Anexo nuevo: ${a.referencia || a.fecha || 'sin referencia'}`,
+      })
+    }
+  }
+
+  // ── Exhortos: estado cambiado + documentos nuevos ──
+  const prevExhortoMap = new Map(prev.exhortos.map(e => [e.rol_destino, e]))
+  for (const e of curr.exhortos) {
+    const pe = prevExhortoMap.get(e.rol_destino)
+    if (!pe) {
+      changes.push({
+        category: 'exhorto',
+        description: `Exhorto nuevo: ${e.rol_destino} (${e.estado}, ${e.doc_count} docs)`,
+      })
+      continue
+    }
+    if (pe.estado && e.estado && pe.estado !== e.estado) {
+      changes.push({
+        category: 'exhorto',
+        description: `Exhorto ${e.rol_destino}: ${pe.estado} → ${e.estado}`,
+      })
+    }
+    if (e.doc_count > pe.doc_count) {
+      changes.push({
+        category: 'exhorto',
+        description: `${e.doc_count - pe.doc_count} doc(s) nuevo(s) en exhorto ${e.rol_destino}`,
+      })
+    }
+  }
+
+  // ── Receptor retiros nuevos ──
+  const prevRetiroKeys = new Set(prev.receptor_retiros.map(r => `${r.cuaderno}|${r.fecha_retiro}|${r.estado}`))
+  const newRetiros = curr.receptor_retiros.filter(r => !prevRetiroKeys.has(`${r.cuaderno}|${r.fecha_retiro}|${r.estado}`))
+  if (newRetiros.length > 0) {
+    changes.push({
+      category: 'receptor',
+      description: `${newRetiros.length} retiro(s) nuevo(s) del receptor`,
+    })
+  }
+
+  // ── Tabs: conteos ──
+  const tabLabels: Record<string, string> = {
+    litigantes: 'Litigantes',
+    notificaciones: 'Notificaciones',
+    escritos_por_resolver: 'Escritos por Resolver',
+    exhortos: 'Exhortos',
+  }
+  for (const [key, label] of Object.entries(tabLabels)) {
+    const oldCount = prev.tabs_counts[key as keyof typeof prev.tabs_counts] || 0
+    const newCount = curr.tabs_counts[key as keyof typeof curr.tabs_counts] || 0
+    if (newCount > oldCount) {
+      changes.push({
+        category: 'tab',
+        description: `${newCount - oldCount} nuevo(s) en ${label}`,
+      })
+    }
+  }
+
+  return changes
 }
