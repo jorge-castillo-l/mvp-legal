@@ -954,10 +954,11 @@ async function confirmDelete() {
       }, 250);
     }
 
+    const deletedRol = pendingDelete.rol;
     closeDeleteModal();
-    showNotification(`Causa ${pendingDelete.rol} eliminada`, 'success');
+    showNotification(`Causa ${deletedRol} eliminada`, 'success');
 
-    if (lastDetectedCausa && pendingDelete.rol === lastDetectedCausa.rol) {
+    if (lastDetectedCausa && deletedRol === lastDetectedCausa.rol) {
       lastSyncState = null;
       applySyncStateUI(lastDetectedCausa, { lastSyncedAt: null });
       const compactEl = document.getElementById('sync-compact');
