@@ -180,6 +180,7 @@ function showDetectingState() {
   if (syncStatus) syncStatus.style.display = 'none';
   const changesBanner = document.getElementById('changes-detected-banner');
   if (changesBanner) changesBanner.style.display = 'none';
+  hideCausaPackagePreview();
 }
 
 /**
@@ -394,6 +395,7 @@ async function displayDetectedCausa(causa) {
     if (syncStatus) syncStatus.style.display = 'none';
     const changesBanner = document.getElementById('changes-detected-banner');
     if (changesBanner) changesBanner.style.display = 'none';
+    hideCausaPackagePreview();
   }
 
   const syncBtn = document.getElementById('sync-btn');
@@ -426,16 +428,14 @@ async function displayDetectedCausa(causa) {
   }
 }
 
-/** Actualiza los badges de cuadernos/folios cuando llega un CausaPackage del service worker */
-function updateCausaPackagePreview(nCuadernos, nFolios) {
+/** Actualiza el badge de cuadernos cuando llega un CausaPackage del service worker */
+function updateCausaPackagePreview(nCuadernos) {
   const pkgEl = document.getElementById('causa-package-preview');
   const cuadernosEl = document.getElementById('causa-cuadernos');
-  const foliosEl = document.getElementById('causa-folios');
-  if (!pkgEl || !cuadernosEl || !foliosEl) return;
+  if (!pkgEl || !cuadernosEl) return;
 
-  if (nCuadernos > 0 || nFolios > 0) {
+  if (nCuadernos > 0) {
     cuadernosEl.textContent = `${nCuadernos} cuaderno${nCuadernos !== 1 ? 's' : ''}`;
-    foliosEl.textContent = `${nFolios} folio${nFolios !== 1 ? 's' : ''}`;
     pkgEl.style.display = 'flex';
   } else {
     hideCausaPackagePreview();
@@ -493,13 +493,12 @@ async function handleSync() {
     if (!causaPackage) throw new Error('No se pudo obtener el paquete de la causa. Asegúrese de estar viendo el modal de una causa en PJUD.');
 
     const nCuadernos = causaPackage.cuadernos?.length || 0;
-    const nFolios = causaPackage.folios?.length || 0;
-    updateCausaPackagePreview(nCuadernos, nFolios);
+    updateCausaPackagePreview(nCuadernos);
 
     const session = await supabase.getSession();
     if (!session?.access_token) throw new Error('Sesión no disponible. Por favor recargue la extensión.');
 
-    updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s) · ${nFolios} folio(s) visibles...`);
+    updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s)...`);
     const syncResult = await callSyncWithSSE(causaPackage, session.access_token);
 
     showSyncResultsV2(syncResult);
@@ -665,31 +664,15 @@ function handleSSEEvent(event, data) {
       const pct = total > 0 ? 10 + Math.round((current / total) * 80) : 15;
       updateProgress(pct, data.message);
 
-      // Indicador de cuaderno (si viene en el evento)
-      if (data.cuaderno_current != null && data.cuaderno_total > 0) {
-        const cuadernoEl = document.getElementById('cuaderno-progress');
-        const cuadernoText = document.getElementById('cuaderno-progress-text');
-        if (cuadernoEl && cuadernoText) {
-          cuadernoEl.style.display = 'block';
-          cuadernoText.textContent = `Cuaderno ${data.cuaderno_current} de ${data.cuaderno_total}`;
-        }
-      }
       break;
     }
     case 'complete':
       updateProgress(100, '¡Sincronización completada!', 'success');
-      hideCuadernoProgress();
       break;
     case 'error':
       updateProgress(100, `Error: ${data.message}`, 'error');
-      hideCuadernoProgress();
       break;
   }
-}
-
-function hideCuadernoProgress() {
-  const el = document.getElementById('cuaderno-progress');
-  if (el) el.style.display = 'none';
 }
 
 /**
@@ -947,10 +930,9 @@ function handleScraperEvent(event, data) {
     case 'causa_detected': displayDetectedCausa(data).catch(() => {}); break;
     case 'content_updated': if (data?.causa) displayDetectedCausa(data.causa).catch(() => {}); break;
     case 'causa_package_ready':
-      // JwtExtractor extrajo el CausaPackage — actualizar preview de cuadernos/folios
       if (data) {
-        updateCausaPackagePreview(data.cuadernos || 0, data.folios || 0);
-        console.log('[4.18] CausaPackage listo:', data.rol, `| ${data.cuadernos} cuadernos, ${data.folios} folios`);
+        updateCausaPackagePreview(data.cuadernos || 0);
+        console.log('[4.18] CausaPackage listo:', data.rol, `| ${data.cuadernos} cuadernos`);
       }
       break;
     case 'pdf_captured': showNotification(`PDF capturado: ${formatSize(data?.size)}`, 'success'); break;

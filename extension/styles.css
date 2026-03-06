@@ -768,22 +768,6 @@ h2 {
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
 }
-.pkg-badge-folios {
-  background: #dcfce7;
-  color: #15803d;
-  border: 1px solid #bbf7d0;
-}
-
-/* Indicador de cuaderno actual durante el sync */
-.cuaderno-progress {
-  margin-top: 4px;
-  padding: 2px 0;
-}
-.cuaderno-progress-text {
-  font-size: 11px;
-  color: var(--accent-color);
-  font-weight: 500;
-}
 
 /* Resultado tipo "info" (no hay nuevos pero hay existentes) */
 .result-info {
