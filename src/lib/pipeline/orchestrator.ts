@@ -29,6 +29,20 @@ const RETRY_DELAYS_MS = [10_000, 60_000, 300_000] as const // 10s, 1min, 5min
 
 export type QueueStatus = 'queued' | 'processing' | 'completed' | 'failed'
 
+export interface DocMetadata {
+  folio_numero?: number | null
+  etapa?: string | null
+  tramite?: string | null
+  desc_tramite?: string | null
+  fecha_tramite?: string | null
+  foja?: number | null
+  cuaderno?: string | null
+  source_tab?: 'historia' | 'piezas_exhorto'
+  fecha_documento?: string | null
+  referencia?: string | null
+  [key: string]: unknown
+}
+
 export interface QueueEntryMetadata {
   storage_path: string
   filename: string
@@ -36,6 +50,7 @@ export interface QueueEntryMetadata {
   file_size: number
   source: string
   rol: string
+  doc_metadata?: DocMetadata
 }
 
 export interface QueueEntry {
