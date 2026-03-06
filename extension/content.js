@@ -117,6 +117,43 @@ function triggerRedetection() {
 }
 
 // ══════════════════════════════════════════════════════════
+// DETECCIÓN AGRESIVA DE MODAL — reintentos escalonados
+// Se activa al detectar que el usuario abrió un modal de causa
+// (click en lupa, hashchange). Usa timers independientes de
+// triggerRedetection para no interferir con el flujo existente.
+// ══════════════════════════════════════════════════════════
+
+let modalDetectionTimers = [];
+const MODAL_RETRY_DELAYS = [600, 1500, 3000, 5000];
+
+function scheduleModalDetection() {
+  modalDetectionTimers.forEach(t => clearTimeout(t));
+  modalDetectionTimers = [];
+
+  for (const delay of MODAL_RETRY_DELAYS) {
+    const timer = setTimeout(async () => {
+      if (!engine) await initializeEngine();
+      if (!engine) return;
+
+      const causa = await engine.detectCausa();
+
+      if (causa?.tribunal) {
+        modalDetectionTimers.forEach(t => clearTimeout(t));
+        modalDetectionTimers = [];
+        console.log('[LegalBot] Modal detectado con éxito tras reintento:', causa.rol);
+      }
+
+      chrome.runtime.sendMessage({
+        type: 'scraper_event',
+        event: 'content_updated',
+        data: { causa: causa },
+      }).catch(() => {});
+    }, delay);
+    modalDetectionTimers.push(timer);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
 // CAPTURA CLIC EN TABLA DE RESULTADOS (caratulado/tribunal)
 // Al hacer clic en el ícono de detalle, guardamos la fila para
 // usarla cuando el modal cargue (donde el ROL es el mismo para
@@ -128,6 +165,8 @@ const PJUD_LAST_CLICKED_KEY = '__pjudLastClickedRow';
 function capturePjudRowClick(e) {
   const link = e.target.closest?.('a.toggle-modal, a[href="#modalDetalleCivil"]');
   if (!link) return;
+
+  scheduleModalDetection();
 
   const row = link.closest?.('tr');
   const tbody = row?.closest?.('#verDetalle');
@@ -170,6 +209,7 @@ if (window === window.top && /pjud\.cl/i.test(document.location.href)) {
     if (/modalDetalle|detalle|modal/i.test(location.hash)) {
       console.log('[LegalBot] Hash cambiado (modal), re-detectando:', location.hash);
       triggerRedetection();
+      scheduleModalDetection();
     }
   });
 
@@ -187,8 +227,8 @@ if (window === window.top && /pjud\.cl/i.test(document.location.href)) {
     }
   });
 
-  // Detección periódica cada 8s (fallback para lazy-load que no dispara eventos)
-  setInterval(triggerRedetection, 8000);
+  // Detección periódica cada 3s (fallback para lazy-load que no dispara eventos)
+  setInterval(triggerRedetection, 3000);
 }
 
 // ══════════════════════════════════════════════════════════

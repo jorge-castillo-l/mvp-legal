@@ -2,24 +2,25 @@
  * ============================================================
  * API ROUTE: /api/cases
  * ============================================================
- * Devuelve las causas del usuario autenticado con conteo
- * de documentos incluido. UNA SOLA QUERY — sin N+1.
+ * GET  → Lista causas del usuario con conteo de documentos.
+ * DELETE → Elimina una causa y todos sus datos asociados (cascade).
  *
- * Supabase PostgREST permite contar relaciones embebidas:
- *   .select('*, documents(count)')
- * Esto genera un LEFT JOIN + COUNT en una sola ida al DB.
- *
- * Respuesta:
+ * Respuesta GET:
  *   { cases: [ { id, rol, tribunal, caratula, ..., document_count } ] }
+ *
+ * Respuesta DELETE:
+ *   { deleted: { case_id, rol, documents_removed, storage_removed } }
  * ============================================================
  */
 
-import { createClient, createClientWithToken } from '@/lib/supabase/server'
+import { createClient, createClientWithToken, createAdminClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 
+const ALLOWED_METHODS = 'GET, DELETE, OPTIONS'
+
 export async function GET(request: NextRequest) {
-  const corsHeaders = getCorsHeaders(request, { methods: 'GET, OPTIONS' })
+  const corsHeaders = getCorsHeaders(request, { methods: ALLOWED_METHODS })
 
   try {
     // === Auth === (Bearer para extensión, cookies para Dashboard)
@@ -83,6 +84,111 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+// DELETE — Elimina una causa y TODOS sus datos asociados
+// ════════════════════════════════════════════════════════════
+
+export async function DELETE(request: NextRequest) {
+  const corsHeaders = getCorsHeaders(request, { methods: ALLOWED_METHODS })
+
+  try {
+    const authHeader = request.headers.get('Authorization')
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Sesión inválida o expirada' },
+        { status: 401, headers: corsHeaders }
+      )
+    }
+
+    const body = await request.json().catch(() => ({}))
+    const caseId = body.case_id as string | undefined
+
+    if (!caseId) {
+      return NextResponse.json(
+        { error: 'Falta case_id en el body' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+
+    const supabase = token ? createClientWithToken(token) : supabaseAuth
+
+    // 1. Verificar que la causa pertenece al usuario
+    const { data: targetCase, error: caseError } = await supabase
+      .from('cases')
+      .select('id, rol, tribunal, user_id')
+      .eq('id', caseId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (caseError || !targetCase) {
+      return NextResponse.json(
+        { error: 'Causa no encontrada o no pertenece al usuario' },
+        { status: 404, headers: corsHeaders }
+      )
+    }
+
+    // 2. Obtener documentos para limpiar storage
+    const { data: docs } = await supabase
+      .from('documents')
+      .select('id, storage_path')
+      .eq('case_id', caseId)
+
+    const docIds = (docs || []).map(d => d.id)
+    const storagePaths = (docs || []).map(d => d.storage_path).filter(Boolean) as string[]
+
+    // 3. Cascade delete (orden: hojas → raíz)
+    if (docIds.length > 0) {
+      await supabase.from('extracted_texts').delete().in('document_id', docIds)
+    }
+
+    await supabase.from('document_hashes').delete().eq('case_id', caseId)
+
+    if (storagePaths.length > 0) {
+      const supabaseAdmin = createAdminClient()
+      const BATCH_SIZE = 100
+      let storageRemoved = 0
+      for (let i = 0; i < storagePaths.length; i += BATCH_SIZE) {
+        const batch = storagePaths.slice(i, i + BATCH_SIZE)
+        const { data: removed } = await supabaseAdmin.storage
+          .from('case-files')
+          .remove(batch)
+        storageRemoved += removed?.length ?? 0
+      }
+      console.log(`[DELETE /api/cases] Storage: ${storageRemoved}/${storagePaths.length} archivos eliminados`)
+    }
+
+    await supabase.from('documents').delete().eq('case_id', caseId)
+    await supabase.from('cases').delete().eq('id', caseId).eq('user_id', user.id)
+
+    console.log(`[DELETE /api/cases] Causa eliminada: ${targetCase.rol} (${caseId}) — ${docIds.length} docs`)
+
+    return NextResponse.json(
+      {
+        deleted: {
+          case_id: caseId,
+          rol: targetCase.rol,
+          documents_removed: docIds.length,
+          storage_removed: storagePaths.length,
+        }
+      },
+      { status: 200, headers: corsHeaders }
+    )
+  } catch (error) {
+    console.error('Error en DELETE /api/cases:', error)
+    return NextResponse.json(
+      { error: 'Error interno del servidor' },
+      { status: 500, headers: corsHeaders }
+    )
+  }
+}
+
 export async function OPTIONS(request: NextRequest) {
-  return handleCorsOptions(request)
+  return NextResponse.json({}, {
+    status: 200,
+    headers: getCorsHeaders(request, { methods: ALLOWED_METHODS }),
+  })
 }

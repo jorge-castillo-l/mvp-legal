@@ -836,6 +836,110 @@ h2 {
   margin-bottom: 2px;
 }
 
+/* ══════ BOTÓN ELIMINAR EN CASE CARDS ══════ */
+
+.case-delete-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--muted-color);
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.case-card:hover .case-delete-btn { opacity: 1; }
+
+.case-delete-btn:hover { color: var(--error-color); }
+
+.case-delete-btn:disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed;
+  color: var(--muted-color) !important;
+}
+
+/* ══════ MODAL DE CONFIRMACIÓN ══════ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal-box {
+  background: white;
+  border-radius: 10px;
+  padding: 20px;
+  width: calc(100% - 40px);
+  max-width: 320px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary-color);
+  margin: 0 0 8px 0;
+}
+
+.modal-detail {
+  font-size: 13px;
+  color: var(--secondary-color);
+  margin: 0 0 6px 0;
+  line-height: 1.5;
+}
+
+.modal-warning {
+  font-size: 11px;
+  color: var(--error-color);
+  margin: 0 0 16px 0;
+  font-weight: 500;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-modal {
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.btn-modal-cancel {
+  background: var(--bg-color);
+  color: var(--secondary-color);
+  border: 1px solid var(--border-color);
+}
+
+.btn-modal-cancel:hover { background: #e2e8f0; }
+
+.btn-modal-danger {
+  background: var(--error-color);
+  color: white;
+}
+
+.btn-modal-danger:hover { background: #b91c1c; }
+
+.btn-modal-danger:disabled {
+  background: var(--muted-color);
+  cursor: not-allowed;
+}
+
 /* ══════ FOOTER ══════ */
 
 footer {

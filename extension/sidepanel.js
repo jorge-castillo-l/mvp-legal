@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuthentication();
   setupTabs();
   setupEventListeners();
+  setupDeleteListeners();
   setupScraperEventListener();
   setupTabChangeDetection();
 
@@ -462,6 +463,9 @@ async function handleSync() {
     caratula: lastDetectedCausa.caratula || '',
   };
 
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.disabled = true;
+
   const syncBtn = document.getElementById('sync-btn');
   const compactEl = document.getElementById('sync-compact');
   const waitBanner = document.getElementById('sync-wait-banner');
@@ -521,6 +525,7 @@ async function handleSync() {
   }
 
   isSyncing = false;
+  if (logoutBtn) logoutBtn.disabled = false;
 
   if (waitBanner) {
     waitBanner.style.display = 'none';
@@ -845,6 +850,10 @@ function renderCaseCard(c) {
         <div class="case-badges">
           ${newCount > 0 ? `<span class="badge-new" title="${newCount} documento(s) nuevo(s) desde última sync">Nuevo</span>` : ''}
           <span class="case-badge badge-${freshness}">${docCount} doc${docCount !== 1 ? 's' : ''}</span>
+          <button class="case-delete-btn" title="Eliminar causa"
+            data-del-id="${escapeHtml(c.id)}"
+            data-del-rol="${escapeHtml(c.rol)}"
+            data-del-docs="${docCount}">✕</button>
         </div>
       </div>
       <p class="case-tribunal">${escapeHtml(tribunalDisplay)}</p>
@@ -854,6 +863,120 @@ function renderCaseCard(c) {
       </div>
     </div>
   `;
+}
+
+// ══════════════════════════════════════════════════════════
+// 9. DELETE CAUSA — Modal + API call
+// ══════════════════════════════════════════════════════════
+
+let pendingDelete = null; // { id, rol, docs }
+
+function setupDeleteListeners() {
+  document.getElementById('cases-list')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.case-delete-btn');
+    if (!btn) return;
+    e.stopPropagation();
+
+    if (isSyncing) {
+      showNotification('No se puede eliminar mientras se sincroniza', 'warning');
+      return;
+    }
+
+    const id = btn.dataset.delId;
+    const rol = btn.dataset.delRol;
+    const docs = parseInt(btn.dataset.delDocs, 10) || 0;
+
+    pendingDelete = { id, rol, docs };
+
+    const modal = document.getElementById('delete-modal');
+    document.getElementById('delete-modal-title').textContent = `¿Eliminar causa ${rol}?`;
+    const detail = docs > 0
+      ? `Se eliminarán permanentemente ${docs} documento${docs !== 1 ? 's' : ''} sincronizado${docs !== 1 ? 's' : ''} y todo su historial.`
+      : 'Se eliminará la causa y todo su historial.';
+    document.getElementById('delete-modal-detail').textContent = detail;
+    document.getElementById('delete-confirm-btn').disabled = false;
+    document.getElementById('delete-confirm-btn').textContent = 'Eliminar';
+    modal.style.display = 'flex';
+  });
+
+  document.getElementById('delete-cancel-btn')?.addEventListener('click', closeDeleteModal);
+
+  document.getElementById('delete-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeDeleteModal();
+  });
+
+  document.getElementById('delete-confirm-btn')?.addEventListener('click', confirmDelete);
+}
+
+function closeDeleteModal() {
+  document.getElementById('delete-modal').style.display = 'none';
+  pendingDelete = null;
+}
+
+async function confirmDelete() {
+  if (!pendingDelete) return;
+
+  const confirmBtn = document.getElementById('delete-confirm-btn');
+  const cancelBtn = document.getElementById('delete-cancel-btn');
+  confirmBtn.disabled = true;
+  confirmBtn.textContent = 'Eliminando…';
+  cancelBtn.style.display = 'none';
+
+  try {
+    const session = await supabase.getSession();
+    if (!session?.access_token) throw new Error('Sin sesión activa');
+
+    const response = await fetch(CONFIG.API.CASES, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ case_id: pendingDelete.id }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
+    const card = document.querySelector(`.case-card[data-case-id="${pendingDelete.id}"]`);
+    if (card) {
+      card.style.transition = 'opacity 0.25s, transform 0.25s';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(20px)';
+      setTimeout(() => {
+        card.remove();
+        const listEl = document.getElementById('cases-list');
+        if (listEl && !listEl.children.length) {
+          document.getElementById('cases-empty').style.display = 'flex';
+        }
+      }, 250);
+    }
+
+    closeDeleteModal();
+    showNotification(`Causa ${pendingDelete.rol} eliminada`, 'success');
+
+    if (lastDetectedCausa && pendingDelete.rol === lastDetectedCausa.rol) {
+      lastSyncState = null;
+      applySyncStateUI(lastDetectedCausa, { lastSyncedAt: null });
+      const compactEl = document.getElementById('sync-compact');
+      if (compactEl) {
+        compactEl.style.display = 'none';
+        const resultEl = document.getElementById('sync-compact-result');
+        const detailsEl = document.getElementById('sync-compact-details');
+        if (resultEl) resultEl.innerHTML = '';
+        if (detailsEl) detailsEl.innerHTML = '';
+      }
+    }
+
+  } catch (error) {
+    console.error('[Delete] Error:', error);
+    confirmBtn.textContent = 'Eliminar';
+    confirmBtn.disabled = false;
+    cancelBtn.style.display = '';
+    showNotification(`Error: ${error.message}`, 'error');
+  }
 }
 
 // ══════════════════════════════════════════════════════════
