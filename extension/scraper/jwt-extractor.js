@@ -135,6 +135,8 @@ class JwtExtractor {
     const tabs = this._extractTabsData(modalBody);
     const exhorto = this._extractExhortoData(modalBody);
 
+    const remisiones = this._extractRemisiones(modalBody);
+
     const causaPackage = {
       rol: metadata.rol,
       libro_tipo: metadata.libro_tipo,
@@ -163,6 +165,7 @@ class JwtExtractor {
       folios: folios,
       tabs: tabs,
       exhorto: exhorto,
+      remisiones: remisiones,
 
       extracted_at: new Date().toISOString(),
       page_url: window.location.href,
@@ -206,6 +209,7 @@ class JwtExtractor {
       metadata.tribunal, '|',
       `${cuadernos.length} cuadernos,`,
       `${folios.length} folios,`,
+      `${remisiones.length} remisiones,`,
       `proc: ${metadata.procedimiento || 'desconocido'}`,
     );
 
@@ -848,6 +852,47 @@ class JwtExtractor {
     if (/voluntario/i.test(text)) return 'voluntario';
 
     return null;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // 11) REMISIONES EN LA CORTE — panel with detalleCausaApelaciones
+  // ════════════════════════════════════════════════════════
+
+  _extractRemisiones(modalBody) {
+    const remisiones = [];
+
+    const headings = modalBody.querySelectorAll('.panel-heading h4');
+    let remisionesPanel = null;
+    for (const h4 of headings) {
+      if (/remisiones\s+en\s+la\s+corte/i.test(h4.textContent)) {
+        remisionesPanel = h4.closest('.panel');
+        break;
+      }
+    }
+
+    if (!remisionesPanel) return remisiones;
+
+    const rows = remisionesPanel.querySelectorAll('tbody tr');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 3) continue;
+
+      const link = cells[0].querySelector('a[onclick*="detalleCausaApelaciones"]');
+      if (!link) continue;
+
+      const jwt = this._extractJwtFromOnclick(
+        link.getAttribute('onclick') || '', 'detalleCausaApelaciones'
+      );
+      if (!jwt) continue;
+
+      remisiones.push({
+        jwt: jwt,
+        descripcion_tramite: this._cleanText(cells[1]?.textContent),
+        fecha_tramite: this._cleanText(cells[2]?.textContent),
+      });
+    }
+
+    return remisiones;
   }
 
   // ════════════════════════════════════════════════════════

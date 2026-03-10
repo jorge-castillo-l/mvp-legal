@@ -91,6 +91,78 @@ export interface ExhortoDetalleDoc {
   tramite: string
 }
 
+// ════════════════════════════════════════════════════════
+// Remisiones en la Corte — extraídas del DOM por JwtExtractor
+// ════════════════════════════════════════════════════════
+
+export interface RemisionEntry {
+  jwt: string
+  descripcion_tramite: string
+  fecha_tramite: string
+}
+
+// ════════════════════════════════════════════════════════
+// Apelaciones — datos parseados del modal detalle
+// ════════════════════════════════════════════════════════
+
+export interface ApelacionMetadata {
+  libro: string | null
+  fecha: string | null
+  estado_recurso: string | null
+  estado_procesal: string | null
+  ubicacion: string | null
+  recurso: string | null
+  corte: string | null
+}
+
+export interface ApelacionFolio {
+  numero: number
+  jwt_doc: JwtRef | null
+  jwt_certificado_escrito: JwtRef | null
+  tramite: string
+  descripcion: string
+  nomenclaturas: string | null
+  fecha: string
+  sala: string
+  estado: string
+}
+
+export interface ApelacionTabsData {
+  litigantes: Array<{
+    sujeto: string
+    rut: string
+    persona: string
+    nombre: string
+  }>
+  exhortos: Array<{ descripcion: string }>
+  incompetencia: Array<{ descripcion: string }>
+}
+
+export interface ApelacionExpediente {
+  causa_origen: string | null
+  tribunal: string | null
+  caratulado: string | null
+  materia: string | null
+  ruc: string | null
+  fecha_ingreso: string | null
+  jwt_detalle_civil: string | null
+}
+
+export interface ApelacionDirectJwts {
+  certificado_envio: JwtRef | null
+  ebook: JwtRef | null
+  texto: JwtRef | null
+  anexo_recurso: string | null
+}
+
+export interface ApelacionDetail {
+  metadata: ApelacionMetadata
+  direct_jwts: ApelacionDirectJwts
+  folios: ApelacionFolio[]
+  tabs: ApelacionTabsData
+  expediente: ApelacionExpediente | null
+}
+
 export interface PjudCookies {
   PHPSESSID: string
   TS01262d1d?: string
@@ -124,6 +196,7 @@ export interface CausaPackage {
   folios: Folio[]
   tabs: TabsData | null
   exhorto: ExhortoData | null
+  remisiones: RemisionEntry[]
 
   extracted_at: string
   page_url: string
@@ -168,7 +241,7 @@ export interface SyncedDocument {
 }
 
 export interface SyncChange {
-  category: 'folio' | 'cuaderno' | 'anexo' | 'exhorto' | 'receptor' | 'metadata' | 'tab'
+  category: 'folio' | 'cuaderno' | 'anexo' | 'exhorto' | 'receptor' | 'metadata' | 'tab' | 'remision'
   description: string
 }
 
@@ -191,6 +264,12 @@ export interface SyncSnapshot {
     cuaderno: string
     fecha_retiro: string
     estado: string
+  }>
+  remisiones: Array<{
+    descripcion_tramite: string
+    fecha_tramite: string
+    libro: string | null
+    folio_count: number
   }>
   metadata: {
     estado: string
@@ -225,6 +304,9 @@ export interface SyncResult {
   causa_origen_stored: boolean
   exhortos_count: number
   exhortos_docs_downloaded: number
+  remisiones_count: number
+  remisiones_docs_downloaded: number
+  remisiones_stored: boolean
   changes: SyncChange[]
   is_first_sync: boolean
 }

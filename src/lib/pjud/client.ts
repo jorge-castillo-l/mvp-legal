@@ -421,6 +421,77 @@ export class PjudClient {
   }
 
   /**
+   * POST to causaApelaciones.php to get the HTML for a remision detail modal.
+   * PJUD does not validate the reCAPTCHA token server-side, so a dummy value works.
+   */
+  async fetchApelacionHtml(
+    jwt: string,
+    cookies: PjudCookies | null
+  ): Promise<string | null> {
+    await this.throttle()
+
+    const url = `${PJUD_BASE_URL}/ADIR_871/apelaciones/modal/causaApelaciones.php`
+
+    const headers: Record<string, string> = {
+      ...this.baseHeaders(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: PJUD_ORIGIN,
+    }
+
+    const cookie = this.cookieHeader(cookies)
+    if (cookie) headers['Cookie'] = cookie
+
+    const body = new URLSearchParams({
+      dtaCausa: jwt,
+      tokenCaptcha: 'SYNC_SERVER',
+    }).toString()
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'follow',
+      })
+
+      if (!response.ok) {
+        console.warn(
+          `[PjudClient] causaApelaciones.php failed: ${response.status} ${response.statusText}`
+        )
+        return null
+      }
+
+      const html = await response.text()
+
+      if (html.length < 200 || !html.includes('table')) {
+        console.warn(
+          `[PjudClient] causaApelaciones.php response too small or invalid (${html.length} chars)`
+        )
+        return null
+      }
+
+      console.log(
+        `[PjudClient] causaApelaciones.php: ${html.length} chars recibidos`
+      )
+      return html
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('[PjudClient] causaApelaciones.php request timeout')
+      } else {
+        console.error('[PjudClient] causaApelaciones.php error:', error)
+      }
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
    * POST to detalleExhortos.php to get the HTML for the exhorto detail modal.
    * Returns a table with documents downloadable via docDetalleExhorto.php.
    * Confirmed via DevTools Network capture (2026-03-04).

@@ -16,7 +16,11 @@
  */
 
 import { parse as parseHtml, HTMLElement } from 'node-html-parser'
-import type { AnexoFile, ExhortoDetalleDoc, Folio, JwtRef, ReceptorData, TabsData } from './types'
+import type {
+  AnexoFile, ApelacionDetail, ApelacionDirectJwts, ApelacionExpediente,
+  ApelacionFolio, ApelacionMetadata, ApelacionTabsData,
+  ExhortoDetalleDoc, Folio, JwtRef, ReceptorData, TabsData,
+} from './types'
 
 /**
  * Extract folios from the HTML response of causaCivil.php.
@@ -399,4 +403,245 @@ export function parseReceptorData(html: string): ReceptorData {
   }
 
   return { receptor_nombre, retiros }
+}
+
+// ════════════════════════════════════════════════════════
+// APELACIONES PARSER — causaApelaciones.php response
+// ════════════════════════════════════════════════════════
+
+/**
+ * Parse the full HTML response of causaApelaciones.php.
+ * Extracts metadata, direct JWTs (Ebook, Certificado, Texto, Anexo),
+ * movimientos (folios), tabs (litigantes, exhortos, incompetencia),
+ * and expediente primera instancia metadata.
+ */
+export function parseApelacionFromHtml(html: string): ApelacionDetail {
+  const root = parseHtml(html, {
+    lowerCaseTagName: true,
+    comment: false,
+    voidTag: { closingSlash: true },
+  })
+
+  return {
+    metadata: parseApelacionMetadata(root),
+    direct_jwts: parseApelacionDirectJwts(root),
+    folios: parseApelacionFolios(root),
+    tabs: parseApelacionTabs(root),
+    expediente: parseApelacionExpediente(root),
+  }
+}
+
+function parseApelacionMetadata(root: HTMLElement): ApelacionMetadata {
+  const result: ApelacionMetadata = {
+    libro: null, fecha: null, estado_recurso: null,
+    estado_procesal: null, ubicacion: null, recurso: null, corte: null,
+  }
+
+  const tables = root.querySelectorAll('table.table-titulos')
+  if (tables.length === 0) return result
+
+  const metaTable = tables[0]
+  const rows = metaTable.querySelectorAll('tbody > tr')
+
+  if (rows[0]) {
+    for (const cell of rows[0].querySelectorAll('td')) {
+      const text = cleanText(cell.text)
+      const libroMatch = text.match(/Libro\s*:?\s*(.+)/i)
+      if (libroMatch) result.libro = libroMatch[1].trim()
+      const fechaMatch = text.match(/Fecha\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i)
+      if (fechaMatch) result.fecha = fechaMatch[1]
+      const estadoRecMatch = text.match(/Estado\s+Recurso\s*:?\s*(.+)/i)
+      if (estadoRecMatch) result.estado_recurso = estadoRecMatch[1].trim()
+    }
+  }
+
+  if (rows[1]) {
+    for (const cell of rows[1].querySelectorAll('td')) {
+      const text = cleanText(cell.text)
+      const epMatch = text.match(/Estado\s+Procesal\s*:?\s*(.+)/i)
+      if (epMatch) result.estado_procesal = epMatch[1].trim()
+      const ubiMatch = text.match(/Ubicaci[oó]n\s*:?\s*(.+)/i)
+      if (ubiMatch) result.ubicacion = ubiMatch[1].trim()
+      const recMatch = text.match(/Recurso\s*:?\s*(.+)/i)
+      if (recMatch) result.recurso = recMatch[1].trim()
+    }
+  }
+
+  if (rows[2]) {
+    for (const cell of rows[2].querySelectorAll('td')) {
+      const text = cleanText(cell.text)
+      const corteMatch = text.match(/Corte\s*:?\s*(.+)/i)
+      if (corteMatch) result.corte = corteMatch[1].trim()
+    }
+  }
+
+  return result
+}
+
+function parseApelacionDirectJwts(root: HTMLElement): ApelacionDirectJwts {
+  const result: ApelacionDirectJwts = {
+    certificado_envio: null, ebook: null, texto: null, anexo_recurso: null,
+  }
+
+  const ebookForm = root.querySelector('form[action*="newebookapelaciones"]')
+  if (ebookForm) {
+    const input = ebookForm.querySelector('input[name="dtaEbook"]')
+    const val = input?.getAttribute('value') || ''
+    if (val.length > 20) {
+      result.ebook = { jwt: val, action: ebookForm.getAttribute('action') || '', param: 'dtaEbook' }
+    }
+  }
+
+  const tables = root.querySelectorAll('table.table-titulos')
+  if (tables.length >= 2) {
+    const docsTable = tables[1]
+
+    const certForm = docsTable.querySelector('form[action*="docCertificado"]')
+    if (certForm) {
+      const input = certForm.querySelector('input[name="dtaCert"]')
+      const val = input?.getAttribute('value') || ''
+      if (val.length > 20) {
+        result.certificado_envio = { jwt: val, action: certForm.getAttribute('action') || '', param: 'dtaCert' }
+      }
+    }
+
+    const textoForm = docsTable.querySelector('form[action*="docTexto"], form[action*="docu"]')
+    if (textoForm && textoForm !== ebookForm && textoForm !== certForm) {
+      const input = textoForm.querySelector('input[type="hidden"]')
+      const val = input?.getAttribute('value') || ''
+      const name = input?.getAttribute('name') || ''
+      if (val.length > 20) {
+        result.texto = { jwt: val, action: textoForm.getAttribute('action') || '', param: name }
+      }
+    }
+
+    const anexoLink = docsTable.querySelector('a[onclick*="anexo"]')
+    if (anexoLink) {
+      const onclick = anexoLink.getAttribute('onclick') || ''
+      const jwtMatch = onclick.match(/(eyJ[A-Za-z0-9_-]+\.[\w_-]+\.[\w_-]+)/)
+      if (jwtMatch) result.anexo_recurso = jwtMatch[1]
+    }
+  }
+
+  return result
+}
+
+function parseApelacionFolios(root: HTMLElement): ApelacionFolio[] {
+  const folios: ApelacionFolio[] = []
+
+  const movTab = root.querySelector('#movimientosApe')
+  if (!movTab) return folios
+
+  const rows = movTab.querySelectorAll('tbody tr')
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td')
+    if (cells.length < 8) continue
+
+    const num = parseInt(cleanText(cells[0]?.text), 10)
+    if (isNaN(num)) continue
+
+    const docCell = cells[1]
+    const jwtDoc = extractFormJwt(docCell, 'docCausaApelaciones.php')
+    const jwtCert = extractFormJwt(docCell, 'docCertificadoEscrito.php')
+
+    const tramiteRaw = cleanText(cells[3]?.text)
+    const descSpan = cells[4]?.querySelector('.topToolNom, span[title]')
+    const descripcion = cleanText(descSpan?.text || cells[4]?.text)
+    const nomenclaturas = descSpan?.getAttribute('title')?.trim() || null
+
+    folios.push({
+      numero: num,
+      jwt_doc: jwtDoc,
+      jwt_certificado_escrito: jwtCert,
+      tramite: tramiteRaw,
+      descripcion,
+      nomenclaturas,
+      fecha: cleanText(cells[5]?.text),
+      sala: cleanText(cells[6]?.text),
+      estado: cleanText(cells[7]?.text),
+    })
+  }
+
+  return folios
+}
+
+function parseApelacionTabs(root: HTMLElement): ApelacionTabsData {
+  const litigantes: ApelacionTabsData['litigantes'] = []
+  const litTab = root.querySelector('#litigantesApe')
+  if (litTab) {
+    for (const row of litTab.querySelectorAll('tbody tr')) {
+      const cells = row.querySelectorAll('td')
+      const entry = {
+        sujeto: cleanText(cells[0]?.text),
+        rut: cleanText(cells[1]?.text),
+        persona: cleanText(cells[2]?.text),
+        nombre: cleanText(cells[3]?.text),
+      }
+      if (entry.sujeto || entry.nombre) litigantes.push(entry)
+    }
+  }
+
+  const exhortos: ApelacionTabsData['exhortos'] = []
+  const exhTab = root.querySelector('#ExhortosApe')
+  if (exhTab) {
+    for (const row of exhTab.querySelectorAll('tbody tr')) {
+      const cells = row.querySelectorAll('td')
+      const desc = cleanText(cells[1]?.text || cells[0]?.text)
+      if (desc) exhortos.push({ descripcion: desc })
+    }
+  }
+
+  const incompetencia: ApelacionTabsData['incompetencia'] = []
+  const incTab = root.querySelector('#IncompetenciaApe')
+  if (incTab) {
+    for (const row of incTab.querySelectorAll('tbody tr')) {
+      const cells = row.querySelectorAll('td')
+      const desc = cleanText(cells[1]?.text || cells[0]?.text)
+      if (desc) incompetencia.push({ descripcion: desc })
+    }
+  }
+
+  return { litigantes, exhortos, incompetencia }
+}
+
+function parseApelacionExpediente(root: HTMLElement): ApelacionExpediente | null {
+  const expTab = root.querySelector('#expedienteApe')
+  if (!expTab) return null
+
+  const table = expTab.querySelector('table.table-titulos')
+  if (!table) return null
+
+  const result: ApelacionExpediente = {
+    causa_origen: null, tribunal: null, caratulado: null,
+    materia: null, ruc: null, fecha_ingreso: null, jwt_detalle_civil: null,
+  }
+
+  const fullText = cleanText(table.text)
+
+  const origenMatch = fullText.match(/Causa\s+Origen\s*:?\s*([A-Z]\s*-\s*\d{1,8}\s*-\s*\d{4})/i)
+  if (origenMatch) result.causa_origen = origenMatch[1].replace(/\s+/g, '')
+
+  const tribMatch = fullText.match(/Tribunal\s*:?\s*(.+?)(?:$|Caratulado|Materia|Ruc|Fecha)/i)
+  if (tribMatch) result.tribunal = tribMatch[1].trim()
+
+  const caratMatch = fullText.match(/Caratulado\s*:?\s*(.+?)(?:$|Materia|Ruc|Fecha)/i)
+  if (caratMatch) result.caratulado = caratMatch[1].trim()
+
+  const matMatch = fullText.match(/Materia\s*:?\s*(.+?)(?:$|Ruc|Fecha)/i)
+  if (matMatch) result.materia = matMatch[1].trim()
+
+  const rucMatch = fullText.match(/Ruc\s*:?\s*(\S+)/i)
+  if (rucMatch) result.ruc = rucMatch[1].trim()
+
+  const fechaMatch = fullText.match(/Fecha\s+Ingreso\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i)
+  if (fechaMatch) result.fecha_ingreso = fechaMatch[1]
+
+  const civilLink = table.querySelector('a[onclick*="detalleCausaCivil"]')
+  if (civilLink) {
+    result.jwt_detalle_civil = extractJwtFromOnclick(
+      civilLink.getAttribute('onclick') || '', 'detalleCausaCivil'
+    )
+  }
+
+  return result
 }

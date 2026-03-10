@@ -38,12 +38,14 @@ import { createHash } from 'crypto'
 import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { PjudClient } from '@/lib/pjud/client'
-import { mergeTabsData, parseAnexosFromHtml, parseExhortoDetalleFromHtml, parseFoliosFromHtml, parseReceptorData, parseTabsFromHtml } from '@/lib/pjud/parser'
+import { mergeTabsData, parseAnexosFromHtml, parseApelacionFromHtml, parseExhortoDetalleFromHtml, parseFoliosFromHtml, parseReceptorData, parseTabsFromHtml } from '@/lib/pjud/parser'
 import type {
   AnexoFile,
+  ApelacionDetail,
   CausaPackage,
   ExhortoDetalleDoc,
   PdfDownloadTask,
+  RemisionEntry,
   SyncResult,
   SyncChange,
   SyncSnapshot,
@@ -137,7 +139,8 @@ export async function POST(request: NextRequest) {
     pkg.jwt_ebook ||
     (pkg.folios && pkg.folios.length > 0) ||
     (pkg.cuadernos && pkg.cuadernos.length > 0) ||
-    (pkg.tabs?.exhortos?.some((e) => e.jwt_detalle))
+    (pkg.tabs?.exhortos?.some((e) => e.jwt_detalle)) ||
+    (pkg.remisiones && pkg.remisiones.length > 0)
 
   if (!hasJwts) {
     return NextResponse.json(
@@ -202,6 +205,7 @@ export async function POST(request: NextRequest) {
         const snapshotAnexos: SyncSnapshot['anexos'] = []
         const snapshotExhortos: SyncSnapshot['exhortos'] = []
         let snapshotReceptorRetiros: SyncSnapshot['receptor_retiros'] = []
+        const snapshotRemisiones: SyncSnapshot['remisiones'] = []
 
         // ────────────────────────────────────────────
         // PASO 4–5: CONSTRUIR TAREAS DE DESCARGA
@@ -263,6 +267,12 @@ export async function POST(request: NextRequest) {
         const folioAnexoTasks = await fetchFolioAnexos(pjud, pkg, emit)
         downloadTasks.push(...folioAnexoTasks)
 
+        // ────────────────────────────────────────────
+        // PASO 6f: FETCH REMISIONES EN LA CORTE (apelaciones)
+        // ────────────────────────────────────────────
+        const remisionesDocTasks = await fetchRemisiones(pjud, pkg, emit, snapshotRemisiones)
+        downloadTasks.push(...remisionesDocTasks)
+
         const totalTasks = downloadTasks.length
         console.log(
           `[sync] ${pkg.rol} — ${totalTasks} PDFs a descargar ` +
@@ -271,7 +281,8 @@ export async function POST(request: NextRequest) {
           `${anexosTasks.length} anexos + ` +
           `${exhortoDocTasks.length} docs exhortos + ` +
           `${escritosTasks.length} escritos + ` +
-          `${folioAnexoTasks.length} anexos solicitud)`
+          `${folioAnexoTasks.length} anexos solicitud + ` +
+          `${remisionesDocTasks.length} docs remisiones)`
         )
 
         if (totalTasks === 0) {
@@ -420,6 +431,22 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // 8d: Guardar remisiones_data (metadata + tabs de cada apelación)
+        let remisionesStored = false
+        if (snapshotRemisiones.length > 0) {
+          const { error: remError } = await supabase
+            .from('cases')
+            .update({ remisiones_data: snapshotRemisiones })
+            .eq('id', caseId)
+
+          if (remError) {
+            console.warn('[sync] remisiones_data update error:', remError.message)
+          } else {
+            remisionesStored = true
+            console.log(`[sync] remisiones_data guardadas: ${snapshotRemisiones.length} remisión(es)`)
+          }
+        }
+
         // ────────────────────────────────────────────
         // PASO 9: GENERAR SNAPSHOT + DIFF
         // ────────────────────────────────────────────
@@ -428,6 +455,7 @@ export async function POST(request: NextRequest) {
           anexos: snapshotAnexos,
           exhortos: snapshotExhortos,
           receptor_retiros: snapshotReceptorRetiros,
+          remisiones: snapshotRemisiones,
           metadata: {
             estado: pkg.estado_adm || '',
             estado_procesal: pkg.estado_procesal || '',
@@ -510,6 +538,9 @@ export async function POST(request: NextRequest) {
           causa_origen_stored: causaOrigenStored,
           exhortos_count: pkg.tabs?.exhortos?.length ?? 0,
           exhortos_docs_downloaded: exhortoDocTasks.length,
+          remisiones_count: pkg.remisiones?.length ?? 0,
+          remisiones_docs_downloaded: remisionesDocTasks.length,
+          remisiones_stored: remisionesStored,
           changes,
           is_first_sync: isFirstSync,
         }
@@ -1113,6 +1144,149 @@ async function fetchExhortoDocuments(
 }
 
 // ════════════════════════════════════════════════════════
+// FETCH REMISIONES EN LA CORTE (apelaciones)
+// ════════════════════════════════════════════════════════
+
+async function fetchRemisiones(
+  pjud: PjudClient,
+  pkg: CausaPackage,
+  emit?: SseEmitter,
+  snapshotRemisiones?: SyncSnapshot['remisiones'],
+): Promise<PdfDownloadTask[]> {
+  const tasks: PdfDownloadTask[] = []
+
+  const remisiones = pkg.remisiones ?? []
+  if (remisiones.length === 0) return tasks
+
+  emit?.('progress', {
+    message: `Obteniendo ${remisiones.length} remisión(es) en la Corte…`,
+    current: 0,
+    total: 0,
+  })
+
+  for (let idx = 0; idx < remisiones.length; idx++) {
+    const remision = remisiones[idx]
+    const label = `${remision.descripcion_tramite || 'Remisión'} ${remision.fecha_tramite || ''}`
+
+    try {
+      console.log(`[sync] Fetching remisión ${idx + 1}/${remisiones.length}: ${label}`)
+
+      emit?.('progress', {
+        message: `Obteniendo remisión ${idx + 1}/${remisiones.length}: ${label}…`,
+        current: 0,
+        total: 0,
+      })
+
+      const html = await pjud.fetchApelacionHtml(remision.jwt, pkg.cookies)
+
+      if (!html) {
+        console.warn(`[sync] causaApelaciones.php no retornó HTML útil para remisión "${label}"`)
+        continue
+      }
+
+      const detail: ApelacionDetail = parseApelacionFromHtml(html)
+      const libroLabel = detail.metadata.libro || `remision_${idx + 1}`
+      const cleanLibro = libroLabel.replace(/[^a-zA-Z0-9-]/g, '_').substring(0, 40)
+
+      snapshotRemisiones?.push({
+        descripcion_tramite: remision.descripcion_tramite,
+        fecha_tramite: remision.fecha_tramite,
+        libro: detail.metadata.libro,
+        folio_count: detail.folios.length,
+      })
+
+      // Direct documents from the apelacion
+      if (detail.direct_jwts.ebook) {
+        tasks.push(jwtRefToTask(
+          detail.direct_jwts.ebook,
+          `${pkg.rol}_ape_${cleanLibro}_ebook.pdf`,
+          'otro', null, `Apelación ${libroLabel}`, detail.metadata.fecha
+        ))
+      }
+      if (detail.direct_jwts.certificado_envio) {
+        tasks.push(jwtRefToTask(
+          detail.direct_jwts.certificado_envio,
+          `${pkg.rol}_ape_${cleanLibro}_certificado.pdf`,
+          'actuacion', null, `Apelación ${libroLabel}`, detail.metadata.fecha
+        ))
+      }
+      if (detail.direct_jwts.texto) {
+        tasks.push(jwtRefToTask(
+          detail.direct_jwts.texto,
+          `${pkg.rol}_ape_${cleanLibro}_texto.pdf`,
+          'escrito', null, `Apelación ${libroLabel}`, detail.metadata.fecha
+        ))
+      }
+
+      // Movimientos (folios) from the apelacion
+      for (const folio of detail.folios) {
+        const cleanTramite = (folio.tramite || 'doc')
+          .replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '')
+          .trim()
+          .substring(0, 30)
+          .replace(/\s+/g, '_')
+
+        if (folio.jwt_doc) {
+          tasks.push({
+            jwt: folio.jwt_doc.jwt,
+            endpoint: folio.jwt_doc.action,
+            param: folio.jwt_doc.param,
+            filename: `${pkg.rol}_ape_${cleanLibro}_f${folio.numero}_${cleanTramite}.pdf`,
+            document_type: inferDocType(folio.tramite),
+            folio: folio.numero,
+            cuaderno: `Apelación ${libroLabel}`,
+            fecha: folio.fecha,
+            source_url: folio.jwt_doc.action,
+            folio_metadata: {
+              folio_numero: folio.numero,
+              etapa: null,
+              tramite: folio.tramite || null,
+              desc_tramite: folio.descripcion || null,
+              fecha_tramite: folio.fecha || null,
+              foja: null,
+              cuaderno: `Apelación ${libroLabel}`,
+            },
+          })
+        }
+
+        if (folio.jwt_certificado_escrito) {
+          tasks.push({
+            jwt: folio.jwt_certificado_escrito.jwt,
+            endpoint: folio.jwt_certificado_escrito.action,
+            param: folio.jwt_certificado_escrito.param,
+            filename: `${pkg.rol}_ape_${cleanLibro}_f${folio.numero}_cert_escrito.pdf`,
+            document_type: 'actuacion',
+            folio: folio.numero,
+            cuaderno: `Apelación ${libroLabel}`,
+            fecha: folio.fecha,
+            source_url: folio.jwt_certificado_escrito.action,
+            folio_metadata: {
+              folio_numero: folio.numero,
+              etapa: null,
+              tramite: folio.tramite || null,
+              desc_tramite: folio.descripcion || null,
+              fecha_tramite: folio.fecha || null,
+              foja: null,
+              cuaderno: `Apelación ${libroLabel}`,
+            },
+          })
+        }
+      }
+
+      console.log(
+        `[sync] Remisión "${label}": ${detail.folios.length} folios, ` +
+        `${detail.tabs.litigantes.length} litigantes, ` +
+        `ebook: ${!!detail.direct_jwts.ebook}`
+      )
+    } catch (err) {
+      console.error(`[sync] Error fetching remisión "${label}":`, err)
+    }
+  }
+
+  return tasks
+}
+
+// ════════════════════════════════════════════════════════
 // PROCESS ONE DOCUMENT (download → dedup → upload → register)
 // ════════════════════════════════════════════════════════
 
@@ -1355,6 +1529,31 @@ function generateDiff(prev: SyncSnapshot, curr: SyncSnapshot): SyncChange[] {
       category: 'receptor',
       description: `${newRetiros.length} retiro(s) nuevo(s) del receptor`,
     })
+  }
+
+  // ── Remisiones nuevas o con folios nuevos ──
+  const prevRemisionKeys = new Set(
+    (prev.remisiones ?? []).map(r => `${r.descripcion_tramite}|${r.fecha_tramite}`)
+  )
+  const prevRemisionMap = new Map(
+    (prev.remisiones ?? []).map(r => [`${r.descripcion_tramite}|${r.fecha_tramite}`, r])
+  )
+  for (const r of (curr.remisiones ?? [])) {
+    const key = `${r.descripcion_tramite}|${r.fecha_tramite}`
+    if (!prevRemisionKeys.has(key)) {
+      changes.push({
+        category: 'remision',
+        description: `Remisión nueva: ${r.descripcion_tramite} ${r.fecha_tramite}${r.libro ? ` (${r.libro})` : ''} — ${r.folio_count} folios`,
+      })
+    } else {
+      const pr = prevRemisionMap.get(key)
+      if (pr && r.folio_count > pr.folio_count) {
+        changes.push({
+          category: 'remision',
+          description: `${r.folio_count - pr.folio_count} folio(s) nuevo(s) en remisión ${r.descripcion_tramite} ${r.fecha_tramite}`,
+        })
+      }
+    }
   }
 
   // ── Tabs: conteos ──
