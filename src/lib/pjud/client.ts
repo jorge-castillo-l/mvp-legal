@@ -301,10 +301,7 @@ export class PjudClient {
     const cookie = this.cookieHeader(cookies)
     if (cookie) headers['Cookie'] = cookie
 
-    // Try POST with dtaDoc (same pattern as causaCivil.php)
-    const bodyParams: Record<string, string> = { dtaDoc: jwt }
-    if (csrfToken) bodyParams.token = csrfToken
-    const body = new URLSearchParams(bodyParams).toString()
+    const body = new URLSearchParams({ valReceptor: jwt }).toString()
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)

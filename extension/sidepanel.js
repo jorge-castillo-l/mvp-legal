@@ -189,6 +189,8 @@ function showDetectingState() {
  * Se usa al navegar a pestañas no-PJUD o cuando falla la detección.
  */
 function restoreLastDetectedCausaUI() {
+  if (isSyncing) return;
+
   const causaRol = document.getElementById('causa-rol');
   const causaTribunal = document.getElementById('causa-tribunal');
   const causaCaratula = document.getElementById('causa-caratula');
@@ -329,6 +331,8 @@ async function saveSyncedCausaRegistry(causa) {
  * Solo muestra la fecha de última sincronización y el botón apropiado.
  */
 function applySyncStateUI(causa, syncState) {
+  if (isSyncing) return;
+
   const syncStatus = document.getElementById('sync-status');
   const syncStatusLine = document.getElementById('sync-status-line');
   const changesBanner = document.getElementById('changes-detected-banner');
@@ -507,8 +511,11 @@ async function handleSync() {
     let syncResult = null;
     let totalAccumulated = 0;
     let resumeCaseId = null;
+    let lastKnownCaseId = null;
     let iteration = 0;
+    let nullStreakCount = 0;
     const MAX_RESUME_ITERATIONS = 30;
+    const MAX_NULL_RETRIES = 3;
 
     do {
       iteration++;
@@ -524,26 +531,44 @@ async function handleSync() {
         );
       }
 
-      syncResult = await callSyncWithSSE(payload, session.access_token);
+      const iterResult = await callSyncWithSSE(payload, session.access_token);
 
-      if (syncResult) {
-        totalAccumulated += syncResult.total_downloaded || 0;
-        resumeCaseId = syncResult.has_pending ? syncResult.case_id : null;
+      if (iterResult) {
+        nullStreakCount = 0;
+        syncResult = iterResult;
+        totalAccumulated += iterResult.total_downloaded || 0;
+        lastKnownCaseId = iterResult.case_id || lastKnownCaseId;
+        resumeCaseId = iterResult.has_pending ? iterResult.case_id : null;
 
-        if (syncResult.has_pending) {
-          console.log(`[Sync] Pending: ${syncResult.pending_count} tasks. Retrying in 3s...`);
+        if (iterResult.has_pending) {
+          console.log(`[Sync] Pending: ${iterResult.pending_count} tasks. Retrying in 3s...`);
           await new Promise(r => setTimeout(r, 3000));
         }
       } else {
-        resumeCaseId = null;
+        nullStreakCount++;
+        console.warn(`[Sync] Stream cortado sin resultado (intento ${nullStreakCount}/${MAX_NULL_RETRIES})`);
+
+        if (lastKnownCaseId && nullStreakCount <= MAX_NULL_RETRIES) {
+          resumeCaseId = lastKnownCaseId;
+          updateProgress(
+            10 + Math.round((totalAccumulated / (totalAccumulated + 100)) * 80),
+            `Reconectando (intento ${nullStreakCount})…`
+          );
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          resumeCaseId = null;
+        }
       }
     } while (resumeCaseId && iteration < MAX_RESUME_ITERATIONS);
 
     if (syncResult) {
       syncResult.total_downloaded = totalAccumulated;
+      showSyncResultsV2(syncResult);
+      syncSuccess = true;
+    } else {
+      updateProgress(100, 'La conexión se perdió. Al re-sincronizar, continuará donde quedó.', 'warning');
+      renderCompactResult(null, 'Conexión perdida — los documentos descargados se guardaron. Vuelva a sincronizar para continuar.', 'warning');
     }
-    showSyncResultsV2(syncResult);
-    syncSuccess = true;
 
     try {
       if (syncResult) await storeSyncBadge(syncResult);

@@ -35,7 +35,7 @@ export const maxDuration = 300
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
-import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
+import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { PjudClient } from '@/lib/pjud/client'
 import { mergeTabsData, parseAnexosFromHtml, parseApelacionFromHtml, parseExhortoDetalleFromHtml, parseFoliosFromHtml, parseReceptorData, parseTabsFromHtml } from '@/lib/pjud/parser'
@@ -171,8 +171,8 @@ export async function POST(request: NextRequest) {
       const startTime = Date.now()
 
       try {
-        const supabase = createClientWithToken(token)
         const supabaseAdmin = createAdminClient()
+        const supabase = supabaseAdmin
 
         let caseId: string
         let prevSnapshot: SyncSnapshot | null = null
@@ -646,7 +646,7 @@ export async function OPTIONS(request: NextRequest) {
 // ════════════════════════════════════════════════════════
 
 async function upsertCase(
-  supabase: ReturnType<typeof createClientWithToken>,
+  supabase: ReturnType<typeof createAdminClient>,
   userId: string,
   pkg: CausaPackage
 ): Promise<string | null> {
@@ -1382,7 +1382,7 @@ async function fetchRemisiones(
 
 async function processOneDocument(
   pjud: PjudClient,
-  supabase: ReturnType<typeof createClientWithToken>,
+  supabase: ReturnType<typeof createAdminClient>,
   supabaseAdmin: ReturnType<typeof createAdminClient>,
   userId: string,
   caseId: string,
