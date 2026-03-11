@@ -46,10 +46,12 @@ import type {
   ExhortoDetalleDoc,
   PdfDownloadTask,
   RemisionEntry,
+  StoredRemisionDetail,
   SyncResult,
   SyncChange,
   SyncSnapshot,
   SyncedDocument,
+  TabsData,
   Folio,
   JwtRef,
   ReceptorData,
@@ -161,6 +163,8 @@ export async function POST(request: NextRequest) {
     'X-Accel-Buffering': 'no',
   }
 
+  const isResume = !!pkg.resume_case_id
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const emit = createSseEmitter(controller)
@@ -170,126 +174,143 @@ export async function POST(request: NextRequest) {
         const supabase = createClientWithToken(token)
         const supabaseAdmin = createAdminClient()
 
-        // ────────────────────────────────────────────
-        // PASO 3: UPSERT CAUSA EN DB
-        // ────────────────────────────────────────────
-        emit('progress', { message: 'Registrando causa…', current: 0, total: 0 })
-
-        const caseId = await upsertCase(supabase, user.id, pkg)
-        if (!caseId) {
-          emit('error', { message: 'Error al registrar/actualizar la causa en la base de datos' })
-          controller.close()
-          return
-        }
-
-        // ────────────────────────────────────────────
-        // PASO 3b: LEER SNAPSHOT PREVIO (para diff)
-        // ────────────────────────────────────────────
+        let caseId: string
         let prevSnapshot: SyncSnapshot | null = null
-        try {
-          const { data: snapRow } = await supabase
-            .from('cases')
-            .select('sync_snapshot')
-            .eq('id', caseId)
-            .single()
-          if (snapRow?.sync_snapshot) {
-            prevSnapshot = snapRow.sync_snapshot as SyncSnapshot
-          }
-        } catch {
-          // First sync — no snapshot
-        }
-        const isFirstSync = !prevSnapshot
+        let isFirstSync: boolean
+        const downloadTasks: PdfDownloadTask[] = []
 
-        // Collectors for the new snapshot
         const snapshotCuadernos: SyncSnapshot['cuadernos'] = []
         const snapshotAnexos: SyncSnapshot['anexos'] = []
         const snapshotExhortos: SyncSnapshot['exhortos'] = []
         let snapshotReceptorRetiros: SyncSnapshot['receptor_retiros'] = []
         const snapshotRemisiones: SyncSnapshot['remisiones'] = []
-
-        // ────────────────────────────────────────────
-        // PASO 4–5: CONSTRUIR TAREAS DE DESCARGA
-        // ────────────────────────────────────────────
-        emit('progress', { message: 'Calculando documentos a descargar…', current: 0, total: 0 })
+        const fullRemisionesData: StoredRemisionDetail[] = []
 
         const pjud = new PjudClient()
         pjud.setCookies(pkg.cookies)
-        const downloadTasks = buildDownloadTasks(pkg)
 
-        // Snapshot: folios del cuaderno visible
-        const selectedCuadernoName = pkg.cuadernos?.find(c => c.selected)?.nombre || 'Principal'
-        if (pkg.folios && pkg.folios.length > 0) {
-          snapshotCuadernos.push({
-            nombre: selectedCuadernoName,
-            folio_count: pkg.folios.length,
-            folio_numeros: pkg.folios.map(f => f.numero),
-          })
+        if (isResume) {
+          // ────────────────────────────────────────────
+          // RESUME: Leer pending tasks de la DB
+          // ────────────────────────────────────────────
+          caseId = pkg.resume_case_id!
+          emit('progress', { message: 'Retomando descarga pendiente…', current: 0, total: 0 })
+          console.log(`[sync] RESUME for case ${caseId}`)
+
+          const { data: caseRow } = await supabase
+            .from('cases')
+            .select('sync_snapshot, pending_sync_tasks')
+            .eq('id', caseId)
+            .eq('user_id', user.id)
+            .single()
+
+          if (!caseRow?.pending_sync_tasks || !Array.isArray(caseRow.pending_sync_tasks) || caseRow.pending_sync_tasks.length === 0) {
+            emit('complete', {
+              success: true, case_id: caseId, rol: pkg.rol,
+              documents_new: [], documents_existing: 0, documents_failed: 0,
+              total_downloaded: 0, errors: [], duration_ms: Date.now() - startTime,
+              has_pending: false, pending_count: 0,
+              changes: [], is_first_sync: false,
+            } as unknown as SyncResult)
+            controller.close()
+            return
+          }
+
+          prevSnapshot = (caseRow.sync_snapshot as SyncSnapshot) || null
+          isFirstSync = !prevSnapshot
+          downloadTasks.push(...(caseRow.pending_sync_tasks as PdfDownloadTask[]))
+
+          console.log(`[sync] RESUME: ${downloadTasks.length} pending tasks loaded`)
+          emit('progress', { message: 'Retomando descarga de documentos…', current: 0, total: downloadTasks.length })
+
+        } else {
+          // ────────────────────────────────────────────
+          // NORMAL: Pipeline completo (pasos 3-6)
+          // ────────────────────────────────────────────
+          emit('progress', { message: 'Registrando causa…', current: 0, total: 0 })
+
+          const upsertedId = await upsertCase(supabase, user.id, pkg)
+          if (!upsertedId) {
+            emit('error', { message: 'Error al registrar/actualizar la causa en la base de datos' })
+            controller.close()
+            return
+          }
+          caseId = upsertedId
+
+          try {
+            const { data: snapRow } = await supabase
+              .from('cases')
+              .select('sync_snapshot')
+              .eq('id', caseId)
+              .single()
+            if (snapRow?.sync_snapshot) {
+              prevSnapshot = snapRow.sync_snapshot as SyncSnapshot
+            }
+          } catch {
+            // First sync — no snapshot
+          }
+          isFirstSync = !prevSnapshot
+
+          emit('progress', { message: 'Calculando documentos a descargar…', current: 0, total: 0 })
+
+          const initialTasks = buildDownloadTasks(pkg)
+          downloadTasks.push(...initialTasks)
+
+          const selectedCuadernoName = pkg.cuadernos?.find(c => c.selected)?.nombre || 'Principal'
+          if (pkg.folios && pkg.folios.length > 0) {
+            snapshotCuadernos.push({
+              nombre: selectedCuadernoName,
+              folio_count: pkg.folios.length,
+              folio_numeros: pkg.folios.map(f => f.numero),
+            })
+          }
+
+          const nonSelectedCount = (pkg.cuadernos?.filter(c => !c.selected) || []).length
+          if (nonSelectedCount > 0) {
+            emit('progress', {
+              message: `Obteniendo ${nonSelectedCount} cuaderno(s) adicional(es)…`,
+              current: 0, total: 0,
+              cuaderno_current: 0, cuaderno_total: nonSelectedCount,
+            })
+          }
+
+          const extraFolioTasks = await fetchOtherCuadernos(pjud, pkg, emit, nonSelectedCount, snapshotCuadernos)
+          downloadTasks.push(...extraFolioTasks)
+
+          const anexosTasks = await fetchAnexos(pjud, pkg, emit, snapshotAnexos)
+          downloadTasks.push(...anexosTasks)
+
+          const exhortoDocTasks = await fetchExhortoDocuments(pjud, pkg, emit, snapshotExhortos)
+          downloadTasks.push(...exhortoDocTasks)
+
+          const escritosTasks = buildEscritosDownloadTasks(pkg)
+          downloadTasks.push(...escritosTasks)
+
+          const folioAnexoTasks = await fetchFolioAnexos(pjud, pkg, emit)
+          downloadTasks.push(...folioAnexoTasks)
+
+          const remisionesDocTasks = await fetchRemisiones(pjud, pkg, emit, snapshotRemisiones, fullRemisionesData)
+          downloadTasks.push(...remisionesDocTasks)
+
+          console.log(
+            `[sync] ${pkg.rol} — ${downloadTasks.length} PDFs a descargar ` +
+            `(${pkg.folios?.length || 0} folios visibles + ` +
+            `${extraFolioTasks.length} de otros cuadernos + ` +
+            `${anexosTasks.length} anexos + ` +
+            `${exhortoDocTasks.length} docs exhortos + ` +
+            `${escritosTasks.length} escritos + ` +
+            `${folioAnexoTasks.length} anexos solicitud + ` +
+            `${remisionesDocTasks.length} docs remisiones)`
+          )
+
+          if (downloadTasks.length === 0) {
+            emit('progress', { message: 'No se encontraron documentos para descargar.', current: 0, total: 0 })
+          } else {
+            emit('progress', { message: 'Iniciando descarga de documentos…', current: 0, total: downloadTasks.length })
+          }
         }
-
-        // ────────────────────────────────────────────
-        // PASO 6: FETCH CUADERNOS ADICIONALES
-        // ────────────────────────────────────────────
-        const nonSelectedCount = (pkg.cuadernos?.filter(c => !c.selected) || []).length
-        if (nonSelectedCount > 0) {
-          emit('progress', {
-            message: `Obteniendo ${nonSelectedCount} cuaderno(s) adicional(es)…`,
-            current: 0,
-            total: 0,
-            cuaderno_current: 0,
-            cuaderno_total: nonSelectedCount,
-          })
-        }
-
-        const extraFolioTasks = await fetchOtherCuadernos(pjud, pkg, emit, nonSelectedCount, snapshotCuadernos)
-        downloadTasks.push(...extraFolioTasks)
-
-        // ────────────────────────────────────────────
-        // PASO 6b: FETCH ANEXOS DE LA CAUSA
-        // ────────────────────────────────────────────
-        const anexosTasks = await fetchAnexos(pjud, pkg, emit, snapshotAnexos)
-        downloadTasks.push(...anexosTasks)
-
-        // ────────────────────────────────────────────
-        // PASO 6c: FETCH DOCUMENTOS DE EXHORTOS
-        // ────────────────────────────────────────────
-        const exhortoDocTasks = await fetchExhortoDocuments(pjud, pkg, emit, snapshotExhortos)
-        downloadTasks.push(...exhortoDocTasks)
-
-        // ────────────────────────────────────────────
-        // PASO 6d: DOCUMENTOS DE ESCRITOS POR RESOLVER
-        // ────────────────────────────────────────────
-        const escritosTasks = buildEscritosDownloadTasks(pkg)
-        downloadTasks.push(...escritosTasks)
-
-        // ────────────────────────────────────────────
-        // PASO 6e: ANEXOS POR FOLIO (anexoSolicitudCivil)
-        // ────────────────────────────────────────────
-        const folioAnexoTasks = await fetchFolioAnexos(pjud, pkg, emit)
-        downloadTasks.push(...folioAnexoTasks)
-
-        // ────────────────────────────────────────────
-        // PASO 6f: FETCH REMISIONES EN LA CORTE (apelaciones)
-        // ────────────────────────────────────────────
-        const remisionesDocTasks = await fetchRemisiones(pjud, pkg, emit, snapshotRemisiones)
-        downloadTasks.push(...remisionesDocTasks)
 
         const totalTasks = downloadTasks.length
-        console.log(
-          `[sync] ${pkg.rol} — ${totalTasks} PDFs a descargar ` +
-          `(${pkg.folios?.length || 0} folios visibles + ` +
-          `${extraFolioTasks.length} de otros cuadernos + ` +
-          `${anexosTasks.length} anexos + ` +
-          `${exhortoDocTasks.length} docs exhortos + ` +
-          `${escritosTasks.length} escritos + ` +
-          `${folioAnexoTasks.length} anexos solicitud + ` +
-          `${remisionesDocTasks.length} docs remisiones)`
-        )
-
-        if (totalTasks === 0) {
-          emit('progress', { message: 'No se encontraron documentos para descargar.', current: 0, total: 0 })
-        } else {
-          emit('progress', { message: `${totalTasks} documento(s) a descargar`, current: 0, total: totalTasks })
-        }
 
         // ────────────────────────────────────────────
         // PASO 7: DESCARGAR, DEDUP, UPLOAD, REGISTRAR
@@ -298,14 +319,22 @@ export async function POST(request: NextRequest) {
         const errors: string[] = []
         let existingCount = 0
         let failedCount = 0
+        let timedOut = false
 
         for (let i = 0; i < downloadTasks.length; i++) {
           const task = downloadTasks[i]
 
           if (Date.now() - startTime > SYNC_TIMEOUT_MS) {
-            errors.push('Timeout de sync alcanzado (5 min). Algunos documentos no se descargaron.')
+            const pendingTasks = downloadTasks.slice(i)
+            await supabase
+              .from('cases')
+              .update({ pending_sync_tasks: pendingTasks })
+              .eq('id', caseId)
+
+            timedOut = true
+            console.log(`[sync] Timeout — ${pendingTasks.length} tasks saved for resume`)
             emit('progress', {
-              message: 'Timeout alcanzado. Deteniendo sync.',
+              message: `Continuará automáticamente (${pendingTasks.length} pendientes)…`,
               current: i,
               total: totalTasks,
             })
@@ -313,7 +342,7 @@ export async function POST(request: NextRequest) {
           }
 
           emit('progress', {
-            message: `Descargando documento ${i + 1}/${totalTasks}: ${task.document_type || 'doc'}${task.folio ? ` folio ${task.folio}` : ''}${task.cuaderno ? ` (${task.cuaderno})` : ''}…`,
+            message: 'Sincronizando documentos…',
             current: i + 1,
             total: totalTasks,
           })
@@ -339,143 +368,177 @@ export async function POST(request: NextRequest) {
         }
 
         // ────────────────────────────────────────────
-        // PASO 8: DATOS ADICIONALES (4.20 + exhortos)
-        //   8a) Causa origen (para causas tipo E)
-        //   8b) Tabs data (notificaciones, escritos, exhortos con jwt_detalle, litigantes)
-        //   8c) Receptor data (si jwt_receptor presente)
+        // PASO 7.5: LEER DATOS PREVIOS PARA DEEP COMPARISON
+        // ────────────────────────────────────────────
+        let prevTabsData: TabsData | null = null
+        let prevReceptorData: ReceptorData | null = null
+        let prevRemisionesData: StoredRemisionDetail[] | null = null
+
+        if (!isResume && !isFirstSync) {
+          try {
+            const { data: prevJsonb } = await supabase
+              .from('cases')
+              .select('tabs_data, receptor_data, remisiones_data')
+              .eq('id', caseId)
+              .single()
+            if (prevJsonb) {
+              prevTabsData = (prevJsonb.tabs_data as TabsData) ?? null
+              prevReceptorData = (prevJsonb.receptor_data as ReceptorData) ?? null
+              prevRemisionesData = (prevJsonb.remisiones_data as StoredRemisionDetail[]) ?? null
+            }
+          } catch { /* first sync or no previous data */ }
+        }
+
+        // ────────────────────────────────────────────
+        // PASO 8: DATOS ADICIONALES (solo en sync normal, no resume)
         // ────────────────────────────────────────────
         let tabsStored = false
         let receptorStored = false
         let causaOrigenStored = false
-
-        // 8a: Guardar causa_origen (causas tipo E → referencia a la C de origen)
-        if (pkg.exhorto?.causa_origen) {
-          const { error: origenError } = await supabase
-            .from('cases')
-            .update({
-              causa_origen_rol: pkg.exhorto.causa_origen,
-              causa_origen_tribunal: pkg.exhorto.tribunal_origen,
-            })
-            .eq('id', caseId)
-
-          if (origenError) {
-            console.warn('[sync] causa_origen update error:', origenError.message)
-          } else {
-            causaOrigenStored = true
-            console.log(
-              `[sync] causa_origen guardada: ${pkg.exhorto.causa_origen} — ${pkg.exhorto.tribunal_origen}`
-            )
-          }
-        }
-
-        // 8b: Guardar tabs_data (ya extraído por JwtExtractor, sin request extra a PJUD)
-        if (pkg.tabs && Object.keys(pkg.tabs).length > 0) {
-          emit('progress', { message: 'Guardando datos tabulares (notificaciones, escritos, exhortos)…', current: totalTasks, total: totalTasks })
-
-          const { error: tabsError } = await supabase
-            .from('cases')
-            .update({ tabs_data: pkg.tabs })
-            .eq('id', caseId)
-
-          if (tabsError) {
-            console.warn('[sync] tabs_data update error:', tabsError.message)
-          } else {
-            tabsStored = true
-            const nNotif = pkg.tabs.notificaciones?.length ?? 0
-            const nEscr  = pkg.tabs.escritos_por_resolver?.length ?? 0
-            const nExh   = pkg.tabs.exhortos?.length ?? 0
-            console.log(
-              `[sync] tabs_data guardados: ${nNotif} notif, ${nEscr} escritos, ${nExh} exhortos`
-            )
-          }
-        }
-
-        // 8c: Receptor — fetch HTML + parse + guardar
-        if (pkg.jwt_receptor) {
-          emit('progress', { message: 'Obteniendo datos del receptor…', current: totalTasks, total: totalTasks })
-
-          try {
-            const receptorHtml = await pjud.fetchReceptorHtml(
-              pkg.jwt_receptor,
-              pkg.csrf_token,
-              pkg.cookies
-            )
-
-            if (receptorHtml) {
-              const receptorData: ReceptorData = parseReceptorData(receptorHtml)
-
-              const { error: receptorError } = await supabase
-                .from('cases')
-                .update({ receptor_data: receptorData })
-                .eq('id', caseId)
-
-              if (receptorError) {
-                console.warn('[sync] receptor_data update error:', receptorError.message)
-              } else {
-                receptorStored = true
-                snapshotReceptorRetiros = receptorData.retiros.map(r => ({
-                  cuaderno: r.cuaderno,
-                  fecha_retiro: r.fecha_retiro,
-                  estado: r.estado,
-                }))
-                console.log(
-                  `[sync] receptor_data: ${receptorData.receptor_nombre ?? 'sin nombre'} — ` +
-                  `${receptorData.retiros.length} retiro(s)`
-                )
-              }
-            } else {
-              console.warn('[sync] receptorCivil.php no retornó HTML útil')
-            }
-          } catch (receptorErr) {
-            console.error('[sync] Error procesando receptor:', receptorErr)
-          }
-        }
-
-        // 8d: Guardar remisiones_data (metadata + tabs de cada apelación)
         let remisionesStored = false
-        if (snapshotRemisiones.length > 0) {
-          const { error: remError } = await supabase
-            .from('cases')
-            .update({ remisiones_data: snapshotRemisiones })
-            .eq('id', caseId)
+        let parsedReceptorData: ReceptorData | null = null
 
-          if (remError) {
-            console.warn('[sync] remisiones_data update error:', remError.message)
-          } else {
-            remisionesStored = true
-            console.log(`[sync] remisiones_data guardadas: ${snapshotRemisiones.length} remisión(es)`)
+        if (!isResume) {
+          if (pkg.exhorto?.causa_origen) {
+            const { error: origenError } = await supabase
+              .from('cases')
+              .update({
+                causa_origen_rol: pkg.exhorto.causa_origen,
+                causa_origen_tribunal: pkg.exhorto.tribunal_origen,
+              })
+              .eq('id', caseId)
+
+            if (origenError) {
+              console.warn('[sync] causa_origen update error:', origenError.message)
+            } else {
+              causaOrigenStored = true
+              console.log(
+                `[sync] causa_origen guardada: ${pkg.exhorto.causa_origen} — ${pkg.exhorto.tribunal_origen}`
+              )
+            }
+          }
+
+          if (pkg.tabs && Object.keys(pkg.tabs).length > 0) {
+            emit('progress', { message: 'Guardando datos tabulares (notificaciones, escritos, exhortos)…', current: totalTasks, total: totalTasks })
+
+            const { error: tabsError } = await supabase
+              .from('cases')
+              .update({ tabs_data: pkg.tabs })
+              .eq('id', caseId)
+
+            if (tabsError) {
+              console.warn('[sync] tabs_data update error:', tabsError.message)
+            } else {
+              tabsStored = true
+              const nNotif = pkg.tabs.notificaciones?.length ?? 0
+              const nEscr  = pkg.tabs.escritos_por_resolver?.length ?? 0
+              const nExh   = pkg.tabs.exhortos?.length ?? 0
+              console.log(
+                `[sync] tabs_data guardados: ${nNotif} notif, ${nEscr} escritos, ${nExh} exhortos`
+              )
+            }
+          }
+
+          if (pkg.jwt_receptor) {
+            emit('progress', { message: 'Obteniendo datos del receptor…', current: totalTasks, total: totalTasks })
+
+            try {
+              const receptorHtml = await pjud.fetchReceptorHtml(
+                pkg.jwt_receptor,
+                pkg.csrf_token,
+                pkg.cookies
+              )
+
+              if (receptorHtml) {
+                parsedReceptorData = parseReceptorData(receptorHtml)
+
+                const { error: receptorError } = await supabase
+                  .from('cases')
+                  .update({ receptor_data: parsedReceptorData })
+                  .eq('id', caseId)
+
+                if (receptorError) {
+                  console.warn('[sync] receptor_data update error:', receptorError.message)
+                } else {
+                  receptorStored = true
+                  snapshotReceptorRetiros = parsedReceptorData.retiros.map(r => ({
+                    cuaderno: r.cuaderno,
+                    fecha_retiro: r.fecha_retiro,
+                    estado: r.estado,
+                  }))
+                  console.log(
+                    `[sync] receptor_data: ${parsedReceptorData.receptor_nombre ?? 'sin nombre'} — ` +
+                    `${parsedReceptorData.retiros.length} retiro(s)`
+                  )
+                }
+              } else {
+                console.warn('[sync] receptorCivil.php no retornó HTML útil')
+              }
+            } catch (receptorErr) {
+              console.error('[sync] Error procesando receptor:', receptorErr)
+            }
+          }
+
+          if (fullRemisionesData.length > 0) {
+            const { error: remError } = await supabase
+              .from('cases')
+              .update({ remisiones_data: fullRemisionesData })
+              .eq('id', caseId)
+
+            if (remError) {
+              console.warn('[sync] remisiones_data update error:', remError.message)
+            } else {
+              remisionesStored = true
+              console.log(`[sync] remisiones_data guardadas: ${snapshotRemisiones.length} remisión(es)`)
+            }
           }
         }
 
         // ────────────────────────────────────────────
-        // PASO 9: GENERAR SNAPSHOT + DIFF
+        // PASO 9: GENERAR SNAPSHOT + DIFF (solo en sync normal)
         // ────────────────────────────────────────────
-        const newSnapshot: SyncSnapshot = {
-          cuadernos: snapshotCuadernos,
-          anexos: snapshotAnexos,
-          exhortos: snapshotExhortos,
-          receptor_retiros: snapshotReceptorRetiros,
-          remisiones: snapshotRemisiones,
-          metadata: {
-            estado: pkg.estado_adm || '',
-            estado_procesal: pkg.estado_procesal || '',
-            etapa: pkg.etapa || '',
-            ubicacion: pkg.ubicacion || '',
-            procedimiento: pkg.procedimiento || '',
-          },
-          tabs_counts: {
-            litigantes: pkg.tabs?.litigantes?.length ?? 0,
-            notificaciones: pkg.tabs?.notificaciones?.length ?? 0,
-            escritos_por_resolver: pkg.tabs?.escritos_por_resolver?.length ?? 0,
-            exhortos: pkg.tabs?.exhortos?.length ?? 0,
-          },
-          snapshot_at: new Date().toISOString(),
+        let changes: SyncChange[] = []
+
+        if (!isResume) {
+          const newSnapshot: SyncSnapshot = {
+            cuadernos: snapshotCuadernos,
+            anexos: snapshotAnexos,
+            exhortos: snapshotExhortos,
+            receptor_retiros: snapshotReceptorRetiros,
+            remisiones: snapshotRemisiones,
+            metadata: {
+              estado: pkg.estado_adm || '',
+              estado_procesal: pkg.estado_procesal || '',
+              etapa: pkg.etapa || '',
+              ubicacion: pkg.ubicacion || '',
+              procedimiento: pkg.procedimiento || '',
+            },
+            tabs_counts: {
+              litigantes: pkg.tabs?.litigantes?.length ?? 0,
+              notificaciones: pkg.tabs?.notificaciones?.length ?? 0,
+              escritos_por_resolver: pkg.tabs?.escritos_por_resolver?.length ?? 0,
+              exhortos: pkg.tabs?.exhortos?.length ?? 0,
+            },
+            snapshot_at: new Date().toISOString(),
+          }
+
+          changes = isFirstSync ? [] : generateDiff(prevSnapshot!, newSnapshot, {
+            prevTabs: prevTabsData,
+            currTabs: pkg.tabs,
+            prevReceptor: prevReceptorData,
+            currReceptor: parsedReceptorData,
+            prevRemisiones: prevRemisionesData,
+            currRemisiones: fullRemisionesData.length > 0 ? fullRemisionesData : null,
+          })
+
+          await supabase
+            .from('cases')
+            .update({ sync_snapshot: newSnapshot })
+            .eq('id', caseId)
         }
 
-        const changes: SyncChange[] = isFirstSync ? [] : generateDiff(prevSnapshot!, newSnapshot)
-
         // ────────────────────────────────────────────
-        // PASO 10: ACTUALIZAR CASE STATS + SNAPSHOT
+        // PASO 10: ACTUALIZAR CASE STATS + LIMPIAR PENDING
         // ────────────────────────────────────────────
         emit('progress', { message: 'Actualizando estadísticas…', current: totalTasks, total: totalTasks })
 
@@ -484,13 +547,17 @@ export async function POST(request: NextRequest) {
           .select('id', { count: 'exact', head: true })
           .eq('case_id', caseId)
 
+        const caseUpdate: Record<string, unknown> = {
+          document_count: docCount ?? 0,
+          last_synced_at: new Date().toISOString(),
+        }
+        if (!timedOut) {
+          caseUpdate.pending_sync_tasks = null
+        }
+
         await supabase
           .from('cases')
-          .update({
-            document_count: docCount ?? 0,
-            last_synced_at: new Date().toISOString(),
-            sync_snapshot: newSnapshot,
-          })
+          .update(caseUpdate)
           .eq('id', caseId)
 
         // ────────────────────────────────────────────
@@ -537,17 +604,22 @@ export async function POST(request: NextRequest) {
           receptor_stored: receptorStored,
           causa_origen_stored: causaOrigenStored,
           exhortos_count: pkg.tabs?.exhortos?.length ?? 0,
-          exhortos_docs_downloaded: exhortoDocTasks.length,
+          exhortos_docs_downloaded: 0,
           remisiones_count: pkg.remisiones?.length ?? 0,
-          remisiones_docs_downloaded: remisionesDocTasks.length,
+          remisiones_docs_downloaded: 0,
           remisiones_stored: remisionesStored,
           changes,
           is_first_sync: isFirstSync,
+          has_pending: timedOut,
+          pending_count: timedOut
+            ? downloadTasks.length - (results.length + existingCount + failedCount)
+            : 0,
         }
 
         console.log(
-          `[sync] ${pkg.rol} — Completado en ${syncResult.duration_ms}ms: ` +
+          `[sync] ${pkg.rol} — ${timedOut ? 'Parcial' : 'Completado'} en ${syncResult.duration_ms}ms: ` +
           `${results.length} nuevos, ${existingCount} existentes, ${failedCount} fallidos` +
+          (timedOut ? ` | ${syncResult.pending_count} pendientes para resume` : '') +
           (changes.length > 0 ? ` | ${changes.length} cambio(s) detectado(s)` : '')
         )
 
@@ -1152,6 +1224,7 @@ async function fetchRemisiones(
   pkg: CausaPackage,
   emit?: SseEmitter,
   snapshotRemisiones?: SyncSnapshot['remisiones'],
+  fullRemisionesOut?: StoredRemisionDetail[],
 ): Promise<PdfDownloadTask[]> {
   const tasks: PdfDownloadTask[] = []
 
@@ -1193,6 +1266,23 @@ async function fetchRemisiones(
         fecha_tramite: remision.fecha_tramite,
         libro: detail.metadata.libro,
         folio_count: detail.folios.length,
+      })
+
+      fullRemisionesOut?.push({
+        descripcion_tramite: remision.descripcion_tramite,
+        fecha_tramite: remision.fecha_tramite,
+        metadata: detail.metadata,
+        folios: detail.folios.map(f => ({
+          numero: f.numero,
+          tramite: f.tramite,
+          descripcion: f.descripcion,
+          nomenclaturas: f.nomenclaturas,
+          fecha: f.fecha,
+          sala: f.sala,
+          estado: f.estado,
+        })),
+        tabs: detail.tabs,
+        expediente: detail.expediente,
       })
 
       // Direct documents from the apelacion
@@ -1299,6 +1389,18 @@ async function processOneDocument(
   task: PdfDownloadTask,
   causaMeta: { rol: string; tribunal?: string; caratula?: string },
 ): Promise<SyncedDocument | 'duplicate' | 'failed'> {
+  // 0. Pre-check: skip download if document already exists in DB
+  const sanitizedName = task.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const { data: existingDoc } = await supabase
+    .from('documents')
+    .select('id')
+    .eq('case_id', caseId)
+    .eq('user_id', userId)
+    .eq('filename', sanitizedName)
+    .maybeSingle()
+
+  if (existingDoc) return 'duplicate'
+
   // 1. Download PDF from PJUD
   const pdf = await pjud.downloadPdf(task.endpoint, task.param, task.jwt)
   if (!pdf) return 'failed'
@@ -1324,7 +1426,6 @@ async function processOneDocument(
   // 4. Upload to Supabase Storage
   const now = new Date()
   const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const sanitizedName = task.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
   const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
   const storagePath = `${userId}/${yearMonth}/${uniqueId}_${sanitizedName}`
 
@@ -1429,13 +1530,64 @@ async function processOneDocument(
 }
 
 // ════════════════════════════════════════════════════════
-// DIFF ENGINE — compara snapshot previo vs actual
+// DIFF ENGINE — comparación profunda snapshot + JSONB
 // ════════════════════════════════════════════════════════
 
-function generateDiff(prev: SyncSnapshot, curr: SyncSnapshot): SyncChange[] {
+interface DeepDiffContext {
+  prevTabs: TabsData | null
+  currTabs: TabsData | null
+  prevReceptor: ReceptorData | null
+  currReceptor: ReceptorData | null
+  prevRemisiones: StoredRemisionDetail[] | null
+  currRemisiones: StoredRemisionDetail[] | null
+}
+
+function diffByKey<T>(
+  prev: T[], curr: T[],
+  keyFn: (item: T) => string,
+  category: SyncChange['category'],
+  labelFn: (item: T) => string,
+  compareFields: string[],
+  fieldLabels: Record<string, string>,
+): SyncChange[] {
+  const out: SyncChange[] = []
+  const pMap = new Map(prev.map(i => [keyFn(i), i]))
+  const cMap = new Map(curr.map(i => [keyFn(i), i]))
+  for (const [k, v] of cMap) {
+    if (!pMap.has(k)) out.push({ category, type: 'added', description: `Nuevo: ${labelFn(v)}` })
+  }
+  for (const [k, v] of pMap) {
+    if (!cMap.has(k)) out.push({ category, type: 'removed', description: `Eliminado: ${labelFn(v)}` })
+  }
+  for (const [k, cv] of cMap) {
+    const pv = pMap.get(k)
+    if (!pv) continue
+    const pvR = pv as Record<string, unknown>
+    const cvR = cv as Record<string, unknown>
+    for (const f of compareFields) {
+      const o = String(pvR[f] ?? '').trim()
+      const n = String(cvR[f] ?? '').trim()
+      if (o !== n && (o || n)) {
+        out.push({
+          category, type: 'changed',
+          description: o
+            ? `${labelFn(cv)}: ${fieldLabels[f] || f} "${o}" → "${n}"`
+            : `${labelFn(cv)}: ${fieldLabels[f] || f} = "${n}"`,
+        })
+      }
+    }
+  }
+  return out
+}
+
+function generateDiff(
+  prev: SyncSnapshot,
+  curr: SyncSnapshot,
+  deep?: DeepDiffContext,
+): SyncChange[] {
   const changes: SyncChange[] = []
 
-  // ── Metadata ──
+  // ── A. Metadata principal ──
   const metaLabels: Record<string, string> = {
     estado: 'Estado Adm.',
     estado_procesal: 'Estado Procesal',
@@ -1449,130 +1601,377 @@ function generateDiff(prev: SyncSnapshot, curr: SyncSnapshot): SyncChange[] {
     if (newVal && oldVal !== newVal) {
       changes.push({
         category: 'metadata',
-        description: oldVal
-          ? `${label}: ${oldVal} → ${newVal}`
-          : `${label}: ${newVal}`,
+        type: oldVal ? 'changed' : 'added',
+        description: oldVal ? `${label}: "${oldVal}" → "${newVal}"` : `${label}: "${newVal}"`,
       })
     }
   }
 
-  // ── Cuadernos nuevos ──
+  // ── B. Cuadernos ──
   const prevCuadernoNames = new Set(prev.cuadernos.map(c => c.nombre))
+  const currCuadernoNames = new Set(curr.cuadernos.map(c => c.nombre))
   for (const c of curr.cuadernos) {
     if (!prevCuadernoNames.has(c.nombre)) {
-      changes.push({
-        category: 'cuaderno',
-        description: `Cuaderno nuevo: ${c.nombre} (${c.folio_count} folios)`,
-      })
+      changes.push({ category: 'cuaderno', type: 'added', description: `Cuaderno nuevo: ${c.nombre} (${c.folio_count} folios)` })
+    }
+  }
+  for (const c of prev.cuadernos) {
+    if (!currCuadernoNames.has(c.nombre)) {
+      changes.push({ category: 'cuaderno', type: 'removed', description: `Cuaderno eliminado: ${c.nombre}` })
     }
   }
 
-  // ── Folios nuevos por cuaderno ──
+  // ── C. Folios por cuaderno ──
   const prevCuadernoMap = new Map(prev.cuadernos.map(c => [c.nombre, new Set(c.folio_numeros)]))
+  const currCuadernoMap = new Map(curr.cuadernos.map(c => [c.nombre, new Set(c.folio_numeros)]))
   for (const c of curr.cuadernos) {
-    const prevFolios = prevCuadernoMap.get(c.nombre)
-    if (!prevFolios) continue
-    const newFolios = c.folio_numeros.filter(n => !prevFolios.has(n))
-    if (newFolios.length > 0) {
-      const folioList = newFolios.length <= 3
-        ? newFolios.join(', ')
-        : `${newFolios.slice(0, 3).join(', ')}… (+${newFolios.length - 3})`
-      changes.push({
-        category: 'folio',
-        description: `${newFolios.length} folio(s) nuevo(s) en ${c.nombre}: ${folioList}`,
-      })
+    const pf = prevCuadernoMap.get(c.nombre)
+    if (!pf) continue
+    const added = c.folio_numeros.filter(n => !pf.has(n))
+    if (added.length > 0) {
+      const list = added.length <= 3 ? added.join(', ') : `${added.slice(0, 3).join(', ')}… (+${added.length - 3})`
+      changes.push({ category: 'folio', type: 'added', description: `${added.length} folio(s) nuevo(s) en ${c.nombre}: ${list}` })
+    }
+  }
+  for (const c of prev.cuadernos) {
+    const cf = currCuadernoMap.get(c.nombre)
+    if (!cf) continue
+    const removed = c.folio_numeros.filter(n => !cf.has(n))
+    if (removed.length > 0) {
+      changes.push({ category: 'folio', type: 'removed', description: `${removed.length} folio(s) eliminado(s) de ${c.nombre}` })
     }
   }
 
-  // ── Anexos nuevos ──
+  // ── D. Anexos ──
   const prevAnexoKeys = new Set(prev.anexos.map(a => `${a.fecha}|${a.referencia}`))
-  const newAnexos = curr.anexos.filter(a => !prevAnexoKeys.has(`${a.fecha}|${a.referencia}`))
-  if (newAnexos.length > 0) {
-    for (const a of newAnexos) {
-      changes.push({
-        category: 'anexo',
-        description: `Anexo nuevo: ${a.referencia || a.fecha || 'sin referencia'}`,
-      })
+  const currAnexoKeys = new Set(curr.anexos.map(a => `${a.fecha}|${a.referencia}`))
+  for (const a of curr.anexos) {
+    if (!prevAnexoKeys.has(`${a.fecha}|${a.referencia}`)) {
+      changes.push({ category: 'anexo', type: 'added', description: `Anexo nuevo: ${a.referencia || a.fecha || 'sin referencia'}` })
+    }
+  }
+  for (const a of prev.anexos) {
+    if (!currAnexoKeys.has(`${a.fecha}|${a.referencia}`)) {
+      changes.push({ category: 'anexo', type: 'removed', description: `Anexo eliminado: ${a.referencia || a.fecha || 'sin referencia'}` })
     }
   }
 
-  // ── Exhortos: estado cambiado + documentos nuevos ──
-  const prevExhortoMap = new Map(prev.exhortos.map(e => [e.rol_destino, e]))
-  for (const e of curr.exhortos) {
-    const pe = prevExhortoMap.get(e.rol_destino)
-    if (!pe) {
-      changes.push({
-        category: 'exhorto',
-        description: `Exhorto nuevo: ${e.rol_destino} (${e.estado}, ${e.doc_count} docs)`,
-      })
-      continue
-    }
-    if (pe.estado && e.estado && pe.estado !== e.estado) {
-      changes.push({
-        category: 'exhorto',
-        description: `Exhorto ${e.rol_destino}: ${pe.estado} → ${e.estado}`,
-      })
-    }
-    if (e.doc_count > pe.doc_count) {
-      changes.push({
-        category: 'exhorto',
-        description: `${e.doc_count - pe.doc_count} doc(s) nuevo(s) en exhorto ${e.rol_destino}`,
-      })
-    }
-  }
+  // ── E-H: Deep comparison (JSONB) or shallow (snapshot counts) ──
 
-  // ── Receptor retiros nuevos ──
-  const prevRetiroKeys = new Set(prev.receptor_retiros.map(r => `${r.cuaderno}|${r.fecha_retiro}|${r.estado}`))
-  const newRetiros = curr.receptor_retiros.filter(r => !prevRetiroKeys.has(`${r.cuaderno}|${r.fecha_retiro}|${r.estado}`))
-  if (newRetiros.length > 0) {
-    changes.push({
-      category: 'receptor',
-      description: `${newRetiros.length} retiro(s) nuevo(s) del receptor`,
-    })
-  }
+  if (deep) {
+    // ── E. Litigantes (deep) ──
+    if (deep.prevTabs && deep.currTabs) {
+      changes.push(...diffByKey(
+        deep.prevTabs.litigantes ?? [], deep.currTabs.litigantes ?? [],
+        l => l.rut || `${l.nombre}|${l.participante}`,
+        'litigante',
+        l => `${l.nombre} (${l.participante})`,
+        ['participante', 'persona', 'nombre'],
+        { participante: 'Rol', persona: 'Tipo persona', nombre: 'Nombre' },
+      ))
 
-  // ── Remisiones nuevas o con folios nuevos ──
-  const prevRemisionKeys = new Set(
-    (prev.remisiones ?? []).map(r => `${r.descripcion_tramite}|${r.fecha_tramite}`)
-  )
-  const prevRemisionMap = new Map(
-    (prev.remisiones ?? []).map(r => [`${r.descripcion_tramite}|${r.fecha_tramite}`, r])
-  )
-  for (const r of (curr.remisiones ?? [])) {
-    const key = `${r.descripcion_tramite}|${r.fecha_tramite}`
-    if (!prevRemisionKeys.has(key)) {
-      changes.push({
-        category: 'remision',
-        description: `Remisión nueva: ${r.descripcion_tramite} ${r.fecha_tramite}${r.libro ? ` (${r.libro})` : ''} — ${r.folio_count} folios`,
-      })
-    } else {
-      const pr = prevRemisionMap.get(key)
-      if (pr && r.folio_count > pr.folio_count) {
+      // ── F. Notificaciones (deep) ──
+      changes.push(...diffByKey(
+        deep.prevTabs.notificaciones ?? [], deep.currTabs.notificaciones ?? [],
+        n => `${n.fecha_tramite}|${n.tipo_notif}|${n.nombre}`,
+        'notificacion',
+        n => `Notif. ${n.tipo_notif} ${n.fecha_tramite} — ${n.nombre}`,
+        ['estado_notif', 'tramite', 'obs_fallida', 'tipo_participante'],
+        { estado_notif: 'Estado', tramite: 'Trámite', obs_fallida: 'Observación', tipo_participante: 'Tipo participante' },
+      ))
+
+      // ── G. Escritos por resolver (deep) ──
+      changes.push(...diffByKey(
+        deep.prevTabs.escritos_por_resolver ?? [], deep.currTabs.escritos_por_resolver ?? [],
+        e => `${e.fecha_ingreso}|${e.tipo_escrito}|${e.solicitante}`,
+        'escrito',
+        e => `Escrito ${e.tipo_escrito} — ${e.solicitante}`,
+        ['doc', 'anexo'],
+        { doc: 'Documento', anexo: 'Anexo' },
+      ))
+
+      // ── H. Exhortos (deep: todos los campos de tabs_data) ──
+      changes.push(...diffByKey(
+        deep.prevTabs.exhortos ?? [], deep.currTabs.exhortos ?? [],
+        e => e.rol_destino || `${e.rol_origen}|${e.tipo_exhorto}`,
+        'exhorto',
+        e => `Exhorto ${e.rol_destino}`,
+        ['tipo_exhorto', 'fecha_ordena', 'fecha_ingreso', 'tribunal_destino', 'estado_exhorto', 'rol_origen'],
+        { tipo_exhorto: 'Tipo', fecha_ordena: 'Fecha ordena', fecha_ingreso: 'Fecha ingreso', tribunal_destino: 'Tribunal destino', estado_exhorto: 'Estado', rol_origen: 'Rol origen' },
+      ))
+    }
+
+    // Exhorto doc counts (del snapshot, no está en tabs_data)
+    const prevExhMap = new Map(prev.exhortos.map(e => [e.rol_destino, e]))
+    for (const e of curr.exhortos) {
+      const pe = prevExhMap.get(e.rol_destino)
+      if (!pe) continue
+      if (e.doc_count > pe.doc_count) {
+        changes.push({ category: 'exhorto', type: 'added', description: `${e.doc_count - pe.doc_count} doc(s) nuevo(s) en exhorto ${e.rol_destino}` })
+      } else if (e.doc_count < pe.doc_count) {
+        changes.push({ category: 'exhorto', type: 'removed', description: `${pe.doc_count - e.doc_count} doc(s) eliminado(s) del exhorto ${e.rol_destino}` })
+      }
+    }
+    // Exhortos nuevos/eliminados a nivel snapshot
+    const prevExhKeys = new Set(prev.exhortos.map(e => e.rol_destino))
+    const currExhKeys = new Set(curr.exhortos.map(e => e.rol_destino))
+    for (const e of curr.exhortos) {
+      if (!prevExhKeys.has(e.rol_destino)) {
+        changes.push({ category: 'exhorto', type: 'added', description: `Exhorto nuevo: ${e.rol_destino} (${e.estado}, ${e.doc_count} docs)` })
+      }
+    }
+    for (const e of prev.exhortos) {
+      if (!currExhKeys.has(e.rol_destino)) {
+        changes.push({ category: 'exhorto', type: 'removed', description: `Exhorto eliminado: ${e.rol_destino}` })
+      }
+    }
+
+    // ── I. Receptor (deep) ──
+    if (deep.prevReceptor && deep.currReceptor) {
+      const pName = (deep.prevReceptor.receptor_nombre || '').trim()
+      const cName = (deep.currReceptor.receptor_nombre || '').trim()
+      if (pName !== cName && (pName || cName)) {
         changes.push({
-          category: 'remision',
-          description: `${r.folio_count - pr.folio_count} folio(s) nuevo(s) en remisión ${r.descripcion_tramite} ${r.fecha_tramite}`,
+          category: 'receptor', type: 'changed',
+          description: pName
+            ? `Receptor: "${pName}" → "${cName}"`
+            : `Receptor: "${cName}"`,
         })
+      }
+      changes.push(...diffByKey(
+        deep.prevReceptor.retiros ?? [], deep.currReceptor.retiros ?? [],
+        r => `${r.cuaderno}|${r.fecha_retiro}`,
+        'receptor',
+        r => `Retiro ${r.cuaderno} ${r.fecha_retiro}`,
+        ['estado', 'datos_retiro'],
+        { estado: 'Estado', datos_retiro: 'Datos retiro' },
+      ))
+    } else {
+      // Shallow receptor
+      const prevRetiroKeys = new Set(prev.receptor_retiros.map(r => `${r.cuaderno}|${r.fecha_retiro}`))
+      const currRetiroKeys = new Set(curr.receptor_retiros.map(r => `${r.cuaderno}|${r.fecha_retiro}`))
+      for (const r of curr.receptor_retiros) {
+        if (!prevRetiroKeys.has(`${r.cuaderno}|${r.fecha_retiro}`)) {
+          changes.push({ category: 'receptor', type: 'added', description: `Retiro nuevo: ${r.cuaderno} — ${r.fecha_retiro} (${r.estado})` })
+        }
+      }
+      for (const r of prev.receptor_retiros) {
+        if (!currRetiroKeys.has(`${r.cuaderno}|${r.fecha_retiro}`)) {
+          changes.push({ category: 'receptor', type: 'removed', description: `Retiro eliminado: ${r.cuaderno} — ${r.fecha_retiro}` })
+        }
+      }
+    }
+
+    // ── J. Remisiones (deep) ──
+    if (deep.prevRemisiones && deep.currRemisiones) {
+      deepDiffRemisiones(deep.prevRemisiones, deep.currRemisiones, changes)
+    } else {
+      shallowDiffRemisiones(prev, curr, changes)
+    }
+
+  } else {
+    // ══ SHALLOW FALLBACK (sin datos JSONB previos) ══
+
+    // Exhortos shallow
+    const prevExhortoMap = new Map(prev.exhortos.map(e => [e.rol_destino, e]))
+    for (const e of curr.exhortos) {
+      const pe = prevExhortoMap.get(e.rol_destino)
+      if (!pe) {
+        changes.push({ category: 'exhorto', type: 'added', description: `Exhorto nuevo: ${e.rol_destino} (${e.estado}, ${e.doc_count} docs)` })
+        continue
+      }
+      if (pe.estado && e.estado && pe.estado !== e.estado) {
+        changes.push({ category: 'exhorto', type: 'changed', description: `Exhorto ${e.rol_destino}: estado "${pe.estado}" → "${e.estado}"` })
+      }
+      if (e.doc_count > pe.doc_count) {
+        changes.push({ category: 'exhorto', type: 'added', description: `${e.doc_count - pe.doc_count} doc(s) nuevo(s) en exhorto ${e.rol_destino}` })
+      }
+    }
+
+    // Receptor shallow
+    const prevRetiroKeys = new Set(prev.receptor_retiros.map(r => `${r.cuaderno}|${r.fecha_retiro}`))
+    for (const r of curr.receptor_retiros) {
+      if (!prevRetiroKeys.has(`${r.cuaderno}|${r.fecha_retiro}`)) {
+        changes.push({ category: 'receptor', type: 'added', description: `Retiro nuevo: ${r.cuaderno} — ${r.fecha_retiro} (${r.estado})` })
+      }
+    }
+
+    // Remisiones shallow
+    shallowDiffRemisiones(prev, curr, changes)
+
+    // Tab counts shallow
+    const tabLabels: Record<string, string> = {
+      litigantes: 'Litigantes', notificaciones: 'Notificaciones',
+      escritos_por_resolver: 'Escritos por Resolver', exhortos: 'Exhortos',
+    }
+    for (const [key, label] of Object.entries(tabLabels)) {
+      const oldCount = prev.tabs_counts[key as keyof typeof prev.tabs_counts] || 0
+      const newCount = curr.tabs_counts[key as keyof typeof curr.tabs_counts] || 0
+      if (newCount > oldCount) {
+        changes.push({ category: 'metadata', type: 'added', description: `${newCount - oldCount} nuevo(s) en ${label}` })
+      } else if (newCount < oldCount) {
+        changes.push({ category: 'metadata', type: 'removed', description: `${oldCount - newCount} eliminado(s) en ${label}` })
       }
     }
   }
 
-  // ── Tabs: conteos ──
-  const tabLabels: Record<string, string> = {
-    litigantes: 'Litigantes',
-    notificaciones: 'Notificaciones',
-    escritos_por_resolver: 'Escritos por Resolver',
-    exhortos: 'Exhortos',
+  return changes
+}
+
+function shallowDiffRemisiones(prev: SyncSnapshot, curr: SyncSnapshot, changes: SyncChange[]): void {
+  const prevKeys = new Set((prev.remisiones ?? []).map(r => `${r.descripcion_tramite}|${r.fecha_tramite}`))
+  const currKeys = new Set((curr.remisiones ?? []).map(r => `${r.descripcion_tramite}|${r.fecha_tramite}`))
+  const prevMap = new Map((prev.remisiones ?? []).map(r => [`${r.descripcion_tramite}|${r.fecha_tramite}`, r]))
+
+  for (const r of (curr.remisiones ?? [])) {
+    const key = `${r.descripcion_tramite}|${r.fecha_tramite}`
+    if (!prevKeys.has(key)) {
+      changes.push({ category: 'remision', type: 'added', description: `Remisión nueva: ${r.descripcion_tramite} ${r.fecha_tramite}${r.libro ? ` (${r.libro})` : ''}` })
+    } else {
+      const pr = prevMap.get(key)
+      if (pr && r.folio_count !== pr.folio_count) {
+        const d = r.folio_count - pr.folio_count
+        changes.push({
+          category: 'remision', type: d > 0 ? 'added' : 'removed',
+          description: d > 0
+            ? `${d} folio(s) nuevo(s) en remisión ${r.descripcion_tramite}`
+            : `${-d} folio(s) eliminado(s) de remisión ${r.descripcion_tramite}`,
+        })
+      }
+    }
   }
-  for (const [key, label] of Object.entries(tabLabels)) {
-    const oldCount = prev.tabs_counts[key as keyof typeof prev.tabs_counts] || 0
-    const newCount = curr.tabs_counts[key as keyof typeof curr.tabs_counts] || 0
-    if (newCount > oldCount) {
-      changes.push({
-        category: 'tab',
-        description: `${newCount - oldCount} nuevo(s) en ${label}`,
-      })
+  for (const r of (prev.remisiones ?? [])) {
+    if (!currKeys.has(`${r.descripcion_tramite}|${r.fecha_tramite}`)) {
+      changes.push({ category: 'remision', type: 'removed', description: `Remisión eliminada: ${r.descripcion_tramite} ${r.fecha_tramite}` })
+    }
+  }
+}
+
+function deepDiffRemisiones(
+  prev: StoredRemisionDetail[],
+  curr: StoredRemisionDetail[],
+  changes: SyncChange[],
+): void {
+  const isFullDetail = (d: unknown): d is StoredRemisionDetail =>
+    !!d && typeof d === 'object' && 'metadata' in d
+
+  const prevFull = prev.filter(isFullDetail)
+  const currFull = curr.filter(isFullDetail)
+  const pMap = new Map(prevFull.map(r => [`${r.descripcion_tramite}|${r.fecha_tramite}`, r]))
+  const cMap = new Map(currFull.map(r => [`${r.descripcion_tramite}|${r.fecha_tramite}`, r]))
+
+  // Nuevas / Eliminadas
+  for (const [k, cr] of cMap) {
+    if (!pMap.has(k)) {
+      changes.push({ category: 'remision', type: 'added', description: `Remisión nueva: ${cr.descripcion_tramite} ${cr.fecha_tramite}${cr.metadata?.libro ? ` (${cr.metadata.libro})` : ''}` })
+    }
+  }
+  for (const [k, pr] of pMap) {
+    if (!cMap.has(k)) {
+      changes.push({ category: 'remision', type: 'removed', description: `Remisión eliminada: ${pr.descripcion_tramite} ${pr.fecha_tramite}` })
     }
   }
 
-  return changes
+  // Cambios internos de cada remisión existente
+  for (const [k, cr] of cMap) {
+    const pr = pMap.get(k)
+    if (!pr) continue
+    const remLabel = cr.descripcion_tramite
+
+    // Metadata de la apelación (7 campos)
+    const metaFields: Array<keyof StoredRemisionDetail['metadata']> = [
+      'libro', 'fecha', 'estado_recurso', 'estado_procesal', 'ubicacion', 'recurso', 'corte',
+    ]
+    const metaFieldLabels: Record<string, string> = {
+      libro: 'Libro', fecha: 'Fecha', estado_recurso: 'Estado recurso',
+      estado_procesal: 'Estado procesal', ubicacion: 'Ubicación', recurso: 'Recurso', corte: 'Corte',
+    }
+    for (const f of metaFields) {
+      const o = (pr.metadata?.[f] ?? '').trim()
+      const n = (cr.metadata?.[f] ?? '').trim()
+      if (o !== n && (o || n)) {
+        changes.push({
+          category: 'remision', type: 'changed',
+          description: o
+            ? `Remisión ${remLabel}: ${metaFieldLabels[f]} "${o}" → "${n}"`
+            : `Remisión ${remLabel}: ${metaFieldLabels[f]} = "${n}"`,
+        })
+      }
+    }
+
+    // Folios (movimientos) de la remisión
+    changes.push(...diffByKey(
+      pr.folios ?? [], cr.folios ?? [],
+      f => String(f.numero),
+      'remision',
+      f => `Rem. ${remLabel} folio ${f.numero}`,
+      ['tramite', 'descripcion', 'fecha', 'sala', 'estado'],
+      { tramite: 'Trámite', descripcion: 'Descripción', fecha: 'Fecha', sala: 'Sala', estado: 'Estado' },
+    ))
+
+    // Litigantes de la remisión
+    changes.push(...diffByKey(
+      pr.tabs?.litigantes ?? [], cr.tabs?.litigantes ?? [],
+      l => l.rut || l.nombre,
+      'remision',
+      l => `Rem. ${remLabel} litigante ${l.nombre}`,
+      ['sujeto', 'persona', 'nombre'],
+      { sujeto: 'Sujeto', persona: 'Tipo persona', nombre: 'Nombre' },
+    ))
+
+    // Exhortos de la remisión
+    const prExh = pr.tabs?.exhortos ?? []
+    const crExh = cr.tabs?.exhortos ?? []
+    const prExhSet = new Set(prExh.map(e => e.descripcion))
+    const crExhSet = new Set(crExh.map(e => e.descripcion))
+    for (const e of crExh) {
+      if (!prExhSet.has(e.descripcion)) {
+        changes.push({ category: 'remision', type: 'added', description: `Rem. ${remLabel}: exhorto nuevo "${e.descripcion}"` })
+      }
+    }
+    for (const e of prExh) {
+      if (!crExhSet.has(e.descripcion)) {
+        changes.push({ category: 'remision', type: 'removed', description: `Rem. ${remLabel}: exhorto eliminado "${e.descripcion}"` })
+      }
+    }
+
+    // Incompetencia de la remisión
+    const prInc = pr.tabs?.incompetencia ?? []
+    const crInc = cr.tabs?.incompetencia ?? []
+    const prIncSet = new Set(prInc.map(i => i.descripcion))
+    const crIncSet = new Set(crInc.map(i => i.descripcion))
+    for (const i of crInc) {
+      if (!prIncSet.has(i.descripcion)) {
+        changes.push({ category: 'remision', type: 'added', description: `Rem. ${remLabel}: incompetencia nueva "${i.descripcion}"` })
+      }
+    }
+    for (const i of prInc) {
+      if (!crIncSet.has(i.descripcion)) {
+        changes.push({ category: 'remision', type: 'removed', description: `Rem. ${remLabel}: incompetencia eliminada "${i.descripcion}"` })
+      }
+    }
+
+    // Expediente primera instancia
+    if (pr.expediente || cr.expediente) {
+      const pe = (pr.expediente ?? {}) as Record<string, unknown>
+      const ce = (cr.expediente ?? {}) as Record<string, unknown>
+      const expFields = ['causa_origen', 'tribunal', 'caratulado', 'materia', 'ruc', 'fecha_ingreso']
+      const expLabels: Record<string, string> = {
+        causa_origen: 'Causa origen', tribunal: 'Tribunal', caratulado: 'Caratulado',
+        materia: 'Materia', ruc: 'RUC', fecha_ingreso: 'Fecha ingreso',
+      }
+      for (const f of expFields) {
+        const o = String(pe[f] ?? '').trim()
+        const n = String(ce[f] ?? '').trim()
+        if (o !== n && (o || n)) {
+          changes.push({
+            category: 'remision', type: 'changed',
+            description: o
+              ? `Rem. ${remLabel} expediente: ${expLabels[f]} "${o}" → "${n}"`
+              : `Rem. ${remLabel} expediente: ${expLabels[f]} = "${n}"`,
+          })
+        }
+      }
+    }
+  }
 }

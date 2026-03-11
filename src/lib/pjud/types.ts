@@ -200,6 +200,8 @@ export interface CausaPackage {
 
   extracted_at: string
   page_url: string
+
+  resume_case_id?: string
 }
 
 // ════════════════════════════════════════════════════════
@@ -241,8 +243,26 @@ export interface SyncedDocument {
 }
 
 export interface SyncChange {
-  category: 'folio' | 'cuaderno' | 'anexo' | 'exhorto' | 'receptor' | 'metadata' | 'tab' | 'remision'
+  category: 'metadata' | 'cuaderno' | 'folio' | 'anexo' | 'exhorto' | 'receptor' | 'litigante' | 'notificacion' | 'escrito' | 'remision'
+  type: 'added' | 'changed' | 'removed'
   description: string
+}
+
+export interface StoredRemisionDetail {
+  descripcion_tramite: string
+  fecha_tramite: string
+  metadata: ApelacionMetadata
+  folios: Array<{
+    numero: number
+    tramite: string
+    descripcion: string
+    nomenclaturas: string | null
+    fecha: string
+    sala: string
+    estado: string
+  }>
+  tabs: ApelacionTabsData
+  expediente: ApelacionExpediente | null
 }
 
 export interface SyncSnapshot {
@@ -309,6 +329,8 @@ export interface SyncResult {
   remisiones_stored: boolean
   changes: SyncChange[]
   is_first_sync: boolean
+  has_pending: boolean
+  pending_count: number
 }
 
 // ════════════════════════════════════════════════════════

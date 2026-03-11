@@ -503,20 +503,59 @@ async function handleSync() {
     if (!session?.access_token) throw new Error('Sesión no disponible. Por favor recargue la extensión.');
 
     updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s)...`);
-    const syncResult = await callSyncWithSSE(causaPackage, session.access_token);
 
-    showSyncResultsV2(syncResult);
+    let syncResult = null;
+    let totalAccumulated = 0;
+    let resumeCaseId = null;
+    let iteration = 0;
+    const MAX_RESUME_ITERATIONS = 30;
 
-    if (syncResult) await storeSyncBadge(syncResult);
+    do {
+      iteration++;
+      const payload = resumeCaseId
+        ? { ...causaPackage, resume_case_id: resumeCaseId }
+        : causaPackage;
 
-    if (lastDetectedCausa?.rol && currentUser?.id) {
-      const syncState = await fetchSyncState(currentUser.id, lastDetectedCausa.rol, lastDetectedCausa.tribunal || '');
-      applySyncStateUI(lastDetectedCausa, syncState);
-      await saveSyncedCausaRegistry(lastDetectedCausa);
+      if (resumeCaseId) {
+        console.log(`[Sync] Resume iteration ${iteration}, case ${resumeCaseId}`);
+        updateProgress(
+          10 + Math.round((totalAccumulated / (totalAccumulated + 100)) * 80),
+          `Continuando descarga (lote ${iteration})…`
+        );
+      }
+
+      syncResult = await callSyncWithSSE(payload, session.access_token);
+
+      if (syncResult) {
+        totalAccumulated += syncResult.total_downloaded || 0;
+        resumeCaseId = syncResult.has_pending ? syncResult.case_id : null;
+
+        if (syncResult.has_pending) {
+          console.log(`[Sync] Pending: ${syncResult.pending_count} tasks. Retrying in 3s...`);
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      } else {
+        resumeCaseId = null;
+      }
+    } while (resumeCaseId && iteration < MAX_RESUME_ITERATIONS);
+
+    if (syncResult) {
+      syncResult.total_downloaded = totalAccumulated;
     }
-
-    if (casesLoaded) { casesLoaded = false; loadCases(); }
+    showSyncResultsV2(syncResult);
     syncSuccess = true;
+
+    try {
+      if (syncResult) await storeSyncBadge(syncResult);
+      if (lastDetectedCausa?.rol && currentUser?.id) {
+        const syncState = await fetchSyncState(currentUser.id, lastDetectedCausa.rol, lastDetectedCausa.tribunal || '');
+        applySyncStateUI(lastDetectedCausa, syncState);
+        await saveSyncedCausaRegistry(lastDetectedCausa);
+      }
+      if (casesLoaded) { casesLoaded = false; loadCases(); }
+    } catch (postErr) {
+      console.warn('[Sync] Post-sync bookkeeping error (sync succeeded):', postErr.message);
+    }
 
   } catch (error) {
     console.error('[Sync] Error:', error);
@@ -525,25 +564,11 @@ async function handleSync() {
   }
 
   isSyncing = false;
+  syncingCausaInfo = null;
   if (logoutBtn) logoutBtn.disabled = false;
 
-  if (waitBanner) {
-    waitBanner.style.display = 'none';
-    waitBanner.innerHTML = '<span class="sync-wait-icon">⟳</span><span>Sincronizando en el servidor. Puede seguir navegando.</span>';
-  }
-
-  if (syncSuccess) {
-    syncBtn.innerHTML = '<span class="btn-icon">↻</span> Buscar actualizaciones';
-    syncBtn.disabled = false;
-    setTimeout(() => {
-      syncingCausaInfo = null;
-      requestCausaDetection();
-    }, 2000);
-  } else {
-    syncingCausaInfo = null;
-    syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
-    syncBtn.disabled = !lastDetectedCausa;
-  }
+  finishSyncUI(syncSuccess);
+  requestCausaDetection();
 }
 
 /**
@@ -617,7 +642,6 @@ async function callSyncWithSSE(causaPackage, accessToken) {
     return await response.json();
   }
 
-  // Consumir SSE stream
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -630,7 +654,6 @@ async function callSyncWithSSE(causaPackage, accessToken) {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      // Parsear bloques SSE completos (separados por \n\n)
       const blocks = buffer.split('\n\n');
       buffer = blocks.pop() || '';
 
@@ -649,8 +672,11 @@ async function callSyncWithSSE(causaPackage, accessToken) {
         if (event === 'complete') syncResult = data;
         else if (event === 'error') errorMsg = data.message;
       }
+
+      if (syncResult || errorMsg) break;
     }
   } finally {
+    try { reader.cancel(); } catch {}
     try { reader.releaseLock(); } catch {}
   }
 
@@ -668,15 +694,37 @@ function handleSSEEvent(event, data) {
       const current = data.current || 0;
       const pct = total > 0 ? 10 + Math.round((current / total) * 80) : 15;
       updateProgress(pct, data.message);
-
       break;
     }
     case 'complete':
-      updateProgress(100, '¡Sincronización completada!', 'success');
+      if (data.has_pending) {
+        updateProgress(90, 'Lote completado. Continuando descarga…');
+      } else {
+        updateProgress(100, '¡Sincronización completada!', 'success');
+        finishSyncUI(true);
+      }
       break;
     case 'error':
       updateProgress(100, `Error: ${data.message}`, 'error');
+      finishSyncUI(false);
       break;
+  }
+}
+
+function finishSyncUI(success) {
+  const syncBtn = document.getElementById('sync-btn');
+  const waitBanner = document.getElementById('sync-wait-banner');
+
+  if (waitBanner) waitBanner.style.display = 'none';
+
+  if (syncBtn) {
+    if (success) {
+      syncBtn.innerHTML = '<span class="btn-icon">↻</span> Buscar actualizaciones';
+      syncBtn.disabled = false;
+    } else {
+      syncBtn.innerHTML = '<span class="btn-icon">⚡</span> Sincronizar';
+      syncBtn.disabled = !lastDetectedCausa;
+    }
   }
 }
 
@@ -722,15 +770,20 @@ function showSyncResultsV2(syncResult) {
       html += `</div>`;
     }
 
-    // Cambios detectados (diff)
+    // Cambios detectados (diff) con indicadores de tipo
     if (changes.length > 0) {
+      const typeStyle = { added: 'color:#16a34a', changed: 'color:#d97706', removed: 'color:#dc2626' };
+      const typePrefix = { added: '+', changed: '~', removed: '−' };
+
       html += `<div class="result-changes">`;
       html += `<p class="result-changes-title"><strong>Cambios detectados:</strong></p>`;
-      for (const c of changes.slice(0, 10)) {
-        html += `<p class="result-detail">· ${escapeHtml(c.description)}</p>`;
+      for (const c of changes.slice(0, 20)) {
+        const style = typeStyle[c.type] || '';
+        const prefix = typePrefix[c.type] || '·';
+        html += `<p class="result-detail" style="${style}">${prefix} ${escapeHtml(c.description)}</p>`;
       }
-      if (changes.length > 10) {
-        html += `<p class="result-detail">… y ${changes.length - 10} más</p>`;
+      if (changes.length > 20) {
+        html += `<p class="result-detail">… y ${changes.length - 20} cambio(s) más</p>`;
       }
       html += `</div>`;
     }
