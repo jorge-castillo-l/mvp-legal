@@ -13,6 +13,8 @@
  * ============================================================
  */
 
+export const maxDuration = 120
+
 import { createClient, createClientWithToken, createAdminClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
@@ -114,10 +116,10 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    const supabase = token ? createClientWithToken(token) : supabaseAuth
+    const supabaseAdmin = createAdminClient()
 
     // 1. Verificar que la causa pertenece al usuario
-    const { data: targetCase, error: caseError } = await supabase
+    const { data: targetCase, error: caseError } = await supabaseAdmin
       .from('cases')
       .select('id, rol, tribunal, user_id')
       .eq('id', caseId)
@@ -131,25 +133,21 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // 2. Obtener documentos para limpiar storage
-    const { data: docs } = await supabase
+    // 2. Obtener storage paths para limpiar archivos
+    const { data: docs } = await supabaseAdmin
       .from('documents')
-      .select('id, storage_path')
+      .select('storage_path')
       .eq('case_id', caseId)
 
-    const docIds = (docs || []).map(d => d.id)
     const storagePaths = (docs || []).map(d => d.storage_path).filter(Boolean) as string[]
+    const docCount = docs?.length ?? 0
 
-    // 3. Cascade delete (orden: hojas → raíz)
-    if (docIds.length > 0) {
-      await supabase.from('extracted_texts').delete().in('document_id', docIds)
-    }
-
-    await supabase.from('document_hashes').delete().eq('case_id', caseId)
+    // 3. Cascade delete por case_id (evita .in() con miles de IDs)
+    await supabaseAdmin.from('extracted_texts').delete().eq('case_id', caseId)
+    await supabaseAdmin.from('document_hashes').delete().eq('case_id', caseId)
 
     if (storagePaths.length > 0) {
-      const supabaseAdmin = createAdminClient()
-      const BATCH_SIZE = 100
+      const BATCH_SIZE = 500
       let storageRemoved = 0
       for (let i = 0; i < storagePaths.length; i += BATCH_SIZE) {
         const batch = storagePaths.slice(i, i + BATCH_SIZE)
@@ -161,17 +159,17 @@ export async function DELETE(request: NextRequest) {
       console.log(`[DELETE /api/cases] Storage: ${storageRemoved}/${storagePaths.length} archivos eliminados`)
     }
 
-    await supabase.from('documents').delete().eq('case_id', caseId)
-    await supabase.from('cases').delete().eq('id', caseId).eq('user_id', user.id)
+    await supabaseAdmin.from('documents').delete().eq('case_id', caseId)
+    await supabaseAdmin.from('cases').delete().eq('id', caseId).eq('user_id', user.id)
 
-    console.log(`[DELETE /api/cases] Causa eliminada: ${targetCase.rol} (${caseId}) — ${docIds.length} docs`)
+    console.log(`[DELETE /api/cases] Causa eliminada: ${targetCase.rol} (${caseId}) — ${docCount} docs`)
 
     return NextResponse.json(
       {
         deleted: {
           case_id: caseId,
           rol: targetCase.rol,
-          documents_removed: docIds.length,
+          documents_removed: docCount,
           storage_removed: storagePaths.length,
         }
       },
