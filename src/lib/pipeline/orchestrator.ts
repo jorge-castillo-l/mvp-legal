@@ -22,7 +22,7 @@
 
 import { createAdminClient } from '@/lib/supabase/server'
 import { extractPdfTextWithFallback } from '@/lib/pdf-processing'
-import type { ExtractedTextInsert } from '@/types/supabase'
+import type { ExtractedTextInsert } from '@/types/database'
 
 const BUCKET_NAME = 'case-files'
 const RETRY_DELAYS_MS = [10_000, 60_000, 300_000] as const // 10s, 1min, 5min

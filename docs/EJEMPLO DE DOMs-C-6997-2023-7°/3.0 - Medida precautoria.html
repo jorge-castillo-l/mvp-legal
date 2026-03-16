@@ -1,0 +1,804 @@
+<div class="modal-dialog modal-lg">
+    <!-- Modal content-->
+      <div class="modal-content">
+          <div class="modal-header">
+                                      <button type="button" class="close" data-dismiss="modal">×</button>
+                          <h4 class="modal-title" style="color:#337ab7;">Detalle Causa Civil</h4>
+          </div>
+      
+          <div class="modal-body">
+          
+              <div class="panel with-nav-tabs">
+              
+                  <div class="panel panel-default">
+                      <table class="table table-responsive table-titulos">
+                          <tbody>
+                              <tr>
+                                  <td><strong>ROL:</strong> C-6997-2023 <span title="Causa LTE" class="label label-primary topTool"></span></td>
+                                  <td colspan="2"><strong>F. Ing.:</strong> 25/04/2023</td>
+                                  <td>Werco Trade AG./LANCON    </td>
+                              </tr>
+                              <tr>
+                                  <td>
+                                      <strong>Est. Adm.: </strong>
+                                      <span class="topTool" data-toggle="tooltip">
+                                        Sin archivar                  																					</span>
+                                  </td>
+                                  <td><strong>Proc.:</strong> Medidas Prejudiciales - Precautoria</td>
+                                  <td colspan="2"><strong>Ubicación:</strong> Corte de Apelaciones          </td>
+                              </tr>
+                              <tr>
+                                  <td><strong>Estado Proc.:</strong> Tramitación                   </td>
+                                  <td><strong>Etapa:</strong> 5 Terminada                               </td>
+                                  <td colspan="2"><strong>Tribunal:</strong> 7º Juzgado Civil de Santiago                      </td>
+                              </tr>
+                              <input type="hidden" value="string(42) " 5="" terminada="" "="">
+                          </tbody>
+                      </table>
+                              
+                      <table class="table table-responsive table-titulos">
+                          <tbody>
+                              <tr>
+                                  <td>
+                                      <strong>Texto Demanda:</strong>
+                                      <form name="form" action="ADIR_871/civil/documentos/docu.php" method="get" target="txtD">
+                                          <input type="hidden" name="valorEncTxtDmda" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9FTllJa0JOdmdIOElxd3BBYkd0SGJ2Y0piQVNZd2EyVDdpVTBrY2EzNVQ0aW80VFhZWjA5alpwZ3h1OUZ1ekl2aXZ3Q3hjbzlJR1I1d20xY25JS3F6dz0ifQ.MQZzqHNWQPPZjRjOW3uJlxQimfxfoPFbTJAG8iDGyK0">
+                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Archivo Texto Demanda" role="img">
+                                              <i title="Texto Demanda" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Texto Demanda</span>
+                                          </a>
+                                      </form>
+                                  </td>
+                                  <td>
+                                      <strong>Anexos de la causa:</strong>
+                                      <br>
+                                      <a data-toggle="modal" href="#modalAnexoCausaCivil" title="Ver Anexos de la causa" role="img" onclick="anexoCausaCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiRnlTTnhWVXRJUGd5Tmh0TXA2VjgwTUNpWEZKdDZITytqVzY4cHBCN3RKa05cL1FSU1hrTHhXVjBhSlJ6a0h5bjYifQ.Sj5UHwWVbMD3EVxBnBoMjsDUmpAXVN9As5wC7ygdp9M');"><i class="fa fa-folder-open fa-lg" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+                                  </td>
+                                  
+                                    
+                                    <!-- Bloque boton Certificado -->
+                                  <td>
+                                      <strong>Certificado de Envío:</strong>
+                                      <form name="certCivil" action="ADIR_871/civil/documentos/docCertificadoDemanda.php" method="get" target="cert">
+                                          <input type="hidden" name="dtaCert" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiYzlPZUIxa2NmTHpEaGN6TnRsY0NxN0Zqa3Q2aUY2eUhETmo1cmVQUVduTT0ifQ.hOXI3Hz6nfw1fYT9jbNF1cdYWm7sr4lz3LBSKOVY2rw">
+                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Certificado" role="img">
+                                              <i title="Descargar Certificado" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Certificado</span>
+                                          </a>
+                                          
+                                      </form>
+                                  </td>
+                              <!-- Fin Bloque boton Certificado -->
+
+                                  <td id="boton">
+                              <!-- Bloque boton ebook -->
+                                      <strong>Ebook:</strong>
+                                      <form name="form" action="ADIR_871/civil/documentos/newebookcivil.php" method="get" target="_blank">
+                                          <input type="hidden" name="dtaEbook" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiRnlTTnhWVXRJUGd5Tmh0TXA2VjgwTituaDEwNkJPd0RSNHNDOGpJWmkxT0xBWTl2YUdENE0zQ0RLNnJ4TnhJZiJ9.RF9kVSz5Hm-I8QN_UECsXa47lkowHQC9CrxkwbfcXEE">
+                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Ebook" role="img">
+                                          <i title="Descargar Ebook" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Ebook</span>
+                                          </a>
+                                      </form>
+                                  </td>
+                              <!-- Fin Bloque boton ebook -->
+                              </tr>
+                          </tbody>
+                      </table>
+                      
+                      <!-- Bloque Piezas Exhorto -->
+                                  <!-- Fin Bloque Piezas Exhorto -->
+                              
+                          
+                      
+                  </div>
+                  
+                  <div class="panel panel-default">
+                      <table class="table table-responsive table-titulos">
+                          <tbody>
+                              <tr>
+                                  <td>
+                                      <strong>Historia Causa Cuaderno</strong><br>
+                                      <select id="selCuaderno" class="form-control form-control-sm">
+                                              <option value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNanRQYm9ad1wvMk50eGdpUER3a2pRMjEwTTRsRnBTTkx1OHVhN1pFNlphXC9xXC90ZlVhSWhrdUc1WUYzNHIzR3dTd0E0cU5XTzd6OVQrNzNhdXpwTXhtak5wZ1hTcStFRWJJNHdobzZuQ2doZzl1Z1JGdjZcL2orWVFmd0ZhQnZRSG5HVkM1NU1vSWROaXlCSEltenlcL3JONHc9In0.j89Ka-Jc0Brz7pVvg0vKjiUCl0uuypSuh0s0GDWFhNU">0.0 - Medida prejudicial</option>
+                                              <option value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNanRQYm9ad1wvMk50eGdpUER3a2pRMjEwTTRsRnBTTkx1OHVhN1pFNlphXC9xXC90ZlVhSWhrdUc1WUYzNHIzR3dTd0tKNE1BNEhRNkJLY3ZjcXZzQUdlSXpEUjVxZ3BLRWRmN0dmMVwvdyt3K283MFRNOXZpZFdVQ0c0SFBMamRpYnIwc2FBd2tPcndaQlZnZXU1K0o4R1FNTT0ifQ.vSx3rZurnurdnPHOG2ox6pC0wfuja14900VRCGXGAL8">1.0 - Principal</option>
+                                              <option value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNanRQYm9ad1wvMk50eGdpUER3a2pRMjEwTTRsRnBTTkx1OHVhN1pFNlphXC9xXC90ZlVhSWhrdUc1WUYzNHIzR3dTd0VGUFBzVnV6ckVkaXNNMGtGcUc0V1RyS2tKZ1crSGVYTXZQdjBMcmphd1ArNkhVOU9WRUlGV2hUOTl5d0pNd3g5djU2NkFCSzhWY1wvdkhzbHdYQnBUTT0ifQ.1cR6-qPJlYV7eBY9Y0F26R4VVhjRS_2cQdKW9xF9WtU">1.1 - Excepciones Dilatorias</option>
+                                              <option value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiM1JyOTlNcFlJdkNYZUFzZ2RIbzFNanRQYm9ad1wvMk50eGdpUER3a2pRMjEwTTRsRnBTTkx1OHVhN1pFNlphXC9xXC90ZlVhSWhrdUc1WUYzNHIzR3dTd0h2N2pEZDVabWxQNGhFWWV1R00xMnJnRlVUSVBtTkN4Z01tMTVDKzF5Zk80aktWN2huNytMazFMYStmWlYzbGVsbEhQXC9qbFwvem9mbXZIcTVzYWhPZG89In0.HS0Dr1AYEl4B8QRW2FeAgX3GQFvMjw7z9Cq9na6YErU" selected="selected">3.0 - Medida precautoria</option>
+  
+                                      </select>
+                                      <!--
+                                      265 29520623 41722861 109 6997 C 2023										-->
+                                  </td>
+                                  <td>
+                                      <strong>Información notificaciones receptor:</strong>
+                                      <br>
+                                      <a data-toggle="modal" href="#modalReceptorCivil" title="Ver Receptor" role="img" onclick="receptorCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoic1dCRmw3Mm15TEtaeU5samZQc3FuVWhnSXB4TUs5OWp1SmhlY0RITkNkV29EbGZZQkRyTmZkVjhWS0toUklqRGxDaHl4VDRSYzNjeUF2UEswWGl0MWhZcWFxVk9wV1FJenVrZjVUOGc0SHJWM3dsWnFFNFFDQXd5Q1hQeWVIMXlDM01xZGhnZENHWGZmRGZ0ZEdSMUVcL3JYVXpnWFNBd3l2TG1pbHJPTFwvejZQamJmTGQ0OTZHTFFxWVBlb2NRTW4ifQ.MYosqmauFvTaZu8sG1mI4NMtf5kgc14JGKJIm9_EgX0');"><i class="fa fa-folder fa-2x" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+                                  </td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+                  
+                  <div class="panel-heading">
+                      <ul class="nav nav-tabs" style="display:inline-block">
+                          <li class="active"><a data-toggle="tab" href="#historiaCiv">Historia</a></li>
+                          <li><a data-toggle="tab" href="#litigantesCiv">Litigantes</a></li>
+                          <li><a data-toggle="tab" href="#notificacionesCiv">Notificaciones</a></li>
+                          <li><a data-toggle="tab" href="#escritosCiv">Escritos por Resolver</a></li>
+                          <li><a data-toggle="tab" href="#exhortosCiv">Exhortos</a></li>
+                      </ul>
+                  </div>
+                  
+                  <div class="tab-content" id="loadHistCuadernoCiv">
+                      
+                      <div class="tab-pane fade in active" id="historiaCiv"> <!-- INICIO PANEL -->
+                      
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+                                  
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Folio</th>
+                                              <th>Doc.</th>
+                                              <th>Anexo</th>
+                                              <th>Etapa</th>
+                                              <th>Trámite</th>
+                                              <th>Desc. Trámite</th>
+                                              <th>Fec. Trámite</th>
+                                              <th>Foja</th>
+                                              <th>Georref.</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                          <tr>
+                                              <td>
+                                                  4 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuS.php" method="get" target="p1">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9KZUt3VzR2eFVtZnFkUTZReWg5dEl3ZkhaY2lYZGxYUEw1UlhCRzFDeU1uUHlCdHdTKzhMVGJ1YUJ0WTg2M1diaVpzbVV6WThGS2owNytTVGFzdWVIbkRubDZNWjliZ3FiNjl0UW1pUFwvZ0lvSjdmWERaK1FzMVNTK1RyOTJBQTZ3PT0ifQ.E1CerH7Ra4Vu0ky71AigBvz68Xs3hI7CDAH6TrgqLLo">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Descargar Documento" role="img">
+                                                              <i title="Descargar Documento" class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;"></i><span class="sr-only">Descargar Documento</span>
+                                                          </a>
+                                                          
+                                                      </form>
+                                                  </td>
+                                              <td align="center">
+  
+                                              </td>
+                                              <td>Terminada                               </td>
+                                              <td>Resolución</td>
+                                              <!--<td><span title="Falla recurso de reposición" class="topToolNom"></span></td>-->
+                                              <td>
+Falla recurso de reposición												</td>
+                                              <td>07/11/2024</td>
+                                              <td>107</td>
+                                              <td align="center">
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  3 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w2" style="display: inline-block;">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9ObDR3UUxHb1NpMCt3c0prVFhOMld5ZUlDVlFTU2E2SzFzejkwekNObUxSZkVrbFlkaWMzYlNkM21vb1ZsaCtzQzk0SjQ0TUp3UFRHNFNqMGF3ZkF2eVkrQThaeGhxYm5NNVQ3ME5hMW52TiJ9.6WCPCpZowF0PqeJt0_4CXAOxe-6Xa_Yy5slsXuWu144">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                              <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                          </a>
+                                                      </form>
+                                                                                                                        <form name="certCivil" action="ADIR_871/civil/documentos/docCertificadoEscrito.php" method="get" target="cert" style="display: inline-block;">
+                                                              <input type="hidden" name="dtaCert" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiTUZSZXhEOXd6UjA2cWJPSzlpcWFBZXBIYjF1Qkl0UWlMbzFITE80UEF0UT0ifQ.uPbN6Q1J_WJg1BDOkoV-UFB5HNcxTOQJLLntfa6lbrA">
+                                                              <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Certificado de envio escrito" role="img" style="display: inline-block;">
+                                                                  <i class="far fa-file-pdf fa-lg" aria-hidden="true" style="color:#2693FF; cursor:pointer; display: inline-block;"></i>
+                                                              </a>
+                                                              </form>
+                                                                                                            </td>
+                                              <td align="center">
+                      
+                                                  <a data-toggle="modal" href="#modalAnexoSolicitudCivil" title="Anexo solicitud" role="img" onclick="anexoSolicitudCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiRnlTTnhWVXRJUGd5Tmh0TXA2VjgwUENIRlFaSkNKRkh1b0pueHBVVFlYY0JiZ0VWaEZWSkc1cnlaa2EyRG5LcWg1bXVjQUQ2RURBYmc2Q1g1SXlQdU1TYTFcL3I1S0YzWE1qaUZZZ0hMamE4PSJ9.XM003YmjWMnshkHBf7uM3Wn_3TsJl6lVh7UPCZn_Qtk');"><i class="fa fa-folder-open fa-lg" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+  
+                                              </td>
+                                              <td>Conciliación y/o Recibe a prueba        </td>
+                                              <td>Escrito</td>
+                                              <!--<td><span title="Reposición" class="topToolNom"></span></td>-->
+                                              <td>
+Reposición												</td>
+                                              <td>28/10/2024</td>
+                                              <td>106</td>
+                                              <td align="center">
+                                              </td>
+                                          </tr>
+                                          <tr>
+                                              <td>
+                                                  2 
+                                              </td>
+                                              <td align="left">
+                                                      <form name="form" action="ADIR_871/civil/documentos/docuN.php" method="get" target="w3" style="display: inline-block;">
+                                                          <input type="hidden" name="dtaDoc" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiTVFLS3ViaUU2XC93b3V6TEllOWRGXC9HVVlreW1BV2V0UDBiOG5jU1NLR2lucmdwV3ZwUUQzbExvQnBZWFo2OHN0NXo0Y21PbFU5WWxCcXZNY2lSXC9pOWczZndBVWpJRDJ3YnR6bmdPbkxMclFZRzdIamJYbFRGdWkzNUdFSGFGK3EifQ.6fmfaaKc2mjH0dlQP_YdCFjDuQTxATO7wRQsmwTR-eU">
+                                                          <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Documento principal del escrito" role="img" style="display: inline-block;">
+                                                              <i class="fa fa-file-pdf-o fa-lg" aria-hidden="true" style="color:#ab5659; cursor:pointer;,  display: inline-block"></i>
+                                                          </a>
+                                                      </form>
+                                                                                                                        <form name="certCivil" action="ADIR_871/civil/documentos/docCertificadoEscrito.php" method="get" target="cert" style="display: inline-block;">
+                                                              <input type="hidden" name="dtaCert" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiTUZSZXhEOXd6UjA2cWJPSzlpcWFBUW42cEdabGJHeDltSE9pMW5jR3pzWT0ifQ.YEH4KbwBtVL5VYU9zrF7chGtzZ1G1bTd6am0-w3g-ic">
+                                                              <a href="#" onclick="$(this).closest(&quot;form&quot;).submit();" title="Certificado de envio escrito" role="img" style="display: inline-block;">
+                                                                  <i class="far fa-file-pdf fa-lg" aria-hidden="true" style="color:#2693FF; cursor:pointer; display: inline-block;"></i>
+                                                              </a>
+                                                              </form>
+                                                                                                            </td>
+                                              <td align="center">
+                      
+                                                  <a data-toggle="modal" href="#modalAnexoSolicitudCivil" title="Anexo solicitud" role="img" onclick="anexoSolicitudCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiRnlTTnhWVXRJUGd5Tmh0TXA2VjgwUENIRlFaSkNKRkh1b0pueHBVVFlYY0JiZ0VWaEZWSkc1cnlaa2EyRG5LcWg1bXVjQUQ2RURBYmc2Q1g1SXlQdU1yYklkWWNDME41OFFRcmg2R1NpS0k9In0.tBXPwnW2Gn7t8YPQn5IVDKMbyFwElDcAEm8fI29lYoM');"><i class="fa fa-folder-open fa-lg" aria-hidden="true" style="cursor:pointer; color:#D7B926"></i></a>
+  
+                                              </td>
+                                              <td>Conciliación y/o Recibe a prueba        </td>
+                                              <td>Escrito</td>
+                                              <!--<td><span title="Solicita medida precautoria" class="topToolNom"></span></td>-->
+                                              <td>
+Solicita medida precautoria												</td>
+                                              <td>16/10/2024</td>
+                                              <td>104</td>
+                                              <td align="center">
+                                              </td>
+                                          </tr>
+                                      </tbody>
+                                  </table>
+
+                              </div>
+                          </div>
+
+                      </div> <!-- FIN PANEL -->
+
+
+                      <div class="tab-pane fade" id="litigantesCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Participante</th>
+                                              <th>Rut</th>
+                                              <th>Persona</th>
+                                              <th>Nombre o Razón Social</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                          <tr>
+                                              <td>AP.DDO</td>
+                                              <td>14056707-8</td>
+                                              <td>NATURAL                       </td>
+                                              <td>MYRIAM ELIANA BAHER RETAMAL </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>DTE.  </td>
+                                              <td>0-0</td>
+                                              <td>NATURAL                       </td>
+                                              <td>WERCO TRADE AG.   </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>AB.DTE</td>
+                                              <td>6379105-9</td>
+                                              <td>NATURAL                       </td>
+                                              <td>JOSÉ MIGUEL GANA EGUIGUREN </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>DDO.  </td>
+                                              <td>23224425-9</td>
+                                              <td>NATURAL                       </td>
+                                              <td>FRANCK YVES LANCON  </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>AB.DDO</td>
+                                              <td>8426725-2</td>
+                                              <td>NATURAL                       </td>
+                                              <td>CARLOS ARTURO CLAUSSEN CALVO </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>AB.DDO</td>
+                                              <td>19657567-7</td>
+                                              <td>NATURAL                       </td>
+                                              <td>JORGE ANDRÉS BAHAMONDE MORCHIO </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>AP.DTE</td>
+                                              <td>18166806-7</td>
+                                              <td>NATURAL                       </td>
+                                              <td>JUAN PABLO MORALES COSTA </td>				
+                                          </tr>
+                                          <tr>
+                                              <td>DDO.  </td>
+                                              <td>76253853-9</td>
+                                              <td>JURIDICA                      </td>
+                                              <td>COBRES Y METALES SPA.   </td>				
+                                          </tr>
+                                      </tbody>
+                                  </table>
+                                      
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+
+
+                      <div class="tab-pane fade" id="notificacionesCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>ROL</th>
+                                              <th>Est. Notif.</th>
+                                              <th>Tipo Notif.</th>
+                                              <th>Fecha Trámite</th>
+                                              <th>Tipo Part.</th>
+                                              <th>Nombre</th>
+                                              <th>Trámite</th>
+                                              <th>Obs. Fallida</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                          <tr>
+                                              <td nowrap="">C-6997-2023</td>
+                                              <td>Realizada           </td>
+                                              <td>mail                          </td>
+                                              <td>07/11/2024</td>
+                                              <td>AB.DTE         </td>
+                                              <td nowrap="">JOSÉ MIGUEL GANA EGUIGUREN</td>
+                                              <td>resolución                    </td>
+                                              <td></td>
+                                          </tr>
+                                          <tr>
+                                              <td nowrap="">C-6997-2023</td>
+                                              <td>Realizada           </td>
+                                              <td>mail                          </td>
+                                              <td>07/11/2024</td>
+                                              <td>AB.DDO         </td>
+                                              <td nowrap="">JORGE ANDRÉS BAHAMONDE MORCHIO</td>
+                                              <td>resolución                    </td>
+                                              <td></td>
+                                          </tr>
+                                      </tbody>
+                                  </table>
+                                      
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+
+
+                      <div class="tab-pane fade" id="escritosCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                              
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Doc.</th>
+                                              <th>Anexo</th>
+                                              <th>Fecha de Ingreso</th>
+                                              <th>Tipo Escrito</th>
+                                              <th>Solicitante</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                      </tbody>
+                                  </table>
+                                              
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+                      
+                      
+                      <div class="tab-pane fade" id="exhortosCiv"> <!-- INICIO PANEL -->
+                          <div class="panel panel-default">
+                          
+                              <div class="table-responsive">
+
+                                  <table class="table table-bordered table-striped table-hover">
+                                      <thead>
+                                          <tr>
+                                              <th>Rol Origen</th>
+                                              <th>Tipo Exhorto</th>
+                                              <th>Rol Destino</th>
+                                              <th>Fecha Ordena Exhorto</th>
+                                              <th>Fecha Ingreso Exhorto</th>
+                                              <th>Tribunal Destino</th>
+                                              <th>Estado Exhorto</th>
+                                          </tr>												
+                                      </thead>
+                                      <tbody>
+                                          <tr>
+                                              <td>C-6997-2023</td>		
+                                              <td>Exhorto</td>
+                                              <td><label class="label label-info" style="cursor:pointer; font-size:13px;" data-toggle="modal" href="#modalExhortoCivil" title="Detalle Exhorto" onclick="detalleExhortosCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiZFBjN2JwcWxYY1VIcU4wVjVkOHFIcTBGREthWE9vMjhRbUZ0K0hOVlJlYmd4ZkNiN3l3Rmp2UjQ0M25RUWlwQW5xZ3h3aTBiYUcxb2FSQWM4cDVaUlE9PSJ9.rulXOJI-RJW57ky8-22hYDeUvtwC-jCCqXYPd6wsPEI');">E-2591-2025</label></td>
+                                              <td>15/07/2025</td>
+                                              <td>15/07/2025</td>
+                                              <td>2º Juzgado de Letras de San Bernardo              </td>
+                                              <td>Recepcionado</td>
+                                          </tr>
+                                          <tr>
+                                              <td>C-6997-2023</td>		
+                                              <td>Exhorto</td>
+                                              <td><label class="label label-info" style="cursor:pointer; font-size:13px;" data-toggle="modal" href="#modalExhortoCivil" title="Detalle Exhorto" onclick="detalleExhortosCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiZFBjN2JwcWxYY1VIcU4wVjVkOHFIbHI0VHozaTFrdXpzenlDQnczVFlsNUtSekExZ3B6bzVQUEJrSUowXC90NHhVSmpPaVhkbFd2cXhiZnh5bU9xSzdnPT0ifQ.FqOJNhokBCoVq9xOLM84K4__qlVo0pT4L-2ieltFK1I');">E-2348-2025</label></td>
+                                              <td>15/07/2025</td>
+                                              <td>15/07/2025</td>
+                                              <td>Juzgado de Letras de Casablanca                   </td>
+                                              <td>Recepcionado</td>
+                                          </tr>
+                                          <tr>
+                                              <td>C-6997-2023</td>		
+                                              <td>Exhorto</td>
+                                              <td><label class="label label-info" style="cursor:pointer; font-size:13px;" data-toggle="modal" href="#modalExhortoCivil" title="Detalle Exhorto" onclick="detalleExhortosCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiZFBjN2JwcWxYY1VIcU4wVjVkOHFIdlwvbW1aTVwvN2tWdlwvVXJUUFI5bEMza0RoZXFTbkNuTDV5MWFQRnRyMGRJRURcL1ZuMmdieTF4RWpWdkQrK244Y3BBPT0ifQ.Sm5aruZVT4sGnxFJzEKL8l5khtGuMzXuQwLNvBVL57o');">E-1635-2025</label></td>
+                                              <td>24/09/2025</td>
+                                              <td>24/09/2025</td>
+                                              <td>2º Juzgado Civil de Valparaíso                    </td>
+                                              <td>Recepcionado</td>
+                                          </tr>
+                                          <tr>
+                                              <td>C-6997-2023</td>		
+                                              <td>Exhorto</td>
+                                              <td><label class="label label-info" style="cursor:pointer; font-size:13px;" data-toggle="modal" href="#modalExhortoCivil" title="Detalle Exhorto" onclick="detalleExhortosCivil('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiZFBjN2JwcWxYY1VIcU4wVjVkOHFIcmtUM3JFXC9ZMDlzOUhrVWZ2WjJiZXE1QThLRUFZb3JIQkJ2SndCNFFleWJQOUw3UFo2SExQMzFlcnNoZWRRSFlBPT0ifQ.DqC6gmrh2I0cU8PaFYjnMDe-aUnM0pY5YsuA61oi-bI');">E-10342-2025</label></td>
+                                              <td>15/07/2025</td>
+                                              <td>15/07/2025</td>
+                                              <td>1º Juzgado Civil de Puente Alto                   </td>
+                                              <td>Recepcionado</td>
+                                          </tr>
+                                      </tbody>
+                                  </table>
+                                      
+                              </div>
+                          </div>
+                      </div> <!-- FIN PANEL -->
+                      
+                      
+                  </div>
+                  
+              </div>
+              
+
+              <div class="panel panel-default">
+              
+                  <div class="panel-heading">
+                       <h4 class="modal-title" style="color:#FFF;">Remisiones en la Corte</h4>
+                  </div>
+                  <div class="table-responsive">
+
+                      <table class="table table-bordered table-striped table-hover">
+                          <thead>
+                              <tr>
+                                  <th>Rol Corte</th>
+                                  <th>Descripción del Trámite</th>
+                                  <th>Fecha Trámite</th>
+                              </tr>                                               
+                          </thead>
+                          <tbody>
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiY2lWbnEyRjY4V05RdktSSk00S0NMNktybkZpWmFWcXIwQnJFQkYyUXZxT0hYeVwvamI2Z3hHZ1Y4eERUM2ppUFZPSWtNbEpcLzFmXC9uY2psc1d0WVJRUThvMFBTbnRaSjY0WlA2QWZwOTl5d1ZTNE93UDRySEZpUUtUUHhTWFNadDAifQ.WAfbQ1gTNiwlqWmeNlZghcZb7UsFaBFozbeLLZHNJn0');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>26/10/2023</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiNEw4V1pEcFwveThVa3FrM1VWUFg1QlJENWg5bjQ1aFAxZWtUSmpMV1wvSFdmMWYxTUlyZWRaWkZ3ZnVzNkJQOEx4b0ZlRUt0cUhZanZnZFduWVVQZmJBWjV3YU9UOW1TeUJIOGdnRDF3TFlWNUFHVlJZM1wvQ08wUnhQRmVPZXpPNWMifQ.k-dG7xFKvmyIosmoTOnxXtWU-NT4pmR8frZBVWL__QI');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>21/11/2023</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoidTdycVlONkdGZktCaDRQeWhCOVJzNjRRNnBWcGdJR0QrSmUwYklaXC93Wm9Dd25qNVdhVVVcL3c5dDZhQUxkWGpoaGtnUEkwNjA3ZjMxNHpPTm5XZE5DM3pESThkVWxsaHptYmQ2RXBFRUluNFZsNWpFTFdqdzk5bVhzXC9WdTd6WmUifQ.eKgUY0lq4Prl9Vqw1DKZH3wms0GmRcABdkrvBRl_R6w');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>RECEPCION</td>
+                                  <td>10/09/2024</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiMDl5OHpFT0hwbVlWcVRNcDk4RFFMNHcrME9cL2RZV1o1RWFycWU2Y1ZMYUtKd3VwWk5qTUdhMTh4a05nUE94eHlOczNTSEx0SStOVTEzOGpCcnVCTWFzcGdFK1FrNHBVaHZmRWFcL3lNTldYeGJVK0NRcTVuRkdpNWV5cjhhTWhpRSJ9.tX4EUbddE1jrSsHkcqXkFJk8KBm_rUy4Kh04cvvV8sM');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>03/06/2025</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiZGVvbHgxaHRRU0Q4aWdPZ1hVSitXVVlZUjJHd1FGTnBvZkhEeDYyb29pZnBiXC9pYlBjUWNrTXZaMzF2ZzJHUE0wS05WZExTd1M3NG9IeHhqa0ZcLytVRWJ5Qm1zdXdQaTZSc1AzWkF2bFZCTG12K2NGUG9IU1IzQmlJU0NlMStOSSJ9.jrC8Vnqaxw8DKFXdEkvnaEWk-moa7Eif9zTwTR6Scqg');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>28/07/2025</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiUXB3c29CTEtZUnFIXC9TVGtZOEFlQ1ZqN0lDK0l3aWVGUDFRb2JIS0xEdlJ6cVpnNTNnVTZOamlcL0dvbDVxOVd0RnI1Rkk5aVwvR09jUFQwY2JVQlJYYnVMem9DVm5qeitxM1dNVWhJK0hnQnh6SnhNN1BYbFZ0VlREZG1GdkU0SnMifQ.mqPGQklJKFFEQk7UKRrCRVKUTWEpuPGRpfx0GNmnJpg');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>20/08/2025</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoieWgxRk5weWJyaDdSdVNQYUljRHNTSThRb0JQT09mZHNVQUlQRmpTazA5eWpvTFwvTmUyUWJkWTJkK1V4aytJWFFITEFsSjY4Zlg3VkJFUlZ5TVg4ZU9GakpkUWh3ZlNpMkxBUkNuRjhRYkp0b2RCYVlGYm1XdUNqS1dDNnZXcFBCIn0.6VYZfIA514-2dHfq-Isrhc-Z4nsIqW_EVfNuTE4Gw30');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>26/08/2025</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoieG9TbGpBUHdKbjdQbDd4U1RlaTRGZ0R4VDJLRFhHcmxxMVpwU2xWVmFzQXF1eGF5SWZkcTlVQVVcL0NCUFFkcnFxbWdvUHFDV0pGcmp5VEZaYTB1S0NWeWlPOFhsTGluMTBXalwvZU9hUHRURW9hd05xTGg2ZXlMRUx6SWFrVUJWbCJ9.OFp433cf9GsIwgR7eKcf_t492BATbYOMQieOx4C-3Eo');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>RECEPCION</td>
+                                  <td>29/08/2025</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiQ2h2TXpDZGh2YW9DNWFmSmpMQ2hmVFFyWTNJeGh2aEJ1aHhqWXFKTnJGTVJKZExkWVR5T216XC94UUtmSDBsVXFWRVN1KzdFeFY0SFk1MFJqM2FWVmRXV2h1VDRiXC9KQ0U4K0dnV3dcL01WY252dnY0XC9tK3Z6SEdJanBwRnBZVTNxIn0.8dcICOmU1JJnLivmxUqb9pVypvumza7ldtwxOAay1J4');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>02/09/2025</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiQ2h2TXpDZGh2YW9DNWFmSmpMQ2hmU09GeFBLUzVcL21FOTVnbU5DMmJJWjI0RHQwdno1cUVcL0hqUDVNcFF1R0tWRGc3SzdxUXkybXlDRkgwRjFnOUt2TVZ4N0xYbkZkNFwvY2ZIdVE5UGZOdGNvZGZrd3pmeGNBRVczRTJQd0VETTgifQ.yiMzON-ouwdyeG8GJWkjvMXkt7GELNmEBeumFk7TMLk');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>02/09/2025</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiOGRLQWwrc3kyOE9Wemdpb2NsSXEyM3ZsWmNIWU1XVlI4ZEFcL2N5M0ZIeXpQS1lGY09rdTAwNFhyNUlRK0ZJdnJ5OVFrQVlqTHVQTHRZMmNpUDNDaGE1dGNSYWo1aUlRTU85cHN6clZOZk5qUTJQbWNYaU9QSDZwTnZnbFh0QjI3In0.fE2moJKAxKoLRKuhIJ8QWq1TS4Xulq1zvlZDg6zwhoQ');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>RECEPCION</td>
+                                  <td>03/07/2023</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoieVwvTk8xS2JabzBVZjFUc3lQZmVUeWdqTitPTkc0TXBYRlI5cWt5ZnRBWTNNbzV0cnFOTURycllneWZSZExSM1VlWUU5NXdnUEpWUmNQMHVIV1o3cVF3TStmMHBmXC9ZU1ZDeTZmelhpTHBGNDAwXC9XUnBVUFdXZ2VUVUZ5aHg1Rk0ifQ.RUIzF9o72T4kHZVhSZdkrP-8fSADW3PWzOT_CjQ_Lg4');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>14/06/2024</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                              <tr>
+                                  <td align="center" width="90px">
+                                          <a href="#" title="Detalle causa apelaciones" role="img" onclick="detalleCausaApelaciones('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczpcL1wvb2ZpY2luYWp1ZGljaWFsdmlydHVhbC5wanVkLmNsIiwiYXVkIjoiaHR0cHM6XC9cL29maWNpbmFqdWRpY2lhbHZpcnR1YWwucGp1ZC5jbCIsImlhdCI6MTc3MzM3MTg5NiwiZXhwIjoxNzczMzc1NDk2LCJkYXRhIjoiNHlcL0tGeHRqRWZrQ0IxVEM3RlhYVSttdUNYSEpxTmk1WEFieFBySzB6Y0dESHByZmI2NElORlZ3bnZBS2pQc3VpN3ZlVGt6SWNiaDhqK1BCR1Z1S3YxcWY3dFpERFFRekZ6ME10NldmV0krQXVVN0p1STZvM2FjbEZwKzFFSjFvIn0.iRLFahlnZsRn_BsEHMZi7iwQXUP1JWsbse-2LJou25w');">
+                                              <i class="fa fa-play-circle fa-lg" style="cursor:pointer; color:#337ab7" aria-hidden="true"></i>
+                                          </a>
+                                  </td>
+                                  <td>REMISION</td>
+                                  <td>10/01/2024</td>
+                              </tr>								
+                              <script>
+                                  $('.msjLupa').click(function(){
+  
+                                      swal({
+                                          title: "",
+                                          text: 'El recurso no se encuentra disponible',
+                                          type: "warning",
+                                          confirmButtonText: "Aceptar",
+                                      }, function () {
+                                          $('body').removeClass('modal-open');
+                                          $('.modal-backdrop').remove();
+                                      });
+      
+                                  });
+                              </script>								
+                          </tbody>
+                      </table>
+                          
+                  </div>
+              </div>					
+          
+          </div>
+          
+      
+          <div class="modal-footer">
+                          <button type="button" class="btn btn-default" data-dismiss="modal">Cerrar</button>
+                      </div>
+          
+      </div>
+  </div>

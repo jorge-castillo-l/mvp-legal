@@ -1,0 +1,57 @@
+CATÁLOGO DE DATOS PJUD → SCHEMA DB,,,,,,
+,,,,,,
+════════════════════════════════════════,,,,,,
+1. Nivel CAUSA (globales),,,,,,
+════════════════════════════════════════,,,,,,
+#,Tabla PJUD,Columnas PJUD,Tiene Docs,Endpoint AJAX,Tabla DB,Notas
+"T1","Metadata causa","ROL, F.Ing, Carátula, Est.Adm, Proc*, Ubicación, Estado Proc, Etapa*, Tribunal","No","DOM directo","cases","*Proc y Etapa son del cuaderno visible al abrir (normalmente 1.0 Principal). Cada cuaderno tiene su propio Proc y Etapa en case_cuadernos."
+"T2","Docs directos","Texto Demanda, Certificado Envío, Ebook","Sí (3 PDFs)","DOM directo","documents (origen='directo')",
+"T3","Anexos causa","Doc, Fecha, Referencia","Sí","anexoCausaCivil.php","case_anexos_causa + documents (origen='anexo_causa')",
+"T4","Receptor","Cuaderno, Datos del Retiro, Fecha Retiro, Estado","No","receptorCivil.php","case_receptor_retiros","Datos del Retiro contiene el nombre del receptor. Puede haber múltiples receptores distintos."
+"T5","Remisiones (por cada una → T8)","Rol Corte, Descripción Trámite, Fecha Trámite","No (enlace a T8)","DOM directo","case_remisiones (campos descripcion_tramite, fecha_tramite)",
+"T6","Exhortos (tab, dedup)","Rol Origen, Tipo Exhorto, Rol Destino, Fecha Ordena Exhorto, Fecha Ingreso Exhorto, Tribunal Destino, Estado Exhorto","No (enlace a T7)","DOM directo","case_exhortos","Aparecen idénticos en todos los cuadernos. Se deduplicar por rol_destino."
+"T6-E","Causa Origen (solo tipo E)","Causa Origen, Tribunal Origen","No","DOM directo (bloque Piezas Exhorto)","cases (campos causa_origen, tribunal_origen)","Solo aparece en causas con libro_tipo='e'."
+,,,,,,
+════════════════════════════════════════,,,,,,
+2. Nivel CAUSA → modal detalle (globales),,,,,,
+════════════════════════════════════════,,,,,,
+#,Tabla PJUD,Columnas PJUD,Tiene Docs,Endpoint AJAX,Tabla DB,Notas
+"T7","Detalle exhorto","Doc, Fecha, Referencia, Trámite","Sí","detalleExhortosCivil.php","case_exhorto_docs + documents (origen='exhorto')",
+"T8","Detalle remisión (apelación) — contiene sub-tablas:",,,,"causaApelaciones.php","case_remisiones (campos combinados de T5+T8a+T8b+T8g)"
+"T8a","→ Metadata remisión","Libro, Fecha, Estado Recurso, Estado Procesal, Ubicación, Recurso, Corte","No",,"case_remisiones (campos libro..corte)",
+"T8b","→ Docs directos remisión","Certificado, Ebook, Texto, Anexo (ban/disponible)","Sí",,"case_remisiones (flags tiene_*) + documents (origen='remision_directo')",
+"T8c","→ Movimientos","Folio, Doc, Anexo, Trámite, Descripción, Nomenclaturas, Fecha, Sala, Estado","Sí",,"case_remision_movimientos + documents (origen='remision_movimiento')","Nomenclaturas se extrae del title del span.topToolNom."
+"T8d","→ Litigantes remisión","Sujeto, Rut, Persona, Nombre o Razón Social","No",,"case_remision_litigantes",
+"T8e","→ Exhortos remisión","Exhorto","No",,"case_remision_exhortos",
+"T8f","→ Incompetencia remisión","Incompetencia","No",,"case_remision_incompetencias",
+"T8g","→ Expediente 1ª instancia","Causa Origen, Tribunal, Caratulado, Materia, Ruc, Fecha Ingreso","No",,"case_remisiones (campos exp_*)",
+"T9","Anexo escrito apelaciones","Doc, Código, Tipo Documento, Cantidad, Observación del Documento","Sí","anexoEscritoApelaciones.php","case_remision_mov_anexos + documents (origen='remision_mov_anexo')","Se extrae de T8c: folios con icono carpeta en col Anexo."
+,,,,,,
+════════════════════════════════════════,,,,,,
+3. Nivel CUADERNO (varían al cambiar cuaderno),,,,,,
+════════════════════════════════════════,,,,,,
+#,Tabla PJUD,Columnas PJUD,Tiene Docs,Fuente,Tabla DB,Notas
+"T10a","Proc + Etapa (del cuaderno)","Proc, Etapa","No","DOM (cambia con cuaderno)","case_cuadernos (campos procedimiento, etapa)","Cada cuaderno tiene su propio Proc y Etapa. El valor a nivel causa (T1) es del cuaderno visible al abrir."
+"T10b","Historia (folios)","Folio, Doc, Anexo, Etapa, Trámite, Desc.Trámite, Fec.Trámite, Foja","Sí","DOM / causaCivil.php","case_folios + documents (origen='folio' o 'folio_certificado')","TODOS los folios se registran, tengan o no PDF. Folio es el número exacto de la columna, no el conteo de filas."
+"T10c","Litigantes","Participante, Rut, Persona, Nombre o Razón Social","No","DOM / causaCivil.php","case_litigantes","Distintos por cuaderno. El mismo RUT puede tener distinto detalle de poder según cuaderno."
+"T10d","Notificaciones","ROL, Est.Notif, Tipo Notif, Fecha Trámite, Tipo Part, Nombre, Trámite, Obs.Fallida","No","DOM / causaCivil.php","case_notificaciones",
+"T10e","Escritos por Resolver","Doc, Anexo, Fecha Ingreso, Tipo Escrito, Solicitante","Sí","DOM / causaCivil.php","case_escritos + documents (origen='escrito')",
+"T11","Anexo solicitud (por folio)","Doc, Fecha, Referencia","Sí","anexoSolicitudCivil.php","case_folio_anexos + documents (origen='anexo_solicitud')","Se extrae de T10b: folios con icono carpeta en col Anexo."
+"T12","Piezas Exhorto (solo tipo E)","Folio, Doc, Cuaderno, Anexo, Etapa, Trámite, Desc.Trámite, Fec.Trámite, Foja","Sí","DOM / causaCivil.php","case_piezas_exhorto + documents (origen='pieza_exhorto')","Tab extra que solo existe en causas con libro_tipo='e'."
+,,,,,,
+════════════════════════════════════════,,,,,,
+4. Tabla DOCUMENTS — asociación PDF ↔ contexto,,,,,,
+════════════════════════════════════════,,,,,,
+Campo,Descripción,,,,,
+origen,"Tipo de origen: directo, folio, folio_certificado, anexo_causa, anexo_solicitud, exhorto, remision_directo, remision_movimiento, remision_mov_anexo, escrito, pieza_exhorto",,,,,
+tramite_pjud,"Trámite original de PJUD tal cual (Resolución, Escrito, Actuación Receptor, etc.)",,,,,
+cuaderno_id,"FK → case_cuadernos (para docs de folios, escritos, piezas exhorto)",,,,,
+folio_id,"FK → case_folios (para doc principal y certificado escrito del folio)",,,,,
+folio_anexo_id,"FK → case_folio_anexos (para PDFs de anexos de solicitud)",,,,,
+anexo_causa_id,"FK → case_anexos_causa (para PDFs de anexos de la causa)",,,,,
+exhorto_doc_id,"FK → case_exhorto_docs (para PDFs del detalle de exhorto)",,,,,
+remision_id,"FK → case_remisiones (para ebook, certificado, texto directos de la remisión)",,,,,
+remision_mov_id,"FK → case_remision_movimientos (para PDFs de movimientos de remisión)",,,,,
+remision_mov_anexo_id,"FK → case_remision_mov_anexos (para PDFs de anexos de escritos de apelación)",,,,,
+pieza_exhorto_id,"FK → case_piezas_exhorto (para PDFs de piezas de exhorto, solo tipo E)",,,,,
+escrito_id,"FK → case_escritos (para PDFs de escritos por resolver)",,,,,

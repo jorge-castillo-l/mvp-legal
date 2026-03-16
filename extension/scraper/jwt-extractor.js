@@ -1,73 +1,69 @@
 /**
  * ============================================================
- * JWT EXTRACTOR MODULE - Tarea 4.16
+ * JWT EXTRACTOR — Extrae CausaPackage del DOM de PJUD
  * ============================================================
- * Reemplaza CausaContext (4.07) + DOMAnalyzer (4.08).
+ * Lee el modal #modalDetalleCivil y extrae:
+ *   1) Metadata global de la causa (T1)
+ *   2) JWTs de docs directos: Texto Demanda, Certificado, Ebook (T2)
+ *   3) JWT de Anexos de la causa (T3)
+ *   4) JWT de Receptor (T4)
+ *   5) Remisiones en la Corte con JWTs (T5)
+ *   6) Exhortos deduplicados con JWTs (T6)
+ *   7) Causa Origen para tipo E (T6-E)
+ *   8) Cuaderno visible completo: proc, etapa, folios, litigantes,
+ *      notificaciones, escritos, piezas exhorto (T10a-T12)
+ *   9) JWTs de cuadernos no-visibles
+ *  10) CSRF token y cookies
  *
- * LECTURA 100% PASIVA del DOM visible:
- *   - Cero clics
- *   - Cero navegación
- *   - Cero requests a PJUD
- *
- * Extrae TODO lo necesario del modal #modalDetalleCivil (DOM2):
- *   1) ROL + metadata de table.table-titulos
- *   2) JWTs de forms directos (Texto Demanda, Certificado, Ebook)
- *   3) JWT de Anexos (onclick=anexoCausaCivil)
- *   4) JWTs de cuadernos (select#selCuaderno)
- *   5) JWT de Receptor (onclick=receptorCivil)
- *   6) CSRF token del DOM
- *   7) Datos tabulares de 5 tabs
- *   8) Folios visibles con JWTs
- *   9) Carátula desde DOM1 (solo Consulta Unificada, nullable)
- *  10) libro_tipo de la letra del ROL
- *
- * Empaqueta todo en un CausaPackage JSON → service-worker → API.
- *
- * DISEÑO DUAL ENTRY POINT:
- *   - consulta_unificada: caratulado desde DOM1, libro_tipo detectable
- *   - mis_causas (MVP v1.1): todo desde DOM2, caratulado nullable
+ * Estructura de 2 niveles:
+ *   - Global: metadata, docs directos, anexos, receptor, exhortos, remisiones
+ *   - Por cuaderno: proc, etapa, folios, litigantes, notificaciones, escritos
  * ============================================================
  */
 
 class JwtExtractor {
-  constructor(config) {
-    this.config = config || {};
-
-    // Backward-compat state (replaces CausaContext)
+  constructor() {
     this.detectedCausa = null;
     this.isConfirmed = false;
     this._lastPackage = null;
   }
 
-  // ════════════════════════════════════════════════════════
-  // PUBLIC API
-  // ════════════════════════════════════════════════════════
-
   /**
-   * Quick detection — lightweight, runs on page load.
-   * Returns basic causa info for sidepanel preview.
-   * Backward-compatible with CausaContext.detect().
+   * Quick detection — finds ROL, tribunal, and basic causa info.
    */
-  async detect() {
-    this.isConfirmed = false;
-    this.detectedCausa = null;
-
-    if (!/pjud\.cl/i.test(window.location.href)) return null;
-
+  detect() {
     const modalBody = this._findModalBody();
-    if (!modalBody) {
-      // Fallback: try detecting ROL from page text (pre-modal state)
-      const rolResult = this._detectRolFromPage();
-      if (!rolResult) return null;
+    if (modalBody) {
+      const metadata = this._extractMetadata(modalBody);
+      if (metadata.rol) {
+        this.detectedCausa = {
+          rol: metadata.rol,
+          rolSource: 'pjud_modal',
+          rolConfidence: 0.99,
+          tribunal: metadata.tribunal,
+          caratula: null,
+          materia: metadata.procedimiento_raw,
+          estado: metadata.estado_adm,
+          libro_tipo: metadata.libro_tipo,
+          hasDocumentZone: true,
+          documentZoneType: 'pjud_modal',
+          documentPreview: { total: 0, byType: {}, items: [] },
+          totalDocuments: 0,
+          pageUrl: window.location.href,
+          detectedAt: Date.now(),
+        };
+        return this.detectedCausa;
+      }
+    }
 
+    const pageRol = this._detectRolFromPage();
+    if (pageRol) {
       this.detectedCausa = {
-        rol: rolResult.rol,
-        rolSource: rolResult.source,
-        rolConfidence: rolResult.confidence,
+        rol: pageRol.rol,
+        rolSource: pageRol.source,
+        rolConfidence: pageRol.confidence,
         tribunal: null,
         caratula: null,
-        materia: null,
-        estado: null,
         hasDocumentZone: false,
         documentZoneType: null,
         documentPreview: { total: 0, byType: {}, items: [] },
@@ -78,40 +74,7 @@ class JwtExtractor {
       return this.detectedCausa;
     }
 
-    const metadata = this._extractMetadata(modalBody);
-    if (!metadata.rol) return null;
-
-    const caratula = await this._resolveCaratula(metadata.rol, metadata.tribunal, metadata._partialCaratula);
-    const docCount = this._countAllVisibleDocuments(modalBody);
-
-    this.detectedCausa = {
-      rol: metadata.rol,
-      rolSource: 'pjud_modal',
-      rolConfidence: 0.99,
-      tribunal: metadata.tribunal,
-      caratula: caratula,
-      materia: metadata.procedimiento_raw,
-      estado: metadata.estado_adm,
-      procedimiento: metadata.procedimiento,
-      libro_tipo: metadata.libro_tipo,
-      etapa: metadata.etapa,
-      ubicacion: metadata.ubicacion,
-      estado_procesal: metadata.estado_procesal,
-      fecha_ingreso: metadata.fecha_ingreso,
-      tabs: this._extractTabsData(modalBody),
-      hasDocumentZone: true,
-      documentZoneType: 'pjud_modal',
-      documentPreview: {
-        total: docCount,
-        byType: {},
-        items: [],
-      },
-      totalDocuments: docCount,
-      pageUrl: window.location.href,
-      detectedAt: Date.now(),
-    };
-
-    return this.detectedCausa;
+    return null;
   }
 
   /**
@@ -127,56 +90,64 @@ class JwtExtractor {
 
     const caratula = await this._resolveCaratula(metadata.rol, metadata.tribunal, metadata._partialCaratula);
     const directJwts = this._extractDirectJwts(modalBody);
-    const cuadernos = this._extractCuadernos(modalBody);
     const receptorJwt = this._extractReceptorJwt(modalBody);
     const anexosJwt = this._extractAnexosJwt(modalBody);
     const csrfToken = this._extractCsrfToken();
-    const folios = this._extractFolios(modalBody);
-    const tabs = this._extractTabsData(modalBody);
-    const exhorto = this._extractExhortoData(modalBody);
-
+    const exhortoData = this._extractExhortoData(modalBody);
     const remisiones = this._extractRemisiones(modalBody);
 
+    // Cuadernos: visible (completo) + otros (solo JWTs)
+    const { cuadernoVisible, otrosCuadernos } = this._extractCuadernosStructured(modalBody, metadata);
+
+    // Exhortos: extraer una sola vez del cuaderno visible (son iguales en todos)
+    const exhortos = this._extractExhortos(modalBody);
+
     const causaPackage = {
+      // T1: Metadata global
       rol: metadata.rol,
       libro_tipo: metadata.libro_tipo,
       tribunal: metadata.tribunal,
-      estado_adm: metadata.estado_adm,
-      procedimiento: metadata.procedimiento,
-      procedimiento_raw: metadata.procedimiento_raw,
-      etapa: metadata.etapa,
-      ubicacion: metadata.ubicacion,
-      fecha_ingreso: metadata.fecha_ingreso,
-      estado_procesal: metadata.estado_procesal,
-
       caratula: caratula,
       materia: metadata.procedimiento_raw,
+      estado_adm: metadata.estado_adm,
+      ubicacion: metadata.ubicacion,
+      estado_procesal: metadata.estado_procesal,
+      fecha_ingreso: metadata.fecha_ingreso,
       fuente: this._detectEntryPoint(),
       cookies: this._captureCookies(),
+      csrf_token: csrfToken,
 
+      // T2: Docs directos (globales)
       jwt_texto_demanda: directJwts.textoDemanda,
       jwt_certificado_envio: directJwts.certificadoEnvio,
       jwt_ebook: directJwts.ebook,
+
+      // JWTs globales
       jwt_anexos: anexosJwt,
       jwt_receptor: receptorJwt,
-      csrf_token: csrfToken,
 
-      cuadernos: cuadernos,
-      folios: folios,
-      tabs: tabs,
-      exhorto: exhorto,
+      // Cuaderno visible completo
+      cuaderno_visible: cuadernoVisible,
+
+      // Cuadernos no-visibles (JWTs para server)
+      otros_cuadernos: otrosCuadernos,
+
+      // T6: Exhortos (deduplicados)
+      exhortos: exhortos,
+
+      // T6-E: Causa origen (solo tipo E)
+      exhorto_data: exhortoData,
+
+      // T5: Remisiones
       remisiones: remisiones,
 
+      // Meta
       extracted_at: new Date().toISOString(),
       page_url: window.location.href,
     };
 
     this._lastPackage = causaPackage;
 
-    // Total = folios + direct docs + anexos (matches what the sync pipeline downloads)
-    const totalDocs = this._countAllVisibleDocuments(modalBody);
-
-    // Also update detected causa for backward compat
     this.detectedCausa = {
       rol: metadata.rol,
       rolSource: 'pjud_modal',
@@ -185,20 +156,11 @@ class JwtExtractor {
       caratula: caratula,
       materia: metadata.procedimiento_raw,
       estado: metadata.estado_adm,
-      procedimiento: metadata.procedimiento,
       libro_tipo: metadata.libro_tipo,
       hasDocumentZone: true,
       documentZoneType: 'pjud_modal',
-      documentPreview: {
-        total: totalDocs,
-        byType: this._groupFoliosByType(folios),
-        items: folios.slice(0, 50).map(f => ({
-          text: `Folio ${f.numero} - ${f.tramite} - ${f.desc_tramite}`.substring(0, 150),
-          type: this._inferDocType(f.tramite),
-          hasDownload: !!f.jwt_doc_principal,
-        })),
-      },
-      totalDocuments: totalDocs,
+      documentPreview: { total: cuadernoVisible.folios.length, byType: {}, items: [] },
+      totalDocuments: cuadernoVisible.folios.length,
       pageUrl: window.location.href,
       detectedAt: Date.now(),
     };
@@ -207,18 +169,15 @@ class JwtExtractor {
       '[JwtExtractor] CausaPackage extraído:',
       metadata.rol, '|',
       metadata.tribunal, '|',
-      `${cuadernos.length} cuadernos,`,
-      `${folios.length} folios,`,
-      `${remisiones.length} remisiones,`,
-      `proc: ${metadata.procedimiento || 'desconocido'}`,
+      `cuaderno "${cuadernoVisible.nombre}": ${cuadernoVisible.folios.length} folios,`,
+      `${otrosCuadernos.length} cuadernos adicionales,`,
+      `${exhortos.length} exhortos,`,
+      `${remisiones.length} remisiones`,
     );
 
     return causaPackage;
   }
 
-  /**
-   * Get the last extracted CausaPackage.
-   */
   getLastPackage() {
     return this._lastPackage;
   }
@@ -256,7 +215,7 @@ class JwtExtractor {
   }
 
   // ════════════════════════════════════════════════════════
-  // 1) METADATA — table.table-titulos (first table)
+  // 1) METADATA — T1: tabla superior del modal
   // ════════════════════════════════════════════════════════
 
   _extractMetadata(modalBody) {
@@ -265,12 +224,11 @@ class JwtExtractor {
       libro_tipo: null,
       tribunal: null,
       estado_adm: null,
-      procedimiento: null,
       procedimiento_raw: null,
-      etapa: null,
       ubicacion: null,
       fecha_ingreso: null,
       estado_procesal: null,
+      etapa_raw: null,
       _partialCaratula: null,
     };
 
@@ -291,7 +249,6 @@ class JwtExtractor {
           result.libro_tipo = this._extractLibroTipo(result.rol);
         }
       }
-      // F. Ing. — search across all cells
       for (const cell of cells) {
         const text = this._cleanText(cell.textContent);
         const fechaMatch = text.match(/F\.\s*Ing\.\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i);
@@ -300,7 +257,6 @@ class JwtExtractor {
           break;
         }
       }
-      // Partial caratulado — last cell without label
       const lastCell = cells[cells.length - 1];
       if (lastCell) {
         const lastText = this._cleanText(lastCell.textContent);
@@ -319,10 +275,7 @@ class JwtExtractor {
         if (admMatch) result.estado_adm = admMatch[1].trim();
 
         const procMatch = text.match(/Proc\.\s*:?\s*(.+)/i);
-        if (procMatch) {
-          result.procedimiento_raw = procMatch[1].trim();
-          result.procedimiento = this._mapProcedimiento(result.procedimiento_raw);
-        }
+        if (procMatch) result.procedimiento_raw = procMatch[1].trim();
 
         const ubiMatch = text.match(/Ubicaci[oó]n\s*:?\s*(.+)/i);
         if (ubiMatch) result.ubicacion = ubiMatch[1].trim();
@@ -338,7 +291,7 @@ class JwtExtractor {
         if (estadoMatch) result.estado_procesal = estadoMatch[1].trim();
 
         const etapaMatch = text.match(/Etapa\s*:?\s*(.+)/i);
-        if (etapaMatch) result.etapa = etapaMatch[1].trim();
+        if (etapaMatch) result.etapa_raw = etapaMatch[1].trim();
 
         const tribMatch = text.match(/Tribunal\s*:?\s*(.+)/i);
         if (tribMatch) result.tribunal = tribMatch[1].trim();
@@ -349,52 +302,38 @@ class JwtExtractor {
   }
 
   // ════════════════════════════════════════════════════════
-  // 2) DIRECT JWTs — forms in second table.table-titulos
+  // 2) DIRECT JWTs — T2: forms in second table.table-titulos
   // ════════════════════════════════════════════════════════
 
   _extractDirectJwts(modalBody) {
-    const result = {
-      textoDemanda: null,
-      certificadoEnvio: null,
-      ebook: null,
-    };
+    const result = { textoDemanda: null, certificadoEnvio: null, ebook: null };
 
-    // Texto Demanda: form → docu.php, input name="valorEncTxtDmda"
-    const demandaForm = modalBody.querySelector('form[action*="docu.php"]:not([action*="docuS"]):not([action*="docuN"])');
-    if (demandaForm) {
-      const input = demandaForm.querySelector('input[name="valorEncTxtDmda"]');
-      if (input?.value) {
-        result.textoDemanda = {
-          jwt: input.value,
-          action: demandaForm.getAttribute('action') || '',
-          param: 'valorEncTxtDmda',
-        };
+    const tables = modalBody.querySelectorAll('table.table-titulos');
+    if (tables.length < 2) return result;
+
+    const jwtTable = tables[1];
+
+    const txtForm = jwtTable.querySelector('form[action*="docu.php"]:not([action*="docuS"]):not([action*="docuN"])');
+    if (txtForm) {
+      const input = txtForm.querySelector('input[name="valorEncTxtDmda"]');
+      if (input?.value && input.value.length > 20) {
+        result.textoDemanda = { jwt: input.value, action: txtForm.getAttribute('action') || '', param: 'valorEncTxtDmda' };
       }
     }
 
-    // Certificado Envío: form → docCertificadoDemanda.php, input name="dtaCert"
-    const certForm = modalBody.querySelector('form[action*="docCertificadoDemanda"]');
+    const certForm = jwtTable.querySelector('form[action*="docCertificadoDemanda"]');
     if (certForm) {
       const input = certForm.querySelector('input[name="dtaCert"]');
-      if (input?.value) {
-        result.certificadoEnvio = {
-          jwt: input.value,
-          action: certForm.getAttribute('action') || '',
-          param: 'dtaCert',
-        };
+      if (input?.value && input.value.length > 20) {
+        result.certificadoEnvio = { jwt: input.value, action: certForm.getAttribute('action') || '', param: 'dtaCert' };
       }
     }
 
-    // Ebook: form → newebookcivil.php, input name="dtaEbook"
-    const ebookForm = modalBody.querySelector('form[action*="newebookcivil"]');
+    const ebookForm = jwtTable.querySelector('form[action*="newebookcivil"]');
     if (ebookForm) {
       const input = ebookForm.querySelector('input[name="dtaEbook"]');
-      if (input?.value) {
-        result.ebook = {
-          jwt: input.value,
-          action: ebookForm.getAttribute('action') || '',
-          param: 'dtaEbook',
-        };
+      if (input?.value && input.value.length > 20) {
+        result.ebook = { jwt: input.value, action: ebookForm.getAttribute('action') || '', param: 'dtaEbook' };
       }
     }
 
@@ -402,7 +341,7 @@ class JwtExtractor {
   }
 
   // ════════════════════════════════════════════════════════
-  // 3) ANEXOS JWT — onclick=anexoCausaCivil('JWT')
+  // 3) ANEXOS JWT — T3: onclick=anexoCausaCivil('JWT')
   // ════════════════════════════════════════════════════════
 
   _extractAnexosJwt(modalBody) {
@@ -410,34 +349,47 @@ class JwtExtractor {
       'a[onclick*="anexoCausaCivil"], a[href="#modalAnexoCausaCivil"]'
     );
     if (!link) return null;
-
     const onclick = link.getAttribute('onclick') || '';
     return this._extractJwtFromOnclick(onclick, 'anexoCausaCivil');
   }
 
   // ════════════════════════════════════════════════════════
-  // 4) CUADERNOS — select#selCuaderno options with JWTs
+  // 4) CUADERNOS — visible (completo) + otros (JWTs)
   // ════════════════════════════════════════════════════════
 
-  _extractCuadernos(modalBody) {
-    const cuadernos = [];
+  _extractCuadernosStructured(modalBody, metadata) {
     const select = modalBody.querySelector('select#selCuaderno');
-    if (!select) return cuadernos;
+    const allOptions = select ? Array.from(select.querySelectorAll('option')) : [];
 
-    const options = select.querySelectorAll('option');
-    for (const option of options) {
+    let selectedName = 'Principal';
+    const otrosCuadernos = [];
+
+    for (const option of allOptions) {
       const jwt = option.value;
       const nombre = this._cleanText(option.textContent);
-      if (!jwt || jwt.length < 20) continue; // Skip empty/placeholder options
+      if (!jwt || jwt.length < 20) continue;
 
-      cuadernos.push({
-        nombre: nombre,
-        jwt: jwt,
-        selected: option.selected || option.hasAttribute('selected'),
-      });
+      const isSelected = option.selected || option.hasAttribute('selected');
+      if (isSelected) {
+        selectedName = nombre;
+      } else {
+        otrosCuadernos.push({ nombre, jwt });
+      }
     }
 
-    return cuadernos;
+    // Cuaderno visible: datos completos del DOM actual
+    const cuadernoVisible = {
+      nombre: selectedName,
+      procedimiento: metadata.procedimiento_raw || null,
+      etapa: metadata.etapa_raw || null,
+      folios: this._extractFolios(modalBody),
+      litigantes: this._extractLitigantes(modalBody),
+      notificaciones: this._extractNotificaciones(modalBody),
+      escritos: this._extractEscritos(modalBody),
+      piezas_exhorto: this._extractPiezasExhorto(modalBody),
+    };
+
+    return { cuadernoVisible, otrosCuadernos };
   }
 
   // ════════════════════════════════════════════════════════
@@ -447,7 +399,6 @@ class JwtExtractor {
   _extractReceptorJwt(modalBody) {
     const link = modalBody.querySelector('a[onclick*="receptorCivil"]');
     if (!link) return null;
-
     const onclick = link.getAttribute('onclick') || '';
     return this._extractJwtFromOnclick(onclick, 'receptorCivil');
   }
@@ -457,7 +408,6 @@ class JwtExtractor {
   // ════════════════════════════════════════════════════════
 
   _extractCsrfToken() {
-    // Strategy 1: hidden input named "token"
     const tokenInput = document.querySelector(
       'input[name="token"][type="hidden"], input[name="_token"][type="hidden"]'
     );
@@ -465,24 +415,20 @@ class JwtExtractor {
       return tokenInput.value;
     }
 
-    // Strategy 2: meta tag
-    const metaToken = document.querySelector(
-      'meta[name="csrf-token"], meta[name="_token"]'
-    );
-    if (metaToken?.content) return metaToken.content;
+    const metaTags = document.querySelectorAll('meta[name*="token"], meta[name*="csrf"]');
+    for (const meta of metaTags) {
+      const content = meta.getAttribute('content');
+      if (content && /^[a-f0-9]{20,64}$/i.test(content)) return content;
+    }
 
-    // Strategy 3: search script tags for token variable assignments
     const scripts = document.querySelectorAll('script:not([src])');
     for (const script of scripts) {
-      const text = script.textContent || '';
-      // Patterns: var token = "abc123"; token: "abc123"; 'token': 'abc123'
-      const tokenMatch = text.match(
+      const tokenMatch = (script.textContent || '').match(
         /(?:var\s+)?token\s*[:=]\s*['"]([a-f0-9]{20,64})['"]/i
       );
       if (tokenMatch) return tokenMatch[1];
     }
 
-    // Strategy 4: look for token in any hidden input with hex value
     const hiddens = document.querySelectorAll('input[type="hidden"]');
     for (const hidden of hiddens) {
       const name = (hidden.name || '').toLowerCase();
@@ -495,17 +441,8 @@ class JwtExtractor {
   }
 
   // ════════════════════════════════════════════════════════
-  // 7) TABS DATA — already present in DOM (no AJAX needed)
+  // 7) TABS — T10c, T10d, T10e (por cuaderno)
   // ════════════════════════════════════════════════════════
-
-  _extractTabsData(modalBody) {
-    return {
-      litigantes: this._extractLitigantes(modalBody),
-      notificaciones: this._extractNotificaciones(modalBody),
-      escritos_por_resolver: this._extractEscritos(modalBody),
-      exhortos: this._extractExhortos(modalBody),
-    };
-  }
 
   _extractLitigantes(modalBody) {
     const tab = modalBody.querySelector('#litigantesCiv');
@@ -518,9 +455,9 @@ class JwtExtractor {
         participante: this._cleanText(cells[0]?.textContent),
         rut: this._cleanText(cells[1]?.textContent),
         persona: this._cleanText(cells[2]?.textContent),
-        nombre: this._cleanText(cells[3]?.textContent),
+        nombre_razon_social: this._cleanText(cells[3]?.textContent),
       };
-    }).filter(r => r.participante || r.nombre);
+    }).filter(r => r.participante || r.nombre_razon_social);
   }
 
   _extractNotificaciones(modalBody) {
@@ -551,21 +488,22 @@ class JwtExtractor {
     return Array.from(rows).map(row => {
       const cells = row.querySelectorAll('td');
 
-      let jwt_doc = null;
-      if (cells[0]) {
-        jwt_doc = this._extractFormJwt(cells[0], 'docuS.php', 'docuN.php');
-      }
+      const jwtDoc = cells[0] ? this._extractFormJwt(cells[0], 'docuS.php', 'docuN.php') : null;
 
       return {
-        doc: this._cleanText(cells[0]?.textContent),
-        anexo: this._cleanText(cells[1]?.textContent),
         fecha_ingreso: this._cleanText(cells[2]?.textContent),
         tipo_escrito: this._cleanText(cells[3]?.textContent),
         solicitante: this._cleanText(cells[4]?.textContent),
-        jwt_doc: jwt_doc,
+        tiene_doc: !!jwtDoc,
+        tiene_anexo: !!(cells[1] && cells[1].querySelector('a')),
+        jwt_doc: jwtDoc,
       };
     }).filter(r => r.tipo_escrito || r.fecha_ingreso);
   }
+
+  // ════════════════════════════════════════════════════════
+  // 8) EXHORTOS — T6 (global, extraer una sola vez)
+  // ════════════════════════════════════════════════════════
 
   _extractExhortos(modalBody) {
     const tab = modalBody.querySelector('#exhortosCiv');
@@ -599,7 +537,8 @@ class JwtExtractor {
   }
 
   // ════════════════════════════════════════════════════════
-  // 8) FOLIOS — Historia tab with JWTs per document
+  // 9) FOLIOS — T10b: tabla Historia (por cuaderno)
+  //    Extrae TODOS los folios, tengan o no PDF
   // ════════════════════════════════════════════════════════
 
   _extractFolios(modalBody) {
@@ -616,22 +555,6 @@ class JwtExtractor {
       if (folio) folios.push(folio);
     }
 
-    // Also check #piezasExhortoCiv for tipo E causas
-    const piezasTab = modalBody.querySelector('#piezasExhortoCiv');
-    if (piezasTab) {
-      const piezasRows = piezasTab.querySelectorAll('tbody tr');
-      for (const row of piezasRows) {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 7) continue;
-
-        const folio = this._parseFolioRow(cells);
-        if (folio) {
-          folio._source = 'piezas_exhorto';
-          folios.push(folio);
-        }
-      }
-    }
-
     return folios;
   }
 
@@ -639,30 +562,16 @@ class JwtExtractor {
     const folioNum = parseInt(this._cleanText(cells[0]?.textContent), 10);
     if (isNaN(folioNum)) return null;
 
-    // Doc cell (cells[1]): can have 1-2 forms (doc principal + certificado escrito)
     const docCell = cells[1];
     const jwtDocPrincipal = this._extractFormJwt(docCell, 'docuS.php', 'docuN.php');
     const jwtCertEscrito = this._extractFormJwt(docCell, 'docCertificadoEscrito.php');
 
-    // Anexo cell (cells[2]): onclick="anexoSolicitudCivil('JWT')"
     let jwtAnexoSolicitud = null;
     if (cells[2]) {
       const anexoLink = cells[2].querySelector('a[onclick*="anexoSolicitudCivil"]');
       if (anexoLink) {
         jwtAnexoSolicitud = this._extractJwtFromOnclick(
           anexoLink.getAttribute('onclick') || '', 'anexoSolicitudCivil'
-        );
-      }
-    }
-
-    // Georref cell (last cell): onclick="geoReferencia('JWT')"
-    const geoCell = cells[cells.length - 1];
-    let jwtGeoref = null;
-    if (geoCell) {
-      const geoLink = geoCell.querySelector('a[onclick*="geoReferencia"]');
-      if (geoLink) {
-        jwtGeoref = this._extractJwtFromOnclick(
-          geoLink.getAttribute('onclick') || '', 'geoReferencia'
         );
       }
     }
@@ -674,188 +583,55 @@ class JwtExtractor {
       desc_tramite: this._cleanText(cells[5]?.textContent),
       fecha_tramite: this._cleanText(cells[6]?.textContent),
       foja: parseInt(this._cleanText(cells[7]?.textContent), 10) || 0,
+      tiene_doc_principal: !!jwtDocPrincipal,
+      tiene_certificado_escrito: !!jwtCertEscrito,
+      tiene_anexo_solicitud: !!jwtAnexoSolicitud,
       jwt_doc_principal: jwtDocPrincipal,
       jwt_certificado_escrito: jwtCertEscrito,
-      jwt_georef: jwtGeoref,
       jwt_anexo_solicitud: jwtAnexoSolicitud,
     };
   }
 
-  /**
-   * Extract a JWT from a form inside a cell.
-   * Matches forms whose action contains any of the given endpoints.
-   */
-  _extractFormJwt(cell, ...endpoints) {
-    if (!cell) return null;
-
-    const forms = cell.querySelectorAll('form');
-    for (const form of forms) {
-      const action = form.getAttribute('action') || '';
-      const matchesEndpoint = endpoints.some(ep => action.includes(ep));
-      if (!matchesEndpoint) continue;
-
-      const input = form.querySelector('input[type="hidden"]');
-      if (input?.value && input.value.length > 20) {
-        return {
-          jwt: input.value,
-          action: action,
-          param: input.name || '',
-        };
-      }
-    }
-    return null;
-  }
-
   // ════════════════════════════════════════════════════════
-  // 9) CARÁTULA — from DOM1 click or chrome.storage
+  // 10) PIEZAS EXHORTO — T12 (solo causas tipo E)
+  //     Columnas: Folio, Doc, Cuaderno, Anexo, Etapa,
+  //               Trámite, Desc.Trámite, Fec.Trámite, Foja
   // ════════════════════════════════════════════════════════
 
-  async _resolveCaratula(rol, tribunal, partialCaratula) {
-    // Priority 1: window.__pjudLastClickedRow (set by content.js on row click)
-    try {
-      const cached = typeof window !== 'undefined' && window.__pjudLastClickedRow;
-      if (cached?.caratulado && this._rolMatch(cached.rol, rol) &&
-          this._tribunalMatch(cached.tribunal, tribunal)) {
-        const notExpired = cached.clickedAt && (Date.now() - cached.clickedAt) < 300000;
-        if (notExpired) return cached.caratulado.substring(0, 120);
-      }
-    } catch (_) { /* ignore */ }
+  _extractPiezasExhorto(modalBody) {
+    const tab = modalBody.querySelector('#piezasExhortoCiv');
+    if (!tab) return [];
 
-    // Priority 2: chrome.storage.session (persists until browser close)
-    try {
-      if (typeof chrome !== 'undefined' && chrome.storage?.session) {
-        const data = await new Promise(resolve => {
-          chrome.storage.session.get(['__pjudLastClickedRow'], r =>
-            resolve(r?.__pjudLastClickedRow)
-          );
-        });
-        if (data?.caratulado && this._rolMatch(data.rol, rol) &&
-            this._tribunalMatch(data.tribunal, tribunal)) {
-          return data.caratulado.substring(0, 120);
-        }
-      }
-    } catch (_) { /* ignore */ }
+    const piezas = [];
+    const rows = tab.querySelectorAll('tbody tr');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 8) continue;
 
-    // Priority 3: chrome.storage.local (synced causas registry)
-    try {
-      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-        const registry = await new Promise(resolve => {
-          chrome.storage.local.get(['synced_causas_registry'], r =>
-            resolve(r?.synced_causas_registry)
-          );
-        });
-        if (Array.isArray(registry)) {
-          const match = registry.find(c =>
-            this._rolMatch(c.rol, rol) && this._tribunalMatch(c.tribunal, tribunal)
-          );
-          if (match?.caratula) return match.caratula.substring(0, 120);
-        }
-      }
-    } catch (_) { /* ignore */ }
+      const folioNum = parseInt(this._cleanText(cells[0]?.textContent), 10);
+      if (isNaN(folioNum)) continue;
 
-    // Fallback: partial caratulado from DOM2 (truncated demandante name)
-    return partialCaratula || null;
-  }
+      const jwtDoc = this._extractFormJwt(cells[1], 'docuS.php', 'docuN.php');
 
-  // ════════════════════════════════════════════════════════
-  // 10) LIBRO_TIPO — from ROL letter
-  // ════════════════════════════════════════════════════════
-
-  _extractLibroTipo(rol) {
-    const match = (rol || '').match(/^([A-Za-z])-/);
-    return match ? match[1].toLowerCase() : null;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // EXHORTO DATA — exclusive to tipo E causas
-  // ════════════════════════════════════════════════════════
-
-  _extractExhortoData(modalBody) {
-    // Look for the wellTable (third table.table-titulos with class wellTable)
-    const wellTable = modalBody.querySelector('table.table-titulos.wellTable');
-    if (!wellTable) return null;
-
-    const text = this._cleanText(wellTable.textContent);
-    const causaOrigenMatch = text.match(/Causa\s+Origen\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i);
-    const tribunalOrigenMatch = text.match(/Tribunal\s+Origen\s*:?\s*(.+?)(?:$|\n)/i);
-
-    // Extract JWT from detalleCausaCivil or causaOrigenCivil onclick
-    let jwtCausaOrigen = null;
-    const origenLink = wellTable.querySelector(
-      'a[onclick*="detalleCausaCivil"], a[onclick*="causaOrigenCivil"]'
-    );
-    if (origenLink) {
-      const onclick = origenLink.getAttribute('onclick') || '';
-      jwtCausaOrigen =
-        this._extractJwtFromOnclick(onclick, 'detalleCausaCivil') ||
-        this._extractJwtFromOnclick(onclick, 'causaOrigenCivil');
+      piezas.push({
+        numero_folio: folioNum,
+        cuaderno_pieza: this._cleanText(cells[2]?.textContent),
+        etapa: this._cleanText(cells[4]?.textContent),
+        tramite: this._cleanText(cells[5]?.textContent),
+        desc_tramite: this._cleanText(cells[6]?.textContent),
+        fecha_tramite: this._cleanText(cells[7]?.textContent),
+        foja: parseInt(this._cleanText(cells[8]?.textContent), 10) || 0,
+        tiene_doc: !!jwtDoc,
+        tiene_anexo: !!(cells[3] && cells[3].querySelector('a')),
+        jwt_doc: jwtDoc,
+      });
     }
 
-    if (!causaOrigenMatch && !tribunalOrigenMatch) return null;
-
-    return {
-      causa_origen: causaOrigenMatch ? causaOrigenMatch[1].toUpperCase() : null,
-      tribunal_origen: tribunalOrigenMatch ? tribunalOrigenMatch[1].trim() : null,
-      jwt_causa_origen: jwtCausaOrigen,
-    };
+    return piezas;
   }
 
   // ════════════════════════════════════════════════════════
-  // COOKIES — needed for causaCivil.php POST (cuaderno fetch)
-  // ════════════════════════════════════════════════════════
-
-  _captureCookies() {
-    try {
-      const cookieStr = document.cookie || '';
-      if (!cookieStr) return null;
-
-      const cookies = {};
-      for (const part of cookieStr.split(';')) {
-        const [name, ...rest] = part.trim().split('=');
-        if (name === 'PHPSESSID' || name === 'TS01262d1d') {
-          cookies[name] = rest.join('=');
-        }
-      }
-
-      if (!cookies.PHPSESSID) return null;
-      return cookies;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // ════════════════════════════════════════════════════════
-  // ENTRY POINT DETECTION
-  // ════════════════════════════════════════════════════════
-
-  _detectEntryPoint() {
-    const url = window.location.href.toLowerCase();
-    if (/miscausas|mis.causas|miscausa/i.test(url)) return 'mis_causas';
-    // DOM1 (#verDetalle table) only exists in Consulta Unificada
-    const dom1Table = document.querySelector('#verDetalle, #dtaTableDetalle');
-    if (dom1Table) return 'consulta_unificada';
-    return 'consulta_unificada'; // Default for MVP v1
-  }
-
-  // ════════════════════════════════════════════════════════
-  // PROCEDIMIENTO MAPPING
-  // ════════════════════════════════════════════════════════
-
-  _mapProcedimiento(rawText) {
-    if (!rawText) return null;
-    const text = rawText.toLowerCase();
-
-    if (/ejecutivo/i.test(text)) return 'ejecutivo';
-    if (/ordinario/i.test(text)) return 'ordinario';
-    if (/sumario/i.test(text)) return 'sumario';
-    if (/monitorio/i.test(text)) return 'monitorio';
-    if (/voluntario/i.test(text)) return 'voluntario';
-
-    return null;
-  }
-
-  // ════════════════════════════════════════════════════════
-  // 11) REMISIONES EN LA CORTE — panel with detalleCausaApelaciones
+  // 11) REMISIONES EN LA CORTE — T5
   // ════════════════════════════════════════════════════════
 
   _extractRemisiones(modalBody) {
@@ -896,11 +672,42 @@ class JwtExtractor {
   }
 
   // ════════════════════════════════════════════════════════
+  // 12) EXHORTO DATA — T6-E (solo causas tipo E)
+  // ════════════════════════════════════════════════════════
+
+  _extractExhortoData(modalBody) {
+    const wellTable = modalBody.querySelector('table.table-titulos.wellTable');
+    if (!wellTable) return null;
+
+    const text = this._cleanText(wellTable.textContent);
+    const causaOrigenMatch = text.match(/Causa\s+Origen\s*:?\s*([A-Z]{1,4}-\d{1,8}-\d{4})/i);
+    const tribunalOrigenMatch = text.match(/Tribunal\s+Origen\s*:?\s*(.+?)(?:$|\n)/i);
+
+    let jwtCausaOrigen = null;
+    const origenLink = wellTable.querySelector(
+      'a[onclick*="detalleCausaCivil"], a[onclick*="causaOrigenCivil"]'
+    );
+    if (origenLink) {
+      const onclick = origenLink.getAttribute('onclick') || '';
+      jwtCausaOrigen =
+        this._extractJwtFromOnclick(onclick, 'detalleCausaCivil') ||
+        this._extractJwtFromOnclick(onclick, 'causaOrigenCivil');
+    }
+
+    if (!causaOrigenMatch && !tribunalOrigenMatch) return null;
+
+    return {
+      causa_origen: causaOrigenMatch ? causaOrigenMatch[1].toUpperCase() : null,
+      tribunal_origen: tribunalOrigenMatch ? tribunalOrigenMatch[1].trim() : null,
+      jwt_causa_origen: jwtCausaOrigen,
+    };
+  }
+
+  // ════════════════════════════════════════════════════════
   // DOM HELPERS
   // ════════════════════════════════════════════════════════
 
   _findModalBody() {
-    // DOM2: the modal content for causa detail
     const selectors = [
       '#modalDetalleCivil .modal-body',
       '.modal.in .modal-body',
@@ -912,7 +719,6 @@ class JwtExtractor {
       if (el && el.querySelector('table.table-titulos')) return el;
     }
 
-    // Fallback: any modal-body with table.table-titulos visible
     const allBodies = document.querySelectorAll('.modal-body');
     for (const body of allBodies) {
       if (body.querySelector('table.table-titulos')) {
@@ -924,7 +730,6 @@ class JwtExtractor {
       }
     }
 
-    // Last resort: look for table.table-titulos in the page (embedded modal content)
     const tables = document.querySelectorAll('table.table-titulos');
     if (tables.length > 0) {
       const container =
@@ -937,13 +742,30 @@ class JwtExtractor {
     return null;
   }
 
-  /**
-   * Extract JWT from an onclick attribute like: functionName('eyJhb...xyz')
-   */
+  _extractFormJwt(cell, ...endpoints) {
+    if (!cell) return null;
+
+    const forms = cell.querySelectorAll('form');
+    for (const form of forms) {
+      const action = form.getAttribute('action') || '';
+      const matchesEndpoint = endpoints.some(ep => action.includes(ep));
+      if (!matchesEndpoint) continue;
+
+      const input = form.querySelector('input[type="hidden"]');
+      if (input?.value && input.value.length > 20) {
+        return {
+          jwt: input.value,
+          action: action,
+          param: input.name || '',
+        };
+      }
+    }
+    return null;
+  }
+
   _extractJwtFromOnclick(onclick, fnName) {
     if (!onclick) return null;
 
-    // Match: fnName('JWT_VALUE') or fnName("JWT_VALUE")
     const pattern = new RegExp(
       fnName + "\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)",
       'i'
@@ -951,18 +773,97 @@ class JwtExtractor {
     const match = onclick.match(pattern);
     if (match && match[1].length > 20) return match[1];
 
-    // Fallback: extract any JWT-like string (eyJ...) from the onclick
     const jwtMatch = onclick.match(/(eyJ[A-Za-z0-9_-]+\.[\w_-]+\.[\w_-]+)/);
     if (jwtMatch) return jwtMatch[1];
 
     return null;
   }
 
-  /**
-   * Detect ROL from the page when no modal is open (pre-modal state).
-   */
+  // ════════════════════════════════════════════════════════
+  // CARÁTULA — from DOM1 click or chrome.storage
+  // ════════════════════════════════════════════════════════
+
+  async _resolveCaratula(rol, tribunal, partialCaratula) {
+    try {
+      const cached = typeof window !== 'undefined' && window.__pjudLastClickedRow;
+      if (cached?.caratulado && this._rolMatch(cached.rol, rol) &&
+          this._tribunalMatch(cached.tribunal, tribunal)) {
+        const notExpired = cached.clickedAt && (Date.now() - cached.clickedAt) < 300000;
+        if (notExpired) return cached.caratulado.substring(0, 120);
+      }
+    } catch (_) { /* ignore */ }
+
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+        const data = await new Promise(resolve => {
+          chrome.storage.session.get(['__pjudLastClickedRow'], r =>
+            resolve(r?.__pjudLastClickedRow)
+          );
+        });
+        if (data?.caratulado && this._rolMatch(data.rol, rol) &&
+            this._tribunalMatch(data.tribunal, tribunal)) {
+          return data.caratulado.substring(0, 120);
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const registry = await new Promise(resolve => {
+          chrome.storage.local.get(['synced_causas_registry'], r =>
+            resolve(r?.synced_causas_registry)
+          );
+        });
+        if (Array.isArray(registry)) {
+          const match = registry.find(c =>
+            this._rolMatch(c.rol, rol) && this._tribunalMatch(c.tribunal, tribunal)
+          );
+          if (match?.caratula) return match.caratula.substring(0, 120);
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    return partialCaratula || null;
+  }
+
+  // ════════════════════════════════════════════════════════
+  // UTILITIES
+  // ════════════════════════════════════════════════════════
+
+  _extractLibroTipo(rol) {
+    const match = (rol || '').match(/^([A-Za-z])-/);
+    return match ? match[1].toLowerCase() : null;
+  }
+
+  _captureCookies() {
+    try {
+      const cookieStr = document.cookie || '';
+      if (!cookieStr) return null;
+
+      const cookies = {};
+      for (const part of cookieStr.split(';')) {
+        const [name, ...rest] = part.trim().split('=');
+        if (name === 'PHPSESSID' || name === 'TS01262d1d') {
+          cookies[name] = rest.join('=');
+        }
+      }
+
+      if (!cookies.PHPSESSID) return null;
+      return cookies;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _detectEntryPoint() {
+    const url = window.location.href.toLowerCase();
+    if (/miscausas|mis.causas|miscausa/i.test(url)) return 'mis_causas';
+    const dom1Table = document.querySelector('#verDetalle, #dtaTableDetalle');
+    if (dom1Table) return 'consulta_unificada';
+    return 'consulta_unificada';
+  }
+
   _detectRolFromPage() {
-    // PJUD tables
     const pjudTables = document.querySelectorAll('table.table-titulos');
     for (const table of pjudTables) {
       const text = this._cleanText(table.textContent);
@@ -972,7 +873,6 @@ class JwtExtractor {
       }
     }
 
-    // Body text scan (first 5000 chars)
     const bodyText = this._cleanText(
       (document.body?.textContent || '').substring(0, 5000)
     );
@@ -1008,64 +908,5 @@ class JwtExtractor {
   _tribunalMatch(triA, triB) {
     if (!triA || !triB) return true;
     return triA.trim().toLowerCase() === triB.trim().toLowerCase();
-  }
-
-  _countVisibleFolios(modalBody) {
-    const historiaTab = modalBody.querySelector('#historiaCiv');
-    if (!historiaTab) return 0;
-    return historiaTab.querySelectorAll('tbody tr').length;
-  }
-
-  /**
-   * Count ALL downloadable documents visible in the DOM, not just folios.
-   * Used for accurate sync-state comparison against cases.document_count.
-   */
-  _countAllVisibleDocuments(modalBody) {
-    let count = 0;
-
-    // 1) Folios in visible cuaderno
-    const historiaTab = modalBody.querySelector('#historiaCiv');
-    if (historiaTab) {
-      count += historiaTab.querySelectorAll('tbody tr').length;
-    }
-
-    // 2) Direct documents (each form = 1 downloadable doc)
-    const demandaForm = modalBody.querySelector('form[action*="docu.php"]:not([action*="docuS"]):not([action*="docuN"])');
-    if (demandaForm?.querySelector('input[name="valorEncTxtDmda"]')?.value) count++;
-
-    const certForm = modalBody.querySelector('form[action*="docCertificadoDemanda"]');
-    if (certForm?.querySelector('input[name="dtaCert"]')?.value) count++;
-
-    const ebookForm = modalBody.querySelector('form[action*="newebookcivil"]');
-    if (ebookForm?.querySelector('input[name="dtaEbook"]')?.value) count++;
-
-    // 3) Anexos: if the link exists and is NOT a ban icon, at least 1 anexo is available
-    const anexoLink = modalBody.querySelector(
-      'a[onclick*="anexoCausaCivil"], a[href="#modalAnexoCausaCivil"]'
-    );
-    if (anexoLink) {
-      const parentTd = anexoLink.closest('td');
-      const isBanned = parentTd?.querySelector('i.fa-ban');
-      if (!isBanned) count++;
-    }
-
-    return count;
-  }
-
-  _groupFoliosByType(folios) {
-    const groups = { resoluciones: 0, escritos: 0, actuaciones: 0, notificaciones: 0, otros: 0 };
-    for (const f of folios) {
-      groups[this._inferDocType(f.tramite)]++;
-    }
-    return groups;
-  }
-
-  _inferDocType(tramite) {
-    const t = (tramite || '').toUpperCase();
-    if (/RESOLUCI[OÓ]N|AUTO|SENTENCIA|DECRETO/i.test(t)) return 'resoluciones';
-    if (/ESCRITO|DEMANDA|CONTESTACI|RECURSO|APELACI/i.test(t)) return 'escritos';
-    if (/ACTUACI[OÓ]N|RECEPTOR|DILIGENCIA/i.test(t)) return 'actuaciones';
-    if (/NOTIFICACI[OÓ]N|C[ÉE]DULA|CARTA/i.test(t)) return 'notificaciones';
-    return 'otros';
   }
 }

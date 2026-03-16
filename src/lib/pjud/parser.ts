@@ -1,61 +1,115 @@
 /**
  * ============================================================
- * PJUD HTML Parser — Tarea 4.17 + 4.20
+ * PJUD HTML Parser — Server-side
  * ============================================================
- * Parsea las respuestas HTML de endpoints PJUD server-side:
- *   - causaCivil.php  → folios con JWTs (4.17)
- *   - receptorCivil.php → datos del receptor (4.20)
+ * Parsea las respuestas HTML de endpoints PJUD:
+ *   - causaCivil.php       → CuadernoData completo (folios, tabs, proc, etapa)
+ *   - receptorCivil.php    → ReceptorRetiro[]
+ *   - anexoCausaCivil.php  → AnexoFile[]
+ *   - detalleExhortos.php  → ExhortoDetalleDoc[]
+ *   - causaApelaciones.php → ApelacionDetail
+ *   - anexoEscritoApelaciones.php → AnexoEscritoApelacion[]
  *
  * Utiliza node-html-parser para parsing robusto del DOM server-side.
- *
- * NOTA RECEPTOR (4.20): El parser es best-effort basado en los
- * patrones generales de tablas PJUD. Validar contra HTML real
- * de #modalReceptorCivil al probar con causa que tenga actuaciones
- * de receptor. Ajustar selectores según el HTML capturado.
  * ============================================================
  */
 
 import { parse as parseHtml, HTMLElement } from 'node-html-parser'
 import type {
-  AnexoFile, ApelacionDetail, ApelacionDirectJwts, ApelacionExpediente,
-  ApelacionFolio, ApelacionMetadata, ApelacionTabsData,
-  ExhortoDetalleDoc, Folio, JwtRef, ReceptorData, TabsData,
+  AnexoFile,
+  AnexoEscritoApelacion,
+  ApelacionDetail, ApelacionDirectJwts, ApelacionExpediente,
+  ApelacionFolio, ApelacionLitigante, ApelacionMetadata, ApelacionTabsData,
+  CuadernoData,
+  ExhortoDetalleDoc, ExhortoEntry,
+  Escrito, Folio, JwtRef,
+  Litigante, Notificacion, PiezaExhorto,
+  ReceptorRetiro,
 } from './types'
 
+// ════════════════════════════════════════════════════════
+// CUADERNO COMPLETO — parsea el HTML de causaCivil.php
+// ════════════════════════════════════════════════════════
+
 /**
- * Extract folios from the HTML response of causaCivil.php.
- * Mirrors the logic of JwtExtractor._extractFolios() (extension, tarea 4.16).
+ * Parsea la respuesta HTML de causaCivil.php para un cuaderno.
+ * Extrae: proc, etapa, folios, litigantes, notificaciones, escritos, piezas exhorto, exhortos.
  */
-export function parseFoliosFromHtml(html: string): Folio[] {
+export function parseCuadernoFromHtml(html: string, cuadernoNombre: string): {
+  cuaderno: CuadernoData
+  exhortos: ExhortoEntry[]
+} {
   const root = parseHtml(html, {
     lowerCaseTagName: true,
     comment: false,
     voidTag: { closingSlash: true },
   })
 
-  const folios: Folio[] = []
+  const { procedimiento, etapa } = parseProcEtapa(root)
 
-  const historiaTab = root.querySelector('#historiaCiv')
-  if (historiaTab) {
-    folios.push(...extractFoliosFromTable(historiaTab))
+  return {
+    cuaderno: {
+      nombre: cuadernoNombre,
+      procedimiento,
+      etapa,
+      folios: parseFoliosFromRoot(root),
+      litigantes: parseLitigantesFromRoot(root),
+      notificaciones: parseNotificacionesFromRoot(root),
+      escritos: parseEscritosFromRoot(root),
+      piezas_exhorto: parsePiezasExhortoFromRoot(root),
+    },
+    exhortos: parseExhortosFromRoot(root),
   }
-
-  const piezasTab = root.querySelector('#piezasExhortoCiv')
-  if (piezasTab) {
-    const piezasFolios = extractFoliosFromTable(piezasTab)
-    for (const f of piezasFolios) {
-      f._source = 'piezas_exhorto'
-    }
-    folios.push(...piezasFolios)
-  }
-
-  return folios
 }
 
-function extractFoliosFromTable(container: HTMLElement): Folio[] {
-  const folios: Folio[] = []
-  const rows = container.querySelectorAll('tbody tr')
+function parseProcEtapa(root: HTMLElement): { procedimiento: string | null; etapa: string | null } {
+  let procedimiento: string | null = null
+  let etapa: string | null = null
 
+  const tables = root.querySelectorAll('table.table-titulos')
+  if (tables.length === 0) return { procedimiento, etapa }
+
+  const metaTable = tables[0]
+  const rows = metaTable.querySelectorAll('tbody > tr')
+
+  if (rows[1]) {
+    for (const cell of rows[1].querySelectorAll('td')) {
+      const text = cleanText(cell.text)
+      const procMatch = text.match(/Proc\.\s*:?\s*(.+)/i)
+      if (procMatch) procedimiento = procMatch[1].trim()
+    }
+  }
+
+  if (rows[2]) {
+    for (const cell of rows[2].querySelectorAll('td')) {
+      const text = cleanText(cell.text)
+      const etapaMatch = text.match(/Etapa\s*:?\s*(.+)/i)
+      if (etapaMatch) etapa = etapaMatch[1].trim()
+    }
+  }
+
+  return { procedimiento, etapa }
+}
+
+// ════════════════════════════════════════════════════════
+// FOLIOS — T10b: tabla Historia
+// ════════════════════════════════════════════════════════
+
+export function parseFoliosFromHtml(html: string): Folio[] {
+  const root = parseHtml(html, {
+    lowerCaseTagName: true,
+    comment: false,
+    voidTag: { closingSlash: true },
+  })
+  return parseFoliosFromRoot(root)
+}
+
+function parseFoliosFromRoot(root: HTMLElement): Folio[] {
+  const folios: Folio[] = []
+  const historiaTab = root.querySelector('#historiaCiv')
+  if (!historiaTab) return folios
+
+  const rows = historiaTab.querySelectorAll('tbody tr')
   for (const row of rows) {
     const cells = row.querySelectorAll('td')
     if (cells.length < 7) continue
@@ -86,18 +140,6 @@ function parseFolioRow(cells: HTMLElement[]): Folio | null {
     }
   }
 
-  const geoCell = cells[cells.length - 1]
-  let jwtGeoref: string | null = null
-  if (geoCell) {
-    const geoLink = geoCell.querySelector('a[onclick*="geoReferencia"]')
-    if (geoLink) {
-      jwtGeoref = extractJwtFromOnclick(
-        geoLink.getAttribute('onclick') || '',
-        'geoReferencia'
-      )
-    }
-  }
-
   return {
     numero: folioNum,
     etapa: cleanText(cells[3]?.text),
@@ -105,68 +147,169 @@ function parseFolioRow(cells: HTMLElement[]): Folio | null {
     desc_tramite: cleanText(cells[5]?.text),
     fecha_tramite: cleanText(cells[6]?.text),
     foja: parseInt(cleanText(cells[7]?.text), 10) || 0,
+    tiene_doc_principal: !!jwtDocPrincipal,
+    tiene_certificado_escrito: !!jwtCertEscrito,
+    tiene_anexo_solicitud: !!jwtAnexoSolicitud,
     jwt_doc_principal: jwtDocPrincipal,
     jwt_certificado_escrito: jwtCertEscrito,
-    jwt_georef: jwtGeoref,
     jwt_anexo_solicitud: jwtAnexoSolicitud,
   }
 }
 
-function extractFormJwt(cell: HTMLElement | undefined, ...endpoints: string[]): JwtRef | null {
-  if (!cell) return null
+// ════════════════════════════════════════════════════════
+// LITIGANTES — T10c
+// ════════════════════════════════════════════════════════
 
-  const forms = cell.querySelectorAll('form')
-  for (const form of forms) {
-    const action = form.getAttribute('action') || ''
-    const matchesEndpoint = endpoints.some((ep) => action.includes(ep))
-    if (!matchesEndpoint) continue
+function parseLitigantesFromRoot(root: HTMLElement): Litigante[] {
+  const litigantes: Litigante[] = []
+  const litTab = root.querySelector('#litigantesCiv')
+  if (!litTab) return litigantes
 
-    const input = form.querySelector('input[type="hidden"]')
-      || form.querySelector('input')
-    if (input) {
-      const value = input.getAttribute('value') || ''
-      const name = input.getAttribute('name') || ''
-      if (value.length > 20) {
-        return { jwt: value, action, param: name }
+  for (const row of litTab.querySelectorAll('tbody tr')) {
+    const cells = row.querySelectorAll('td')
+    const entry: Litigante = {
+      participante: cleanText(cells[0]?.text),
+      rut: cleanText(cells[1]?.text),
+      persona: cleanText(cells[2]?.text),
+      nombre_razon_social: cleanText(cells[3]?.text),
+    }
+    if (entry.participante || entry.nombre_razon_social) litigantes.push(entry)
+  }
+
+  return litigantes
+}
+
+// ════════════════════════════════════════════════════════
+// NOTIFICACIONES — T10d
+// ════════════════════════════════════════════════════════
+
+function parseNotificacionesFromRoot(root: HTMLElement): Notificacion[] {
+  const notificaciones: Notificacion[] = []
+  const notifTab = root.querySelector('#notificacionesCiv')
+  if (!notifTab) return notificaciones
+
+  for (const row of notifTab.querySelectorAll('tbody tr')) {
+    const cells = row.querySelectorAll('td')
+    const entry: Notificacion = {
+      rol: cleanText(cells[0]?.text),
+      estado_notif: cleanText(cells[1]?.text),
+      tipo_notif: cleanText(cells[2]?.text),
+      fecha_tramite: cleanText(cells[3]?.text),
+      tipo_participante: cleanText(cells[4]?.text),
+      nombre: cleanText(cells[5]?.text),
+      tramite: cleanText(cells[6]?.text),
+      obs_fallida: cleanText(cells[7]?.text),
+    }
+    if (entry.rol || entry.tipo_notif) notificaciones.push(entry)
+  }
+
+  return notificaciones
+}
+
+// ════════════════════════════════════════════════════════
+// ESCRITOS POR RESOLVER — T10e
+// ════════════════════════════════════════════════════════
+
+function parseEscritosFromRoot(root: HTMLElement): Escrito[] {
+  const escritos: Escrito[] = []
+  const escritosTab = root.querySelector('#escritosCiv')
+  if (!escritosTab) return escritos
+
+  for (const row of escritosTab.querySelectorAll('tbody tr')) {
+    const cells = row.querySelectorAll('td')
+    const jwtDoc = cells[0] ? extractFormJwt(cells[0], 'docuS.php', 'docuN.php') : null
+
+    const entry: Escrito = {
+      fecha_ingreso: cleanText(cells[2]?.text),
+      tipo_escrito: cleanText(cells[3]?.text),
+      solicitante: cleanText(cells[4]?.text),
+      tiene_doc: !!jwtDoc,
+      tiene_anexo: !!(cells[1] && cells[1].querySelector('a')),
+      jwt_doc: jwtDoc,
+    }
+    if (entry.tipo_escrito || entry.fecha_ingreso) escritos.push(entry)
+  }
+
+  return escritos
+}
+
+// ════════════════════════════════════════════════════════
+// EXHORTOS — T6 (del tab #exhortosCiv)
+// ════════════════════════════════════════════════════════
+
+function parseExhortosFromRoot(root: HTMLElement): ExhortoEntry[] {
+  const exhortos: ExhortoEntry[] = []
+  const exhTab = root.querySelector('#exhortosCiv')
+  if (!exhTab) return exhortos
+
+  for (const row of exhTab.querySelectorAll('tbody tr')) {
+    const cells = row.querySelectorAll('td')
+    let jwt_detalle: string | null = null
+    if (cells[2]) {
+      const label = cells[2].querySelector('label[onclick*="detalleExhortosCivil"]')
+      if (label) {
+        jwt_detalle = extractJwtFromOnclick(
+          label.getAttribute('onclick') || '', 'detalleExhortosCivil'
+        )
       }
     }
+    const entry: ExhortoEntry = {
+      rol_origen: cleanText(cells[0]?.text),
+      tipo_exhorto: cleanText(cells[1]?.text),
+      rol_destino: cleanText(cells[2]?.text),
+      fecha_ordena: cleanText(cells[3]?.text),
+      fecha_ingreso: cleanText(cells[4]?.text),
+      tribunal_destino: cleanText(cells[5]?.text),
+      estado_exhorto: cleanText(cells[6]?.text),
+      jwt_detalle,
+    }
+    if (entry.rol_origen || entry.tipo_exhorto) exhortos.push(entry)
   }
-  return null
-}
 
-function extractJwtFromOnclick(onclick: string, fnName: string): string | null {
-  if (!onclick) return null
-
-  const pattern = new RegExp(
-    fnName + "\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)",
-    'i'
-  )
-  const match = onclick.match(pattern)
-  if (match && match[1].length > 20) return match[1]
-
-  const jwtMatch = onclick.match(/(eyJ[A-Za-z0-9_-]+\.[\w_-]+\.[\w_-]+)/)
-  if (jwtMatch) return jwtMatch[1]
-
-  return null
-}
-
-function cleanText(text: string | undefined): string {
-  if (!text) return ''
-  return text
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .replace(/\u00A0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return exhortos
 }
 
 // ════════════════════════════════════════════════════════
-// ANEXOS PARSER
+// PIEZAS EXHORTO — T12 (solo causas tipo E)
+// Columnas: Folio, Doc, Cuaderno, Anexo, Etapa, Trámite, Desc.Trámite, Fec.Trámite, Foja
 // ════════════════════════════════════════════════════════
 
-/**
- * Parse the HTML response of anexoCausaCivil.php.
- * Each row has: Doc (form → anexoDocCivil.php with JWT) | Fecha | Referencia
- */
+function parsePiezasExhortoFromRoot(root: HTMLElement): PiezaExhorto[] {
+  const piezas: PiezaExhorto[] = []
+  const tab = root.querySelector('#piezasExhortoCiv')
+  if (!tab) return piezas
+
+  const rows = tab.querySelectorAll('tbody tr')
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td')
+    if (cells.length < 8) continue
+
+    const folioNum = parseInt(cleanText(cells[0]?.text), 10)
+    if (isNaN(folioNum)) continue
+
+    const jwtDoc = extractFormJwt(cells[1], 'docuS.php', 'docuN.php')
+
+    piezas.push({
+      numero_folio: folioNum,
+      cuaderno_pieza: cleanText(cells[2]?.text),
+      etapa: cleanText(cells[4]?.text),
+      tramite: cleanText(cells[5]?.text),
+      desc_tramite: cleanText(cells[6]?.text),
+      fecha_tramite: cleanText(cells[7]?.text),
+      foja: parseInt(cleanText(cells[8]?.text), 10) || 0,
+      tiene_doc: !!jwtDoc,
+      tiene_anexo: !!(cells[3] && cells[3].querySelector('a')),
+      jwt_doc: jwtDoc,
+    })
+  }
+
+  return piezas
+}
+
+// ════════════════════════════════════════════════════════
+// ANEXOS DE LA CAUSA — T3 (anexoCausaCivil.php)
+// ════════════════════════════════════════════════════════
+
 export function parseAnexosFromHtml(html: string): AnexoFile[] {
   const root = parseHtml(html, {
     lowerCaseTagName: true,
@@ -196,127 +339,9 @@ export function parseAnexosFromHtml(html: string): AnexoFile[] {
 }
 
 // ════════════════════════════════════════════════════════
-// TABS PARSER (server-side equivalent of JwtExtractor._extractTabsData)
+// EXHORTO DETALLE — T7 (detalleExhortosCivil.php)
 // ════════════════════════════════════════════════════════
 
-export function parseTabsFromHtml(html: string): TabsData {
-  const root = parseHtml(html, {
-    lowerCaseTagName: true,
-    comment: false,
-    voidTag: { closingSlash: true },
-  })
-
-  const litigantes: TabsData['litigantes'] = []
-  const litTab = root.querySelector('#litigantesCiv')
-  if (litTab) {
-    for (const row of litTab.querySelectorAll('tbody tr')) {
-      const cells = row.querySelectorAll('td')
-      const entry = {
-        participante: cleanText(cells[0]?.text),
-        rut: cleanText(cells[1]?.text),
-        persona: cleanText(cells[2]?.text),
-        nombre: cleanText(cells[3]?.text),
-      }
-      if (entry.participante || entry.nombre) litigantes.push(entry)
-    }
-  }
-
-  const notificaciones: TabsData['notificaciones'] = []
-  const notifTab = root.querySelector('#notificacionesCiv')
-  if (notifTab) {
-    for (const row of notifTab.querySelectorAll('tbody tr')) {
-      const cells = row.querySelectorAll('td')
-      const entry = {
-        rol: cleanText(cells[0]?.text),
-        estado_notif: cleanText(cells[1]?.text),
-        tipo_notif: cleanText(cells[2]?.text),
-        fecha_tramite: cleanText(cells[3]?.text),
-        tipo_participante: cleanText(cells[4]?.text),
-        nombre: cleanText(cells[5]?.text),
-        tramite: cleanText(cells[6]?.text),
-        obs_fallida: cleanText(cells[7]?.text),
-      }
-      if (entry.rol || entry.tipo_notif) notificaciones.push(entry)
-    }
-  }
-
-  const escritos_por_resolver: TabsData['escritos_por_resolver'] = []
-  const escritosTab = root.querySelector('#escritosCiv')
-  if (escritosTab) {
-    for (const row of escritosTab.querySelectorAll('tbody tr')) {
-      const cells = row.querySelectorAll('td')
-      const jwt_doc = cells[0] ? extractFormJwt(cells[0], 'docuS.php', 'docuN.php') : null
-      const entry = {
-        doc: cleanText(cells[0]?.text),
-        anexo: cleanText(cells[1]?.text),
-        fecha_ingreso: cleanText(cells[2]?.text),
-        tipo_escrito: cleanText(cells[3]?.text),
-        solicitante: cleanText(cells[4]?.text),
-        jwt_doc,
-      }
-      if (entry.tipo_escrito || entry.fecha_ingreso) escritos_por_resolver.push(entry)
-    }
-  }
-
-  const exhortos: TabsData['exhortos'] = []
-  const exhTab = root.querySelector('#exhortosCiv')
-  if (exhTab) {
-    for (const row of exhTab.querySelectorAll('tbody tr')) {
-      const cells = row.querySelectorAll('td')
-      let jwt_detalle: string | null = null
-      if (cells[2]) {
-        const label = cells[2].querySelector('label[onclick*="detalleExhortosCivil"]')
-        if (label) {
-          jwt_detalle = extractJwtFromOnclick(
-            label.getAttribute('onclick') || '', 'detalleExhortosCivil'
-          )
-        }
-      }
-      const entry = {
-        rol_origen: cleanText(cells[0]?.text),
-        tipo_exhorto: cleanText(cells[1]?.text),
-        rol_destino: cleanText(cells[2]?.text),
-        fecha_ordena: cleanText(cells[3]?.text),
-        fecha_ingreso: cleanText(cells[4]?.text),
-        tribunal_destino: cleanText(cells[5]?.text),
-        estado_exhorto: cleanText(cells[6]?.text),
-        jwt_detalle,
-      }
-      if (entry.rol_origen || entry.tipo_exhorto) exhortos.push(entry)
-    }
-  }
-
-  return { litigantes, notificaciones, escritos_por_resolver, exhortos }
-}
-
-/**
- * Merge tabs from a secondary cuaderno into the primary tabs.
- * Adds rows that don't already exist (dedup by stringified comparison).
- */
-export function mergeTabsData(primary: TabsData, secondary: TabsData): TabsData {
-  const dedup = <T>(existing: T[], incoming: T[]): T[] => {
-    const seen = new Set(existing.map(r => JSON.stringify(r)))
-    const newRows = incoming.filter(r => !seen.has(JSON.stringify(r)))
-    return [...existing, ...newRows]
-  }
-
-  return {
-    litigantes: dedup(primary.litigantes, secondary.litigantes),
-    notificaciones: dedup(primary.notificaciones, secondary.notificaciones),
-    escritos_por_resolver: dedup(primary.escritos_por_resolver, secondary.escritos_por_resolver),
-    exhortos: dedup(primary.exhortos, secondary.exhortos),
-  }
-}
-
-// ════════════════════════════════════════════════════════
-// EXHORTO DETALLE PARSER
-// ════════════════════════════════════════════════════════
-
-/**
- * Parse the HTML response of detalleExhortosCivil.php.
- * The modal contains a table with columns: Doc | Fecha | Referencia | Trámite
- * where Doc has forms with action="docDetalleExhorto.php" and input[name="dtaDoc"].
- */
 export function parseExhortoDetalleFromHtml(html: string): ExhortoDetalleDoc[] {
   const root = parseHtml(html, {
     lowerCaseTagName: true,
@@ -347,27 +372,17 @@ export function parseExhortoDetalleFromHtml(html: string): ExhortoDetalleDoc[] {
 }
 
 // ════════════════════════════════════════════════════════
-// RECEPTOR PARSER — Tarea 4.20
+// RECEPTOR — T4 (receptorCivil.php)
 // ════════════════════════════════════════════════════════
 
-/**
- * Parsea la respuesta HTML de receptorCivil.php (#modalReceptorCivil).
- *
- * HTML real PJUD — tabla única con headers:
- *   Cuaderno | Datos del Retiro | Fecha Retiro | Estado
- *
- * "Datos del Retiro" contiene el nombre del receptor (idéntico en todas
- * las filas de una misma causa). receptor_nombre se infiere del valor
- * más frecuente en esa columna.
- */
-export function parseReceptorData(html: string): ReceptorData {
+export function parseReceptorRetiros(html: string): ReceptorRetiro[] {
   const root = parseHtml(html, {
     lowerCaseTagName: true,
     comment: false,
     voidTag: { closingSlash: true },
   })
 
-  const retiros: ReceptorData['retiros'] = []
+  const retiros: ReceptorRetiro[] = []
 
   const rows = root.querySelectorAll('tbody tr')
   for (const row of rows) {
@@ -384,37 +399,13 @@ export function parseReceptorData(html: string): ReceptorData {
     retiros.push({ cuaderno, datos_retiro, fecha_retiro, estado })
   }
 
-  // Inferir receptor_nombre del valor más frecuente en "Datos del Retiro"
-  let receptor_nombre: string | null = null
-  if (retiros.length > 0) {
-    const freq = new Map<string, number>()
-    for (const r of retiros) {
-      if (r.datos_retiro) {
-        freq.set(r.datos_retiro, (freq.get(r.datos_retiro) || 0) + 1)
-      }
-    }
-    let maxCount = 0
-    for (const [name, count] of freq) {
-      if (count > maxCount) {
-        maxCount = count
-        receptor_nombre = name
-      }
-    }
-  }
-
-  return { receptor_nombre, retiros }
+  return retiros
 }
 
 // ════════════════════════════════════════════════════════
-// APELACIONES PARSER — causaApelaciones.php response
+// APELACIONES — T8 (causaApelaciones.php)
 // ════════════════════════════════════════════════════════
 
-/**
- * Parse the full HTML response of causaApelaciones.php.
- * Extracts metadata, direct JWTs (Ebook, Certificado, Texto, Anexo),
- * movimientos (folios), tabs (litigantes, exhortos, incompetencia),
- * and expediente primera instancia metadata.
- */
 export function parseApelacionFromHtml(html: string): ApelacionDetail {
   const root = parseHtml(html, {
     lowerCaseTagName: true,
@@ -544,6 +535,16 @@ function parseApelacionFolios(root: HTMLElement): ApelacionFolio[] {
     const jwtDoc = extractFormJwt(docCell, 'docCausaApelaciones.php')
     const jwtCert = extractFormJwt(docCell, 'docCertificadoEscrito.php')
 
+    let jwtAnexoEscrito: string | null = null
+    if (cells[2]) {
+      const anexoLink = cells[2].querySelector('a[onclick*="anexoEscritoApelaciones"]')
+      if (anexoLink) {
+        jwtAnexoEscrito = extractJwtFromOnclick(
+          anexoLink.getAttribute('onclick') || '', 'anexoEscritoApelaciones'
+        )
+      }
+    }
+
     const tramiteRaw = cleanText(cells[3]?.text)
     const descSpan = cells[4]?.querySelector('.topToolNom, span[title]')
     const descripcion = cleanText(descSpan?.text || cells[4]?.text)
@@ -553,6 +554,7 @@ function parseApelacionFolios(root: HTMLElement): ApelacionFolio[] {
       numero: num,
       jwt_doc: jwtDoc,
       jwt_certificado_escrito: jwtCert,
+      jwt_anexo_escrito: jwtAnexoEscrito,
       tramite: tramiteRaw,
       descripcion,
       nomenclaturas,
@@ -566,18 +568,18 @@ function parseApelacionFolios(root: HTMLElement): ApelacionFolio[] {
 }
 
 function parseApelacionTabs(root: HTMLElement): ApelacionTabsData {
-  const litigantes: ApelacionTabsData['litigantes'] = []
+  const litigantes: ApelacionLitigante[] = []
   const litTab = root.querySelector('#litigantesApe')
   if (litTab) {
     for (const row of litTab.querySelectorAll('tbody tr')) {
       const cells = row.querySelectorAll('td')
-      const entry = {
+      const entry: ApelacionLitigante = {
         sujeto: cleanText(cells[0]?.text),
         rut: cleanText(cells[1]?.text),
         persona: cleanText(cells[2]?.text),
-        nombre: cleanText(cells[3]?.text),
+        nombre_razon_social: cleanText(cells[3]?.text),
       }
-      if (entry.sujeto || entry.nombre) litigantes.push(entry)
+      if (entry.sujeto || entry.nombre_razon_social) litigantes.push(entry)
     }
   }
 
@@ -586,8 +588,8 @@ function parseApelacionTabs(root: HTMLElement): ApelacionTabsData {
   if (exhTab) {
     for (const row of exhTab.querySelectorAll('tbody tr')) {
       const cells = row.querySelectorAll('td')
-      const desc = cleanText(cells[1]?.text || cells[0]?.text)
-      if (desc) exhortos.push({ descripcion: desc })
+      const text = cleanText(cells[1]?.text || cells[0]?.text)
+      if (text) exhortos.push({ exhorto: text })
     }
   }
 
@@ -596,8 +598,8 @@ function parseApelacionTabs(root: HTMLElement): ApelacionTabsData {
   if (incTab) {
     for (const row of incTab.querySelectorAll('tbody tr')) {
       const cells = row.querySelectorAll('td')
-      const desc = cleanText(cells[1]?.text || cells[0]?.text)
-      if (desc) incompetencia.push({ descripcion: desc })
+      const text = cleanText(cells[1]?.text || cells[0]?.text)
+      if (text) incompetencia.push({ incompetencia: text })
     }
   }
 
@@ -644,4 +646,89 @@ function parseApelacionExpediente(root: HTMLElement): ApelacionExpediente | null
   }
 
   return result
+}
+
+// ════════════════════════════════════════════════════════
+// ANEXO ESCRITO APELACIONES — T9 (anexoEscritoApelaciones.php)
+// ════════════════════════════════════════════════════════
+
+export function parseAnexoEscritoApelacionesFromHtml(html: string): AnexoEscritoApelacion[] {
+  const root = parseHtml(html, {
+    lowerCaseTagName: true,
+    comment: false,
+    voidTag: { closingSlash: true },
+  })
+
+  const anexos: AnexoEscritoApelacion[] = []
+  const rows = root.querySelectorAll('tbody tr')
+
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td')
+    if (cells.length < 4) continue
+
+    const docCell = cells[0]
+    const jwt = extractFormJwt(docCell, 'anexoDocEscritoApelaciones.php')
+    if (!jwt) continue
+
+    anexos.push({
+      jwt,
+      codigo: cleanText(cells[1]?.text),
+      tipo_documento: cleanText(cells[2]?.text),
+      cantidad: cleanText(cells[3]?.text),
+      observacion: cleanText(cells[4]?.text),
+    })
+  }
+
+  return anexos
+}
+
+// ════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════
+
+function extractFormJwt(cell: HTMLElement | undefined, ...endpoints: string[]): JwtRef | null {
+  if (!cell) return null
+
+  const forms = cell.querySelectorAll('form')
+  for (const form of forms) {
+    const action = form.getAttribute('action') || ''
+    const matchesEndpoint = endpoints.some((ep) => action.includes(ep))
+    if (!matchesEndpoint) continue
+
+    const input = form.querySelector('input[type="hidden"]')
+      || form.querySelector('input')
+    if (input) {
+      const value = input.getAttribute('value') || ''
+      const name = input.getAttribute('name') || ''
+      if (value.length > 20) {
+        return { jwt: value, action, param: name }
+      }
+    }
+  }
+  return null
+}
+
+function extractJwtFromOnclick(onclick: string, fnName: string): string | null {
+  if (!onclick) return null
+
+  const pattern = new RegExp(
+    fnName + "\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)",
+    'i'
+  )
+  const match = onclick.match(pattern)
+  if (match && match[1].length > 20) return match[1]
+
+  const jwtMatch = onclick.match(/(eyJ[A-Za-z0-9_-]+\.[\w_-]+\.[\w_-]+)/)
+  if (jwtMatch) return jwtMatch[1]
+
+  return null
+}
+
+function cleanText(text: string | undefined): string {
+  if (!text) return ''
+  return text
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }

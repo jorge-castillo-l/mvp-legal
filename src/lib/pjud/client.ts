@@ -558,6 +558,75 @@ export class PjudClient {
   }
 
   /**
+   * POST to anexoEscritoApelaciones.php to get the HTML for the
+   * anexo escrito modal within a remision/apelación.
+   * Confirmed via console.log(anexoEscritoApelaciones.toString()) on 2026-03-15.
+   */
+  async fetchAnexoEscritoApelacionesHtml(
+    jwt: string,
+    cookies: PjudCookies | null
+  ): Promise<string | null> {
+    await this.throttle()
+
+    const url = `${PJUD_BASE_URL}/ADIR_871/apelaciones/modal/anexoEscritoApelaciones.php`
+
+    const headers: Record<string, string> = {
+      ...this.baseHeaders(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      Origin: PJUD_ORIGIN,
+    }
+
+    const cookie = this.cookieHeader(cookies)
+    if (cookie) headers['Cookie'] = cookie
+
+    const body = new URLSearchParams({ dtaAnexEsc: jwt }).toString()
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'follow',
+      })
+
+      if (!response.ok) {
+        console.warn(
+          `[PjudClient] anexoEscritoApelaciones.php failed: ${response.status} ${response.statusText}`
+        )
+        return null
+      }
+
+      const html = await response.text()
+
+      if (html.length < 50 || !html.includes('table')) {
+        console.warn(
+          `[PjudClient] anexoEscritoApelaciones.php response too small or invalid (${html.length} chars)`
+        )
+        return null
+      }
+
+      console.log(
+        `[PjudClient] anexoEscritoApelaciones.php: ${html.length} chars recibidos`
+      )
+      return html
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.error('[PjudClient] anexoEscritoApelaciones.php request timeout')
+      } else {
+        console.error('[PjudClient] anexoEscritoApelaciones.php error:', error)
+      }
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
    * Build the full URL for a PJUD document download.
    */
   private resolveUrl(action: string, param: string, jwt: string): string {
