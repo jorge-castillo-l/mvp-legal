@@ -335,9 +335,21 @@ export interface SyncedDocument {
   is_new: boolean
 }
 
+export type SyncChangeCategory =
+  | 'metadata' | 'cuaderno' | 'folio' | 'folio_anexo'
+  | 'litigante' | 'notificacion' | 'escrito' | 'pieza_exhorto'
+  | 'anexo_causa' | 'receptor' | 'exhorto' | 'exhorto_doc'
+  | 'remision' | 'remision_movimiento' | 'remision_mov_anexo'
+  | 'remision_litigante' | 'remision_exhorto' | 'remision_incompetencia'
+
 export interface SyncChange {
-  category: 'metadata' | 'cuaderno' | 'folio' | 'anexo' | 'exhorto' | 'receptor' | 'litigante' | 'notificacion' | 'escrito' | 'remision' | 'pieza_exhorto'
+  category: SyncChangeCategory
   type: 'added' | 'changed' | 'removed'
+  cuaderno: string | null
+  entity_key: string
+  field: string | null
+  old_value: string | null
+  new_value: string | null
   description: string
 }
 
@@ -389,4 +401,179 @@ export interface PdfDownloadTask {
   fecha: string | null
   source_url: string
   referencia?: string
+}
+
+// ════════════════════════════════════════════════════════
+// SyncSnapshot — espejo 1:1 del árbol relacional de tablas PJUD
+// Persistido en cases.sync_snapshot (JSONB) para diff entre syncs
+// ════════════════════════════════════════════════════════
+
+export interface SyncSnapshot {
+  metadata: SnapMetadata
+  cuadernos: SnapCuaderno[]
+  anexos_causa: SnapAnexoCausa[]
+  receptor_retiros: SnapReceptorRetiro[]
+  exhortos: SnapExhorto[]
+  remisiones: SnapRemision[]
+  snapshot_at: string
+}
+
+export interface SnapMetadata {
+  estado_adm: string | null
+  ubicacion: string | null
+  estado_procesal: string | null
+  caratula: string | null
+  materia: string | null
+  causa_origen: string | null
+  tribunal_origen: string | null
+}
+
+export interface SnapCuaderno {
+  nombre: string
+  procedimiento: string | null
+  etapa: string | null
+  folios: SnapFolio[]
+  litigantes: SnapLitigante[]
+  notificaciones: SnapNotificacion[]
+  escritos: SnapEscrito[]
+  piezas_exhorto: SnapPiezaExhorto[]
+}
+
+export interface SnapFolio {
+  numero_folio: number
+  etapa: string | null
+  tramite: string | null
+  desc_tramite: string | null
+  fecha_tramite: string | null
+  foja: number
+  tiene_doc_principal: boolean
+  tiene_certificado_escrito: boolean
+  tiene_anexo_solicitud: boolean
+  anexos: SnapFolioAnexo[]
+}
+
+export interface SnapFolioAnexo {
+  fecha: string | null
+  referencia: string | null
+}
+
+export interface SnapLitigante {
+  participante: string | null
+  rut: string | null
+  persona: string | null
+  nombre_razon_social: string | null
+}
+
+export interface SnapNotificacion {
+  rol: string | null
+  estado_notif: string | null
+  tipo_notif: string | null
+  fecha_tramite: string | null
+  tipo_participante: string | null
+  nombre: string | null
+  tramite: string | null
+  obs_fallida: string | null
+}
+
+export interface SnapEscrito {
+  fecha_ingreso: string | null
+  tipo_escrito: string | null
+  solicitante: string | null
+  tiene_doc: boolean
+  tiene_anexo: boolean
+}
+
+export interface SnapPiezaExhorto {
+  numero_folio: number
+  cuaderno_pieza: string | null
+  etapa: string | null
+  tramite: string | null
+  desc_tramite: string | null
+  fecha_tramite: string | null
+  foja: number
+  tiene_doc: boolean
+  tiene_anexo: boolean
+}
+
+export interface SnapAnexoCausa {
+  fecha: string | null
+  referencia: string | null
+}
+
+export interface SnapReceptorRetiro {
+  cuaderno: string | null
+  datos_retiro: string | null
+  fecha_retiro: string | null
+  estado: string | null
+}
+
+export interface SnapExhortoDoc {
+  fecha: string | null
+  referencia: string | null
+  tramite: string | null
+}
+
+export interface SnapExhorto {
+  rol_origen: string | null
+  tipo_exhorto: string | null
+  rol_destino: string | null
+  fecha_ordena: string | null
+  fecha_ingreso: string | null
+  tribunal_destino: string | null
+  estado_exhorto: string | null
+  docs: SnapExhortoDoc[]
+}
+
+export interface SnapRemisionMovAnexo {
+  codigo: string | null
+  tipo_documento: string | null
+  cantidad: string | null
+  observacion: string | null
+}
+
+export interface SnapRemisionMovimiento {
+  numero_folio: number
+  tramite: string | null
+  descripcion: string | null
+  nomenclaturas: string | null
+  fecha: string | null
+  sala: string | null
+  estado: string | null
+  tiene_doc: boolean
+  tiene_certificado_escrito: boolean
+  tiene_anexo_escrito: boolean
+  anexos: SnapRemisionMovAnexo[]
+}
+
+export interface SnapRemisionLitigante {
+  sujeto: string | null
+  rut: string | null
+  persona: string | null
+  nombre_razon_social: string | null
+}
+
+export interface SnapRemision {
+  descripcion_tramite: string | null
+  fecha_tramite: string | null
+  libro: string | null
+  fecha: string | null
+  estado_recurso: string | null
+  estado_procesal: string | null
+  ubicacion: string | null
+  recurso: string | null
+  corte: string | null
+  tiene_certificado: boolean
+  tiene_ebook: boolean
+  tiene_texto: boolean
+  tiene_anexo: boolean
+  exp_causa_origen: string | null
+  exp_tribunal: string | null
+  exp_caratulado: string | null
+  exp_materia: string | null
+  exp_ruc: string | null
+  exp_fecha_ingreso: string | null
+  movimientos: SnapRemisionMovimiento[]
+  litigantes: SnapRemisionLitigante[]
+  exhortos: Array<{ exhorto: string | null }>
+  incompetencias: Array<{ incompetencia: string | null }>
 }

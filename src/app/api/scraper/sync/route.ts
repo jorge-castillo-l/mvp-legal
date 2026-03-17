@@ -38,6 +38,7 @@ import {
   parseExhortoDetalleFromHtml,
   parseReceptorRetiros,
 } from '@/lib/pjud/parser'
+import { buildSnapshotFromDb, generateDiff } from '@/lib/pjud/sync-diff'
 import type {
   CausaPackage,
   CuadernoData,
@@ -47,6 +48,7 @@ import type {
   JwtRef,
   SyncResult,
   SyncChange,
+  SyncSnapshot,
   SyncedDocument,
   ReceptorRetiro,
   AnexoFile,
@@ -151,6 +153,8 @@ export async function POST(request: NextRequest) {
         pjud.setCookies(pkg.cookies)
 
         let caseId: string
+        let prevSnapshot: SyncSnapshot | null = null
+        let newSnapshot: SyncSnapshot | null = null
         const downloadTasks: PdfDownloadTask[] = []
 
         if (isResume) {
@@ -193,6 +197,14 @@ export async function POST(request: NextRequest) {
             return
           }
           caseId = upsertedId
+
+          // Leer snapshot anterior ANTES de borrar datos (para diff)
+          const { data: prevSnapRow } = await db
+            .from('cases')
+            .select('sync_snapshot')
+            .eq('id', caseId)
+            .single()
+          prevSnapshot = (prevSnapRow?.sync_snapshot as SyncSnapshot | null) ?? null
 
           // Limpiar datos previos de tablas estructuradas para re-sync limpio
           await cleanStructuredData(db, caseId)
@@ -317,6 +329,14 @@ export async function POST(request: NextRequest) {
           // Escritos por resolver (de todos los cuadernos)
           await buildEscritosTasks(db, caseId, downloadTasks, pkg.rol)
 
+          // Construir snapshot del estado actual (después de todas las inserciones estructuradas)
+          emit('progress', { message: 'Calculando cambios…', current: 0, total: 0 })
+          try {
+            newSnapshot = await buildSnapshotFromDb(db, caseId)
+          } catch (err) {
+            console.error('[sync] Error building snapshot:', err)
+          }
+
           emit('progress', { message: 'Iniciando descarga de documentos…', current: 0, total: downloadTasks.length })
           console.log(`[sync] ${pkg.rol} — ${downloadTasks.length} PDFs a descargar`)
         }
@@ -377,6 +397,10 @@ export async function POST(request: NextRequest) {
           last_synced_at: new Date().toISOString(),
         }
 
+        if (newSnapshot) {
+          caseUpdate.sync_snapshot = newSnapshot
+        }
+
         if (timedOut) {
           // timeout already saved remaining tasks above
         } else if (failedTasks.length > 0) {
@@ -403,6 +427,18 @@ export async function POST(request: NextRequest) {
 
         const failedSavedForRetry = !timedOut && failedTasks.length > 0
 
+        // Generar diff entre snapshot anterior y actual
+        const isFirstSync = !prevSnapshot
+        let changes: SyncChange[] = []
+        if (!isFirstSync && newSnapshot) {
+          try {
+            changes = generateDiff(prevSnapshot!, newSnapshot)
+            console.log(`[sync] Diff: ${changes.length} cambio(s) detectado(s)`)
+          } catch (err) {
+            console.error('[sync] Error generating diff:', err)
+          }
+        }
+
         const syncResult: SyncResult = {
           success: true,
           case_id: caseId,
@@ -414,8 +450,8 @@ export async function POST(request: NextRequest) {
           total_downloaded: results.length,
           errors,
           duration_ms: Date.now() - startTime,
-          changes: [],
-          is_first_sync: true,
+          changes,
+          is_first_sync: isFirstSync,
           has_pending: timedOut || failedSavedForRetry,
           pending_count: timedOut
             ? downloadTasks.length - (results.length + existingCount + failedCount)
