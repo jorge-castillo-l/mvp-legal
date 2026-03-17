@@ -356,6 +356,8 @@ export interface SyncResult {
   is_first_sync: boolean
   has_pending: boolean
   pending_count: number
+  /** True when failed tasks were persisted for automatic retry via /api/scraper/retry-failed */
+  failed_saved_for_retry: boolean
 }
 
 // ════════════════════════════════════════════════════════

@@ -30,6 +30,14 @@ const THROTTLE_MIN_MS = 500
 const THROTTLE_MAX_MS = 1000
 const REQUEST_TIMEOUT_MS = 30_000
 
+const DOWNLOAD_MAX_RETRIES = 4
+const DOWNLOAD_RETRY_BASE_MS = 2_000
+
+const TRANSIENT_CODES = new Set([
+  'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EPIPE',
+  'UND_ERR_SOCKET', 'EAI_AGAIN', 'EHOSTUNREACH',
+])
+
 export class PjudClient {
   private lastRequestTime = 0
   private requestCount = 0
@@ -77,64 +85,112 @@ export class PjudClient {
 
   /**
    * Download a PDF from PJUD via GET with JWT.
-   * Most endpoints (docuS/docuN/docu.php) are JWT-self-sufficient.
-   * Some (anexoDocCivil.php) require session cookies — included when available.
+   * Retries up to DOWNLOAD_MAX_RETRIES times with exponential backoff
+   * on transient network errors (ECONNRESET, ETIMEDOUT, etc.).
    */
   async downloadPdf(
     endpoint: string,
     param: string,
     jwt: string
   ): Promise<{ buffer: Buffer; contentType: string } | null> {
-    await this.throttle()
-
     const url = this.resolveUrl(endpoint, param, jwt)
-
     const headers: Record<string, string> = { ...this.baseHeaders() }
     const cookie = this.cookieHeader(this.cookies)
     if (cookie) headers['Cookie'] = cookie
 
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    for (let attempt = 1; attempt <= DOWNLOAD_MAX_RETRIES; attempt++) {
+      await this.throttle()
 
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers,
-        signal: controller.signal,
-        redirect: 'follow',
-      })
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-      if (!response.ok) {
-        console.error(
-          `[PjudClient] PDF download failed: ${response.status} ${response.statusText} — ${url.substring(0, 100)}`
-        )
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: controller.signal,
+          redirect: 'follow',
+        })
+
+        if (!response.ok) {
+          const isServerError = response.status >= 500
+          if (isServerError && attempt < DOWNLOAD_MAX_RETRIES) {
+            console.warn(
+              `[PjudClient] PDF ${response.status} on attempt ${attempt}/${DOWNLOAD_MAX_RETRIES}, retrying…`
+            )
+            clearTimeout(timeout)
+            await this.backoff(attempt)
+            continue
+          }
+          console.error(
+            `[PjudClient] PDF download failed: ${response.status} ${response.statusText} — ${url.substring(0, 100)}`
+          )
+          return null
+        }
+
+        const arrayBuffer = await response.arrayBuffer()
+        const buffer = Buffer.from(arrayBuffer)
+
+        if (!this.isValidPdf(buffer)) {
+          console.warn(
+            `[PjudClient] Downloaded file is not a valid PDF (magic bytes mismatch). Size: ${buffer.length}`
+          )
+          return null
+        }
+
+        if (attempt > 1) {
+          console.log(`[PjudClient] PDF downloaded successfully on attempt ${attempt}`)
+        }
+
+        return {
+          buffer,
+          contentType: response.headers.get('content-type') || 'application/pdf',
+        }
+      } catch (error) {
+        clearTimeout(timeout)
+
+        const isTransient = this.isTransientError(error)
+
+        if (isTransient && attempt < DOWNLOAD_MAX_RETRIES) {
+          const code = (error as { cause?: { code?: string } })?.cause?.code || 'unknown'
+          const delay = DOWNLOAD_RETRY_BASE_MS * Math.pow(2, attempt - 1)
+          console.warn(
+            `[PjudClient] Attempt ${attempt}/${DOWNLOAD_MAX_RETRIES} failed (${code}), retrying in ${delay}ms…`
+          )
+          await this.backoff(attempt)
+          continue
+        }
+
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          console.error(
+            `[PjudClient] PDF download timeout after ${attempt} attempt(s): ${url.substring(0, 100)}`
+          )
+        } else {
+          console.error(
+            `[PjudClient] PDF download failed after ${attempt} attempt(s):`, error
+          )
+        }
         return null
+      } finally {
+        clearTimeout(timeout)
       }
-
-      const arrayBuffer = await response.arrayBuffer()
-      const buffer = Buffer.from(arrayBuffer)
-
-      if (!this.isValidPdf(buffer)) {
-        console.warn(
-          `[PjudClient] Downloaded file is not a valid PDF (magic bytes mismatch). Size: ${buffer.length}`
-        )
-        return null
-      }
-
-      return {
-        buffer,
-        contentType: response.headers.get('content-type') || 'application/pdf',
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        console.error(`[PjudClient] PDF download timeout: ${url.substring(0, 100)}`)
-      } else {
-        console.error(`[PjudClient] PDF download error:`, error)
-      }
-      return null
-    } finally {
-      clearTimeout(timeout)
     }
+
+    return null
+  }
+
+  private isTransientError(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === 'AbortError') return true
+    const code = (error as { cause?: { code?: string } })?.cause?.code
+    if (code && TRANSIENT_CODES.has(code)) return true
+    const msg = error instanceof Error ? error.message : ''
+    return msg.includes('fetch failed') || msg.includes('network')
+  }
+
+  private async backoff(attempt: number): Promise<void> {
+    const jitter = Math.random() * 500
+    const delay = DOWNLOAD_RETRY_BASE_MS * Math.pow(2, attempt - 1) + jitter
+    await new Promise((r) => setTimeout(r, delay))
   }
 
   /**

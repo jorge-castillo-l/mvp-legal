@@ -234,7 +234,7 @@ export async function processDocument(documentId: string): Promise<ProcessingRes
         .from('processing_queue')
         .update({
           status: 'failed' as string,
-          last_error: extraction.errorMessage || 'Ambos métodos de extracción fallaron',
+          last_error: extraction.errorMessage || 'Todos los métodos de extracción fallaron (pdf-parse, Document AI, Tesseract)',
           next_retry_at: shouldRetry ? calculateNextRetryAt(newAttempts) : null,
         })
         .eq('id', entry.id)

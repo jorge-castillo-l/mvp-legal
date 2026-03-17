@@ -142,27 +142,53 @@ export async function DELETE(request: NextRequest) {
     const storagePaths = (docs || []).map(d => d.storage_path).filter(Boolean) as string[]
     const docCount = docs?.length ?? 0
 
-    // 3. Cascade delete por case_id (evita .in() con miles de IDs)
+    // 3. Eliminar archivos PDF del Storage ANTES de borrar filas
+    let storageRemoved = 0
+    const storageErrors: string[] = []
+
+    if (storagePaths.length > 0) {
+      console.log(`[DELETE /api/cases] Storage paths a eliminar (${storagePaths.length}):`, storagePaths.slice(0, 3))
+
+      const BATCH_SIZE = 100
+      for (let i = 0; i < storagePaths.length; i += BATCH_SIZE) {
+        const batch = storagePaths.slice(i, i + BATCH_SIZE)
+        const { data: removed, error: removeError } = await supabaseAdmin.storage
+          .from('case-files')
+          .remove(batch)
+
+        if (removeError) {
+          console.error(`[DELETE /api/cases] Storage remove error (batch ${i / BATCH_SIZE + 1}):`, removeError)
+          storageErrors.push(removeError.message)
+
+          for (const path of batch) {
+            const { error: singleErr } = await supabaseAdmin.storage
+              .from('case-files')
+              .remove([path])
+            if (singleErr) {
+              console.error(`[DELETE /api/cases] Single remove failed: ${path}`, singleErr.message)
+            } else {
+              storageRemoved++
+            }
+          }
+        } else {
+          storageRemoved += removed?.length ?? 0
+        }
+      }
+      console.log(`[DELETE /api/cases] Storage: ${storageRemoved}/${storagePaths.length} archivos eliminados`)
+      if (storageErrors.length > 0) {
+        console.error(`[DELETE /api/cases] Storage errors:`, storageErrors)
+      }
+    }
+
+    // 4. Eliminar tablas dependientes que no tienen ON DELETE CASCADE desde cases
     await supabaseAdmin.from('extracted_texts').delete().eq('case_id', caseId)
     await supabaseAdmin.from('document_hashes').delete().eq('case_id', caseId)
 
-    if (storagePaths.length > 0) {
-      const BATCH_SIZE = 500
-      let storageRemoved = 0
-      for (let i = 0; i < storagePaths.length; i += BATCH_SIZE) {
-        const batch = storagePaths.slice(i, i + BATCH_SIZE)
-        const { data: removed } = await supabaseAdmin.storage
-          .from('case-files')
-          .remove(batch)
-        storageRemoved += removed?.length ?? 0
-      }
-      console.log(`[DELETE /api/cases] Storage: ${storageRemoved}/${storagePaths.length} archivos eliminados`)
-    }
-
+    // 5. Eliminar documents y cases (CASCADE limpia todo lo demás)
     await supabaseAdmin.from('documents').delete().eq('case_id', caseId)
     await supabaseAdmin.from('cases').delete().eq('id', caseId).eq('user_id', user.id)
 
-    console.log(`[DELETE /api/cases] Causa eliminada: ${targetCase.rol} (${caseId}) — ${docCount} docs`)
+    console.log(`[DELETE /api/cases] Causa eliminada: ${targetCase.rol} (${caseId}) — ${docCount} docs, ${storageRemoved} PDFs del storage`)
 
     return NextResponse.json(
       {
@@ -170,7 +196,8 @@ export async function DELETE(request: NextRequest) {
           case_id: caseId,
           rol: targetCase.rol,
           documents_removed: docCount,
-          storage_removed: storagePaths.length,
+          storage_removed: storageRemoved,
+          storage_errors: storageErrors.length > 0 ? storageErrors : undefined,
         }
       },
       { status: 200, headers: corsHeaders }

@@ -172,6 +172,7 @@ export async function POST(request: NextRequest) {
               documents_new: [], documents_existing: 0, documents_failed: 0,
               total_downloaded: 0, errors: [], duration_ms: Date.now() - startTime,
               has_pending: false, pending_count: 0, changes: [], is_first_sync: false,
+              failed_saved_for_retry: false,
             } as SyncResult)
             controller.close()
             return
@@ -324,6 +325,7 @@ export async function POST(request: NextRequest) {
         const totalTasks = downloadTasks.length
         const results: SyncedDocument[] = []
         const errors: string[] = []
+        const failedTasks: PdfDownloadTask[] = []
         let existingCount = 0
         let failedCount = 0
         let timedOut = false
@@ -332,7 +334,7 @@ export async function POST(request: NextRequest) {
           const task = downloadTasks[i]
 
           if (Date.now() - startTime > SYNC_TIMEOUT_MS) {
-            const pendingTasks = downloadTasks.slice(i)
+            const pendingTasks = [...downloadTasks.slice(i)]
             await db.from('cases').update({ pending_sync_tasks: pendingTasks }).eq('id', caseId)
             timedOut = true
             console.log(`[sync] Timeout — ${pendingTasks.length} tasks saved for resume`)
@@ -348,10 +350,14 @@ export async function POST(request: NextRequest) {
               { rol: pkg.rol, tribunal: pkg.tribunal, caratula: pkg.caratula },
             )
             if (result === 'duplicate') existingCount++
-            else if (result === 'failed') failedCount++
+            else if (result === 'failed') {
+              failedCount++
+              failedTasks.push(task)
+            }
             else results.push(result)
           } catch (err) {
             failedCount++
+            failedTasks.push(task)
             const msg = err instanceof Error ? err.message : String(err)
             errors.push(`${task.filename}: ${msg}`)
             console.error(`[sync] Error procesando ${task.filename}:`, err)
@@ -370,7 +376,15 @@ export async function POST(request: NextRequest) {
           document_count: docCount ?? 0,
           last_synced_at: new Date().toISOString(),
         }
-        if (!timedOut) caseUpdate.pending_sync_tasks = null
+
+        if (timedOut) {
+          // timeout already saved remaining tasks above
+        } else if (failedTasks.length > 0) {
+          caseUpdate.pending_sync_tasks = failedTasks
+          console.log(`[sync] ${failedTasks.length} failed tasks saved for retry`)
+        } else {
+          caseUpdate.pending_sync_tasks = null
+        }
 
         await db.from('cases').update(caseUpdate).eq('id', caseId)
 
@@ -387,6 +401,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        const failedSavedForRetry = !timedOut && failedTasks.length > 0
+
         const syncResult: SyncResult = {
           success: true,
           case_id: caseId,
@@ -400,15 +416,27 @@ export async function POST(request: NextRequest) {
           duration_ms: Date.now() - startTime,
           changes: [],
           is_first_sync: true,
-          has_pending: timedOut,
-          pending_count: timedOut ? downloadTasks.length - (results.length + existingCount + failedCount) : 0,
+          has_pending: timedOut || failedSavedForRetry,
+          pending_count: timedOut
+            ? downloadTasks.length - (results.length + existingCount + failedCount)
+            : failedTasks.length,
+          failed_saved_for_retry: failedSavedForRetry,
         }
 
         console.log(
           `[sync] ${pkg.rol} — ${timedOut ? 'Parcial' : 'Completado'} en ${syncResult.duration_ms}ms: ` +
           `${results.length} nuevos, ${existingCount} existentes, ${failedCount} fallidos` +
-          (timedOut ? ` | ${syncResult.pending_count} pendientes` : '')
+          (timedOut ? ` | ${syncResult.pending_count} pendientes` : '') +
+          (failedSavedForRetry ? ` | ${failedTasks.length} guardados para reintento` : '')
         )
+
+        if (failedSavedForRetry) {
+          emit('failed_saved', {
+            count: failedTasks.length,
+            message: `${failedTasks.length} documento(s) no pudieron descargarse y se reintentarán automáticamente.`,
+            filenames: failedTasks.map(t => t.filename),
+          })
+        }
 
         emit('complete', syncResult)
       } catch (error) {

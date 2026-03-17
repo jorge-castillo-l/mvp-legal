@@ -144,6 +144,13 @@ async function processBatch(
       content: Buffer.from(batch.bytes).toString('base64'),
       mimeType: 'application/pdf',
     },
+    processOptions: {
+      ocrConfig: {
+        enableNativePdfParsing: false,
+        hints: { languageHints: ['es', 'en'] },
+        advancedOcrOptions: ['ENABLE_IMAGE_QUALITY_SCORES'],
+      },
+    },
   })
 
   const document = result.document
@@ -204,7 +211,16 @@ export async function extractScannedPdfTextWithDocumentAi(buffer: Buffer): Promi
     const pages: OcrPageMetadata[] = []
 
     for (const batch of batches) {
-      const parsedBatch = await processBatch(client, processorName, batch)
+      let parsedBatch = await processBatch(client, processorName, batch)
+
+      if (!parsedBatch.text && batch.pageCount > 0) {
+        console.warn(
+          `[Document AI] Batch vacío (páginas ${batch.pageOffset + 1}-${batch.pageOffset + batch.pageCount}), reintentando…`
+        )
+        await new Promise((r) => setTimeout(r, 1500))
+        parsedBatch = await processBatch(client, processorName, batch)
+      }
+
       if (parsedBatch.text) {
         textParts.push(parsedBatch.text)
       }
@@ -212,7 +228,6 @@ export async function extractScannedPdfTextWithDocumentAi(buffer: Buffer): Promi
       if (parsedBatch.pages.length > 0) {
         pages.push(...parsedBatch.pages)
       } else {
-        // Si Document AI no entrega metadata por página, mantenemos conteo mínimo por lote.
         for (let i = 0; i < batch.pageCount; i += 1) {
           pages.push({
             pageNumber: batch.pageOffset + i + 1,
