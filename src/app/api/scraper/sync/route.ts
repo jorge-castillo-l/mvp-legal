@@ -198,6 +198,7 @@ export async function POST(request: NextRequest) {
 
           // PASO 4: Insertar cuaderno visible
           emit('progress', { message: `Procesando cuaderno "${pkg.cuaderno_visible.nombre}"…`, current: 0, total: 0 })
+          console.log(`[sync] Cuaderno visible "${pkg.cuaderno_visible.nombre}": ${pkg.cuaderno_visible.folios.length} folios, ${pkg.cuaderno_visible.litigantes.length} litigantes`)
           const cuadernoVisibleId = await insertCuaderno(db, user.id, caseId, pkg.cuaderno_visible, 0)
           buildFolioTasks(downloadTasks, pkg.cuaderno_visible, pkg.rol, cuadernoVisibleId)
 
@@ -528,60 +529,87 @@ async function insertCuaderno(
 
   const cuadernoId = row!.id
 
-  // Folios
+  // Folios — dedup by numero_folio and batch insert with error handling
   if (cuaderno.folios.length > 0) {
-    const folioRows = cuaderno.folios.map(f => ({
+    const seen = new Set<number>()
+    const dedupedFolios = cuaderno.folios.filter(f => {
+      if (seen.has(f.numero)) return false
+      seen.add(f.numero)
+      return true
+    })
+
+    const folioRows = dedupedFolios.map(f => ({
       case_id: caseId, cuaderno_id: cuadernoId, user_id: userId,
-      numero_folio: f.numero, etapa: f.etapa, tramite: f.tramite,
-      desc_tramite: f.desc_tramite, fecha_tramite: f.fecha_tramite,
-      foja: f.foja, tiene_doc_principal: f.tiene_doc_principal,
-      tiene_certificado_escrito: f.tiene_certificado_escrito,
-      tiene_anexo_solicitud: f.tiene_anexo_solicitud,
+      numero_folio: f.numero, etapa: f.etapa || null, tramite: f.tramite || null,
+      desc_tramite: f.desc_tramite || null, fecha_tramite: f.fecha_tramite || null,
+      foja: typeof f.foja === 'number' && !isNaN(f.foja) ? f.foja : 0,
+      tiene_doc_principal: !!f.tiene_doc_principal,
+      tiene_certificado_escrito: !!f.tiene_certificado_escrito,
+      tiene_anexo_solicitud: !!f.tiene_anexo_solicitud,
     }))
-    await db.from('case_folios').insert(folioRows)
+
+    const { error: folioErr } = await db.from('case_folios').insert(folioRows)
+    if (folioErr) {
+      console.error(`[sync] ERROR inserting ${folioRows.length} folios for "${cuaderno.nombre}":`, folioErr.message)
+      console.error(`[sync] Sample folio data:`, JSON.stringify(folioRows[0]))
+      // Fallback: insert one by one to save what we can
+      let inserted = 0
+      for (const row of folioRows) {
+        const { error: singleErr } = await db.from('case_folios').insert(row)
+        if (!singleErr) inserted++
+        else console.error(`[sync] Folio ${row.numero_folio} failed:`, singleErr.message)
+      }
+      console.log(`[sync] Fallback: ${inserted}/${folioRows.length} folios inserted for "${cuaderno.nombre}"`)
+    }
   }
 
   // Litigantes
   if (cuaderno.litigantes.length > 0) {
     const litRows = cuaderno.litigantes.map(l => ({
       case_id: caseId, cuaderno_id: cuadernoId, user_id: userId,
-      participante: l.participante, rut: l.rut, persona: l.persona,
-      nombre_razon_social: l.nombre_razon_social,
+      participante: l.participante || null, rut: l.rut || null,
+      persona: l.persona || null, nombre_razon_social: l.nombre_razon_social || null,
     }))
-    await db.from('case_litigantes').insert(litRows)
+    const { error: litErr } = await db.from('case_litigantes').insert(litRows)
+    if (litErr) console.error(`[sync] ERROR litigantes "${cuaderno.nombre}":`, litErr.message)
   }
 
   // Notificaciones
   if (cuaderno.notificaciones.length > 0) {
     const notifRows = cuaderno.notificaciones.map(n => ({
       case_id: caseId, cuaderno_id: cuadernoId, user_id: userId,
-      rol: n.rol, estado_notif: n.estado_notif, tipo_notif: n.tipo_notif,
-      fecha_tramite: n.fecha_tramite, tipo_participante: n.tipo_participante,
-      nombre: n.nombre, tramite: n.tramite, obs_fallida: n.obs_fallida,
+      rol: n.rol || null, estado_notif: n.estado_notif || null,
+      tipo_notif: n.tipo_notif || null, fecha_tramite: n.fecha_tramite || null,
+      tipo_participante: n.tipo_participante || null, nombre: n.nombre || null,
+      tramite: n.tramite || null, obs_fallida: n.obs_fallida || null,
     }))
-    await db.from('case_notificaciones').insert(notifRows)
+    const { error: notifErr } = await db.from('case_notificaciones').insert(notifRows)
+    if (notifErr) console.error(`[sync] ERROR notificaciones "${cuaderno.nombre}":`, notifErr.message)
   }
 
   // Escritos
   if (cuaderno.escritos.length > 0) {
     const escRows = cuaderno.escritos.map(e => ({
       case_id: caseId, cuaderno_id: cuadernoId, user_id: userId,
-      fecha_ingreso: e.fecha_ingreso, tipo_escrito: e.tipo_escrito,
-      solicitante: e.solicitante, tiene_doc: e.tiene_doc, tiene_anexo: e.tiene_anexo,
+      fecha_ingreso: e.fecha_ingreso || null, tipo_escrito: e.tipo_escrito || null,
+      solicitante: e.solicitante || null, tiene_doc: !!e.tiene_doc, tiene_anexo: !!e.tiene_anexo,
     }))
-    await db.from('case_escritos').insert(escRows)
+    const { error: escErr } = await db.from('case_escritos').insert(escRows)
+    if (escErr) console.error(`[sync] ERROR escritos "${cuaderno.nombre}":`, escErr.message)
   }
 
   // Piezas exhorto (solo tipo E)
   if (cuaderno.piezas_exhorto.length > 0) {
     const piezaRows = cuaderno.piezas_exhorto.map(p => ({
       case_id: caseId, cuaderno_id: cuadernoId, user_id: userId,
-      numero_folio: p.numero_folio, cuaderno_pieza: p.cuaderno_pieza,
-      etapa: p.etapa, tramite: p.tramite, desc_tramite: p.desc_tramite,
-      fecha_tramite: p.fecha_tramite, foja: p.foja,
-      tiene_doc: p.tiene_doc, tiene_anexo: p.tiene_anexo,
+      numero_folio: p.numero_folio, cuaderno_pieza: p.cuaderno_pieza || null,
+      etapa: p.etapa || null, tramite: p.tramite || null,
+      desc_tramite: p.desc_tramite || null, fecha_tramite: p.fecha_tramite || null,
+      foja: typeof p.foja === 'number' && !isNaN(p.foja) ? p.foja : 0,
+      tiene_doc: !!p.tiene_doc, tiene_anexo: !!p.tiene_anexo,
     }))
-    await db.from('case_piezas_exhorto').insert(piezaRows)
+    const { error: piezaErr } = await db.from('case_piezas_exhorto').insert(piezaRows)
+    if (piezaErr) console.error(`[sync] ERROR piezas exhorto "${cuaderno.nombre}":`, piezaErr.message)
   }
 
   return cuadernoId

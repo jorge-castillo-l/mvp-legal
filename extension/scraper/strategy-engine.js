@@ -164,12 +164,15 @@ class StrategyEngine {
       return null;
     }
 
+    const nCuadernos = (pkg.otros_cuadernos?.length || 0) + 1;
+    const nFolios = pkg.cuaderno_visible?.folios?.length || 0;
+
     this._emit('causa_package_extracted', {
       rol: pkg.rol,
       tribunal: pkg.tribunal,
-      procedimiento: pkg.procedimiento,
-      cuadernos: pkg.cuadernos.length,
-      folios: pkg.folios.length,
+      procedimiento: pkg.materia || pkg.cuaderno_visible?.procedimiento || null,
+      cuadernos: nCuadernos,
+      folios: nFolios,
       hasTextoDemanda: !!pkg.jwt_texto_demanda,
       hasCertificado: !!pkg.jwt_certificado_envio,
       hasEbook: !!pkg.jwt_ebook,
@@ -250,7 +253,9 @@ class StrategyEngine {
       }
 
       results.causaPackage = causaPackage;
-      results.totalFound = causaPackage.folios.length;
+      const pkgCuadernos = (causaPackage.otros_cuadernos?.length || 0) + 1;
+      const pkgFolios = causaPackage.cuaderno_visible?.folios?.length || 0;
+      results.totalFound = pkgFolios;
 
       const directDocs = [
         causaPackage.jwt_texto_demanda,
@@ -260,8 +265,8 @@ class StrategyEngine {
 
       this._emit('status', {
         phase: 'extracted',
-        message: `Extraídos: ${causaPackage.cuadernos.length} cuaderno(s), ` +
-                 `${causaPackage.folios.length} folio(s), ${directDocs} doc(s) directos`,
+        message: `Extraídos: ${pkgCuadernos} cuaderno(s), ` +
+                 `${pkgFolios} folio(s), ${directDocs} doc(s) directos`,
       });
 
       // ──── FASE 2: Send to service-worker → API (4.17) ────
@@ -288,12 +293,12 @@ class StrategyEngine {
           results.totalUploaded = response.documentsQueued || 0;
           this._emit('status', {
             phase: 'complete',
-            message: `Paquete enviado: ${causaPackage.folios.length} folios + ${directDocs} documentos directos. ` +
+            message: `Paquete enviado: ${pkgFolios} folios + ${directDocs} documentos directos. ` +
                      'El servidor procesará la descarga.',
             causaPackage: {
               rol: causaPackage.rol,
-              cuadernos: causaPackage.cuadernos.length,
-              folios: causaPackage.folios.length,
+              cuadernos: pkgCuadernos,
+              folios: pkgFolios,
               directDocs: directDocs,
             },
           });

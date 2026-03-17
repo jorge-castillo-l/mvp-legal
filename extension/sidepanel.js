@@ -264,6 +264,8 @@ async function requestCausaDetection() {
       await displayDetectedCausa(response.causa);
     } else if (response && !response.error) {
       await displayDetectedCausa(null);
+    } else {
+      restoreLastDetectedCausaUI();
     }
   } catch (e) {
     isDetecting = false;
@@ -380,7 +382,10 @@ async function displayDetectedCausa(causa) {
     if (!causa.tribunal && lastDetectedCausa.tribunal) causa = { ...causa, tribunal: lastDetectedCausa.tribunal };
     lastDetectedCausa = causa;
     // Causa unchanged + sync state already fetched → skip re-render to avoid flickering
-    if (lastSyncState) return;
+    if (lastSyncState) {
+      restoreLastDetectedCausaUI();
+      return;
+    }
   }
 
   const causaChanged = !isSame;
@@ -500,7 +505,7 @@ async function handleSync() {
     const causaPackage = await getCausaPackage();
     if (!causaPackage) throw new Error('No se pudo obtener el paquete de la causa. Asegúrese de estar viendo el modal de una causa en PJUD.');
 
-    const nCuadernos = causaPackage.cuadernos?.length || 0;
+    const nCuadernos = (causaPackage.otros_cuadernos?.length || 0) + 1;
     updateCausaPackagePreview(nCuadernos);
 
     const session = await supabase.getSession();

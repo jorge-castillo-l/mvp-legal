@@ -140,23 +140,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (pkg?.rol) {
       causaPackageStore.set(tabId, { package: pkg, timestamp: Date.now() });
 
+      const nCuadernos = (pkg.otros_cuadernos?.length || 0) + 1;
+      const nFolios = pkg.cuaderno_visible?.folios?.length || 0;
+
       console.log(
         '[ServiceWorker] CausaPackage recibido:',
         pkg.rol, '|', pkg.tribunal,
-        `| ${pkg.cuadernos?.length || 0} cuadernos, ${pkg.folios?.length || 0} folios`
+        `| ${nCuadernos} cuadernos, ${nFolios} folios`
       );
 
-      // Notify sidepanel about the extracted package
       chrome.runtime.sendMessage({
         type: 'scraper_event',
         event: 'causa_package_ready',
         data: {
           rol: pkg.rol,
           tribunal: pkg.tribunal,
-          procedimiento: pkg.procedimiento,
+          procedimiento: pkg.materia || null,
           libro_tipo: pkg.libro_tipo,
-          cuadernos: pkg.cuadernos?.length || 0,
-          folios: pkg.folios?.length || 0,
+          cuadernos: nCuadernos,
+          folios: nFolios,
           tabId: tabId,
         },
       }).catch(() => {});

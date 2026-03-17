@@ -319,13 +319,13 @@ async function handleMessage(request) {
       return {
         status: 'analysis_complete',
         causa: causa,
-        cuadernos: pkg?.cuadernos?.length || 0,
-        folios: pkg?.folios?.length || 0,
+        cuadernos: pkg ? (pkg.otros_cuadernos?.length || 0) + 1 : 0,
+        folios: pkg?.cuaderno_visible?.folios?.length || 0,
         hasTextoDemanda: !!pkg?.jwt_texto_demanda,
         hasCertificado: !!pkg?.jwt_certificado_envio,
         hasEbook: !!pkg?.jwt_ebook,
         hasAnexos: !!pkg?.jwt_anexos,
-        procedimiento: pkg?.procedimiento || null,
+        procedimiento: pkg?.materia || pkg?.cuaderno_visible?.procedimiento || null,
         libro_tipo: pkg?.libro_tipo || null,
       };
     }
