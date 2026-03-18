@@ -515,6 +515,8 @@ async function handleSync() {
 
     let syncResult = null;
     let totalAccumulated = 0;
+    let allDocumentsNew = [];
+    let allChanges = [];
     let resumeCaseId = null;
     let lastKnownCaseId = null;
     let iteration = 0;
@@ -542,6 +544,8 @@ async function handleSync() {
         nullStreakCount = 0;
         syncResult = iterResult;
         totalAccumulated += iterResult.total_downloaded || 0;
+        if (iterResult.documents_new?.length) allDocumentsNew.push(...iterResult.documents_new);
+        if (iterResult.changes?.length) allChanges.push(...iterResult.changes);
         lastKnownCaseId = iterResult.case_id || lastKnownCaseId;
         resumeCaseId = iterResult.has_pending ? iterResult.case_id : null;
 
@@ -568,23 +572,13 @@ async function handleSync() {
 
     if (syncResult) {
       syncResult.total_downloaded = totalAccumulated;
+      syncResult.documents_new = allDocumentsNew;
+      syncResult.changes = allChanges;
       showSyncResultsV2(syncResult);
       syncSuccess = true;
     } else {
       updateProgress(100, 'La conexión se perdió. Al re-sincronizar, continuará donde quedó.', 'warning');
       renderCompactResult(null, 'Conexión perdida — los documentos descargados se guardaron. Vuelva a sincronizar para continuar.', 'warning');
-    }
-
-    try {
-      if (syncResult) await storeSyncBadge(syncResult);
-      if (lastDetectedCausa?.rol && currentUser?.id) {
-        const syncState = await fetchSyncState(currentUser.id, lastDetectedCausa.rol, lastDetectedCausa.tribunal || '');
-        applySyncStateUI(lastDetectedCausa, syncState);
-        await saveSyncedCausaRegistry(lastDetectedCausa);
-      }
-      if (casesLoaded) { casesLoaded = false; loadCases(); }
-    } catch (postErr) {
-      console.warn('[Sync] Post-sync bookkeeping error (sync succeeded):', postErr.message);
     }
 
   } catch (error) {
@@ -597,8 +591,27 @@ async function handleSync() {
   syncingCausaInfo = null;
   if (logoutBtn) logoutBtn.disabled = false;
 
+  if (syncSuccess) {
+    lastSyncState = {
+      lastSyncedAt: new Date().toISOString(),
+      rol: lastDetectedCausa?.rol || '',
+      tribunal: lastDetectedCausa?.tribunal || '',
+    };
+  }
+
   finishSyncUI(syncSuccess);
-  requestCausaDetection();
+
+  try {
+    if (syncResult) await storeSyncBadge(syncResult);
+    if (lastDetectedCausa?.rol && currentUser?.id) {
+      const syncState = await fetchSyncState(currentUser.id, lastDetectedCausa.rol, lastDetectedCausa.tribunal || '');
+      applySyncStateUI(lastDetectedCausa, syncState);
+      await saveSyncedCausaRegistry(lastDetectedCausa);
+    }
+    if (casesLoaded) { casesLoaded = false; loadCases(); }
+  } catch (postErr) {
+    console.warn('[Sync] Post-sync bookkeeping error (sync succeeded):', postErr.message);
+  }
 }
 
 /**

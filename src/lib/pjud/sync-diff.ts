@@ -119,7 +119,12 @@ function fieldLabel(name: string): string {
 function str(v: unknown): string {
   if (v === null || v === undefined) return ''
   if (typeof v === 'boolean') return v ? 'sí' : 'no'
-  return String(v).trim()
+  return String(v).trim().replace(/\s+/g, ' ')
+}
+
+function isTruncationVariant(a: string, b: string): boolean {
+  if (!a || !b) return false
+  return a.startsWith(b) || b.startsWith(a)
 }
 
 // ════════════════════════════════════════════════════════
@@ -403,7 +408,7 @@ export function generateDiff(prev: SyncSnapshot, curr: SyncSnapshot): SyncChange
   for (const f of metaFields) {
     const ov = str(prev.metadata[f])
     const nv = str(curr.metadata[f])
-    if (ov !== nv) {
+    if (ov !== nv && !isTruncationVariant(ov, nv)) {
       changes.push({
         category: 'metadata', type: 'changed', cuaderno: null,
         entity_key: 'causa', field: f,
