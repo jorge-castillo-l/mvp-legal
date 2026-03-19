@@ -175,22 +175,35 @@ const SECTION_MARKERS: SectionMarker[] = [
   {
     type: 'vistos',
     label: 'Vistos',
-    pattern: /\bVistos?:\s/gi,
+    // Art.170 N°1-3: "Vistos:" o "VISTOS." o "VISTO:" (variantes reales)
+    pattern: /\bVistos?[.:]\s/gi,
     confidence: 0.95,
   },
   {
     type: 'considerando',
     label: 'Considerando',
-    pattern: /\bCONSIDERANDO:?\s/g,
+    // Art.170 N°4: "CONSIDERANDO:" o "CON LO RELACIONADO Y CONSIDERANDO:"
+    pattern: /\b(?:CON\s+LO\s+RELACIONADO\s+Y\s+)?CONSIDERANDO:?\s/g,
     confidence: 0.95,
   },
-  // Considerandos ordinales: PRIMERO: Que, SEGUNDO: Que,...
+  // Considerandos ordinales ALL-CAPS: PRIMERO: Que, SEGUNDO: Que,...
   {
     type: 'considerando_n',
     label: 'Considerando',
     pattern: /\b(PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|S[ÉE]PTIMO|OCTAVO|NOVENO|D[ÉE]CIMO(?:\s+(?:TERCERO|CUARTO|QUINTO|SEXTO|S[ÉE]PTIMO|OCTAVO|NOVENO))?|UND[ÉE]CIMO|DUOD[ÉE]CIMO|VIG[ÉE]SIMO)\s*:\s/g,
     confidence: 0.90,
     ordinalExtractor: extractOrdinalFromWord,
+  },
+  // Considerandos ordinales mixed-case: Primero: Que, Segundo:, Décimo Noveno:
+  {
+    type: 'considerando_n',
+    label: 'Considerando',
+    pattern: /\b(Primero|Segundo|Tercero|Cuarto|Quinto|Sexto|S[ée]ptimo|Octavo|Noveno|D[ée]cimo(?:\s+(?:Primero|Segundo|Tercero|Cuarto|Quinto|Sexto|S[ée]ptimo|Octavo|Noveno))?|Und[ée]cimo|Duod[ée]cimo|Vig[ée]simo)\s*:\s/g,
+    confidence: 0.88,
+    ordinalExtractor: (match) => {
+      const word = match[1]?.toUpperCase().trim()
+      return word ? ORDINAL_MAP[word] : undefined
+    },
   },
   // Considerandos numéricos: 1°.-, 2°.-, 1.-, 2.-
   {
@@ -203,13 +216,15 @@ const SECTION_MARKERS: SectionMarker[] = [
   {
     type: 'resolutivo',
     label: 'Resolutivo',
-    pattern: /\b(?:se\s+resuelve|resuelve|FALLO|Y\s+VISTO|Y\s+TENIENDO\s+PRESENTE)\s*:\s/gi,
+    // Art.170 N°6: "se resuelve:", "se declara:", "FALLO:", etc.
+    pattern: /\b(?:se\s+resuelve|se\s+declara|resuelve|FALLO|Y\s+VISTO|Y\s+TENIENDO\s+PRESENTE)\s*:\s/gi,
     confidence: 0.95,
   },
   {
     type: 'cierre_sentencia',
     label: 'Cierre sentencia',
-    pattern: /\bReg[ií]strese,?\s+notif[ií]quese/gi,
+    // "Regístrese, notifíquese..." o "Regístrese y archívese"
+    pattern: /\bReg[ií]strese[,\s]+(?:notif[ií]quese|y\s+arch[ií]vese)/gi,
     confidence: 0.85,
   },
 
@@ -389,11 +404,11 @@ function classifyDocumentStructure(sections: DetectedSection[]): DocumentStructu
     types.has('resolutivo')
   if (hasSentenciaMarkers) return 'sentencia'
 
-  // Audiencia: Art.683 CPC (prioridad sobre escrito porque puede tener Vistos internos)
+  // Audiencia: Art.683 CPC — requiere audiencia_inicio como marcador obligatorio.
+  // conciliación y prueba solos no bastan (aparecen en narrativa de sentencias).
   const hasAudienciaMarkers =
-    types.has('audiencia_inicio') || types.has('audiencia_cierre') ||
-    types.has('audiencia_conciliacion') || types.has('audiencia_prueba')
-  if (hasAudienciaMarkers) return 'audiencia'
+    types.has('audiencia_inicio') || types.has('audiencia_cierre')
+  if (hasAudienciaMarkers && !hasSentenciaMarkers) return 'audiencia'
 
   // Escrito procesal: Art.254 CPC (EN LO PRINCIPAL, OTROSÍ, POR TANTO)
   const hasEscritoMarkers =

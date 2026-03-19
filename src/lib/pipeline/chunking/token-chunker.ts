@@ -100,6 +100,7 @@ const LEGAL_BOUNDARY_PATTERNS: RegExp[] = [
   /\bVistos?:\s/i,
   /\bCONSIDERANDO:\s/i,
   /\bSE\s+RESUELVE:\s/i,
+  /\bse\s+declara:\s/i,
 
   // Considerandos numerados (ordinal + ":")
   /\bPRIMERO:\s/,

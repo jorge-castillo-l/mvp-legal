@@ -110,7 +110,7 @@ export interface NormalizerDryRunResult {
  * Sufijo opcional: "o en la tramitación de la causa."
  */
 const RE_FIRMA_PJUD =
-  /(?:(?:SEC\s+)?C[óo]digo|Cvc)\s*:?\s*[A-Z0-9]{5,20}\s+Este documento tiene firma electr[óo]nica y su original puede ser validado en https?:\/\/verificadoc\.pjud\.cl(?:\s+o en la tramitaci[óo]n de la causa\.?)?/gi
+  /(?:(?:SEC\s+)?C[óo]digo|Cvc)\s*:?\s*[A-Z0-9]{5,20}\s+Este documento tiene firma electr[óo]nica y su original puede ser validado en\s+h\s*t\s*t\s*p\s*s?\s*:\s*\/\s*\/\s*v\s*e\s*r\s*i\s*f\s*i\s*c\s*a\s*d\s*o\s*c\s*\.\s*p\s*j\s*u\s*d\s*\.\s*c\s*l(?:\s+o\s+en\s+la\s+tramitaci[óo]n\s+de\s+la\s+causa\.?)?/gi
 
 /**
  * Marcador de página: `-- N of M --`

@@ -28,6 +28,7 @@ import { normalizePjudText, type NormalizerResult, type ExtractionMethod } from 
 import { detectSections } from '@/lib/pipeline/chunking/section-detector'
 import { chunkText } from '@/lib/pipeline/chunking/token-chunker'
 import { enrichChunkMetadata, type DocumentParentMetadata, type CaseMetadata } from '@/lib/pipeline/chunking/metadata-enricher'
+import { generateEmbeddingsForDocument } from '@/lib/embeddings'
 import type { ExtractedTextInsert, DocumentChunkInsert } from '@/types/database'
 
 const BUCKET_NAME = 'case-files'
@@ -330,6 +331,30 @@ export async function processDocument(documentId: string): Promise<ProcessingRes
 
           if (chunkError) {
             console.error(`[orchestrator] Error insertando chunks para doc ${documentId}: ${chunkError.message}`)
+          } else {
+            // ── 8. Generar embeddings (7.08) — best-effort ────────
+            // Si falla, los chunks quedan en DB y se pueden embedar después.
+            try {
+              const embeddingResult = await generateEmbeddingsForDocument({
+                documentId,
+                caseId: entry.case_id,
+                userId: entry.user_id,
+                chunks: chunked.chunks,
+                parentMetadata,
+                caseMetadata,
+              })
+
+              if (embeddingResult.errors.length > 0) {
+                console.warn(
+                  `[orchestrator] Embeddings parcial para doc ${documentId}: ${embeddingResult.embeddingsGenerated}/${embeddingResult.totalChunks} generados, ${embeddingResult.errors.length} errores`
+                )
+              }
+            } catch (embeddingError) {
+              console.error(
+                `[orchestrator] Error generando embeddings para doc ${documentId}:`,
+                embeddingError instanceof Error ? embeddingError.message : embeddingError
+              )
+            }
           }
         }
       } catch (chunkingError) {
