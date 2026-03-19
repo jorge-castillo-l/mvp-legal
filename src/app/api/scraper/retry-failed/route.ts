@@ -29,6 +29,7 @@ import type { DocumentInsert, ExtractedTextInsert } from '@/types/database'
 const BUCKET_NAME = 'case-files'
 const MAX_FILE_SIZE = 50 * 1024 * 1024
 const RETRY_TIMEOUT_MS = 4 * 60 * 1000
+const MAX_TASK_RETRIES = 3
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>
 
@@ -124,27 +125,47 @@ export async function POST(request: NextRequest) {
   const errors: string[] = []
   const stillFailed: PdfDownloadTask[] = []
   let duplicateCount = 0
+  let skippedCount = 0
 
   for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i]
+
+    if (task.skip_reason) {
+      skippedCount++
+      continue
+    }
+
+    if ((task.retry_count ?? 0) >= MAX_TASK_RETRIES) {
+      task.skip_reason = 'max_retries'
+      skippedCount++
+      console.warn(`[retry] ${task.filename}: max retries (${MAX_TASK_RETRIES}) reached, skipping permanently`)
+      continue
+    }
+
     if (Date.now() - startTime > RETRY_TIMEOUT_MS) {
-      stillFailed.push(...tasks.slice(i))
+      stillFailed.push(...tasks.slice(i).filter(t => !t.skip_reason))
       console.log(`[retry] Timeout — ${tasks.length - i} tasks remaining`)
       break
     }
 
-    const task = tasks[i]
     try {
       const result = await processRetryDocument(
         pjud, db, user.id, caseRow.id, task,
         { rol: caseRow.rol, tribunal: caseRow.tribunal, caratula: caseRow.caratula },
       )
       if (result === 'duplicate') duplicateCount++
+      else if (result === 'unsupported_format') {
+        task.skip_reason = 'unsupported_format'
+        skippedCount++
+      }
       else if (result === 'failed') {
+        task.retry_count = (task.retry_count ?? 0) + 1
         stillFailed.push(task)
       } else {
         results.push(result)
       }
     } catch (err) {
+      task.retry_count = (task.retry_count ?? 0) + 1
       stillFailed.push(task)
       const msg = err instanceof Error ? err.message : String(err)
       errors.push(`${task.filename}: ${msg}`)
@@ -152,12 +173,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const retryableTasks = stillFailed.filter(t => (t.retry_count ?? 0) < MAX_TASK_RETRIES)
+
   const caseUpdate: Record<string, unknown> = {
     last_synced_at: new Date().toISOString(),
   }
 
-  if (stillFailed.length > 0) {
-    caseUpdate.pending_sync_tasks = stillFailed
+  if (retryableTasks.length > 0) {
+    caseUpdate.pending_sync_tasks = retryableTasks
   } else {
     caseUpdate.pending_sync_tasks = null
   }
@@ -187,16 +210,16 @@ export async function POST(request: NextRequest) {
     success: true,
     case_id: caseRow.id,
     documents_recovered: results.length,
-    documents_still_failed: stillFailed.length,
+    documents_still_failed: retryableTasks.length,
     documents_duplicate: duplicateCount,
     total_pending_before: totalBefore,
     errors,
     duration_ms: Date.now() - startTime,
-    has_remaining: stillFailed.length > 0,
+    has_remaining: retryableTasks.length > 0,
   }
 
   console.log(
-    `[retry] ${caseRow.rol} — ${results.length} recovered, ${duplicateCount} dup, ${stillFailed.length} still failed (of ${totalBefore})`
+    `[retry] ${caseRow.rol} — ${results.length} recovered, ${duplicateCount} dup, ${retryableTasks.length} still failed, ${skippedCount} skipped (of ${totalBefore})`
   )
 
   return NextResponse.json(retryResult, { headers: corsHeaders })
@@ -213,7 +236,7 @@ async function processRetryDocument(
   caseId: string,
   task: PdfDownloadTask,
   causaMeta: { rol: string; tribunal?: string | null; caratula?: string | null },
-): Promise<SyncedDocument | 'duplicate' | 'failed'> {
+): Promise<SyncedDocument | 'duplicate' | 'failed' | 'unsupported_format'> {
   const sanitizedName = task.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
 
   const { data: existingDoc } = await db
@@ -222,8 +245,15 @@ async function processRetryDocument(
     .maybeSingle()
   if (existingDoc) return 'duplicate'
 
-  const pdf = await pjud.downloadPdf(task.endpoint, task.param, task.jwt)
-  if (!pdf) return 'failed'
+  const downloadResult = await pjud.downloadPdf(task.endpoint, task.param, task.jwt)
+  if (!downloadResult.ok) {
+    if (downloadResult.reason === 'unsupported_format') {
+      console.warn(`[retry] ${task.filename}: formato ${downloadResult.detectedFormat} no soportado (${downloadResult.size} bytes)`)
+      return 'unsupported_format'
+    }
+    return 'failed'
+  }
+  const pdf = downloadResult
   if (pdf.buffer.length > MAX_FILE_SIZE) return 'failed'
 
   const fileHash = createHash('sha256').update(pdf.buffer).digest('hex')

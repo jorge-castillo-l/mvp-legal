@@ -96,6 +96,22 @@ class SupabaseClient {
     }
   }
 
+  async ensureFreshSession() {
+    const session = await this.getSession();
+    if (!session) {
+      const refreshed = await this.syncSessionFromDashboard();
+      return refreshed || null;
+    }
+
+    const bufferSeconds = 5 * 60;
+    if (session.expires_at && session.expires_at - Date.now() / 1000 < bufferSeconds) {
+      const refreshed = await this.syncSessionFromDashboard();
+      if (refreshed) return refreshed;
+    }
+
+    return session;
+  }
+
   async signOut() {
     await this.storage.removeItem('supabase.auth.token');
   }

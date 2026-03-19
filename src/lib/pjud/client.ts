@@ -25,6 +25,13 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
 const PDF_MAGIC_BYTES = Buffer.from([0x25, 0x50, 0x44, 0x46]) // %PDF
+const DOC_MAGIC_BYTES = Buffer.from([0xD0, 0xCF, 0x11, 0xE0]) // OLE2 (.doc)
+const ZIP_MAGIC_BYTES = Buffer.from([0x50, 0x4B, 0x03, 0x04]) // PK (.docx, .xlsx, .zip)
+
+export type DownloadResult =
+  | { ok: true; buffer: Buffer; contentType: string }
+  | { ok: false; reason: 'unsupported_format'; detectedFormat: string; size: number }
+  | { ok: false; reason: 'download_failed' }
 
 const THROTTLE_MIN_MS = 500
 const THROTTLE_MAX_MS = 1000
@@ -92,7 +99,7 @@ export class PjudClient {
     endpoint: string,
     param: string,
     jwt: string
-  ): Promise<{ buffer: Buffer; contentType: string } | null> {
+  ): Promise<DownloadResult> {
     const url = this.resolveUrl(endpoint, param, jwt)
     const headers: Record<string, string> = { ...this.baseHeaders() }
     const cookie = this.cookieHeader(this.cookies)
@@ -125,17 +132,24 @@ export class PjudClient {
           console.error(
             `[PjudClient] PDF download failed: ${response.status} ${response.statusText} — ${url.substring(0, 100)}`
           )
-          return null
+          return { ok: false, reason: 'download_failed' }
         }
 
         const arrayBuffer = await response.arrayBuffer()
         const buffer = Buffer.from(arrayBuffer)
 
         if (!this.isValidPdf(buffer)) {
+          const detected = this.detectFormat(buffer)
+          if (detected) {
+            console.warn(
+              `[PjudClient] Downloaded file is ${detected}, not PDF. Size: ${buffer.length} — skipping (not retryable)`
+            )
+            return { ok: false, reason: 'unsupported_format', detectedFormat: detected, size: buffer.length }
+          }
           console.warn(
             `[PjudClient] Downloaded file is not a valid PDF (magic bytes mismatch). Size: ${buffer.length}`
           )
-          return null
+          return { ok: false, reason: 'download_failed' }
         }
 
         if (attempt > 1) {
@@ -143,6 +157,7 @@ export class PjudClient {
         }
 
         return {
+          ok: true,
           buffer,
           contentType: response.headers.get('content-type') || 'application/pdf',
         }
@@ -170,13 +185,13 @@ export class PjudClient {
             `[PjudClient] PDF download failed after ${attempt} attempt(s):`, error
           )
         }
-        return null
+        return { ok: false, reason: 'download_failed' }
       } finally {
         clearTimeout(timeout)
       }
     }
 
-    return null
+    return { ok: false, reason: 'download_failed' }
   }
 
   private isTransientError(error: unknown): boolean {
@@ -701,6 +716,18 @@ export class PjudClient {
   private isValidPdf(buffer: Buffer): boolean {
     if (buffer.length < 4) return false
     return buffer.subarray(0, 4).equals(PDF_MAGIC_BYTES)
+  }
+
+  /**
+   * Detect known non-PDF formats from magic bytes.
+   * Returns format label (e.g. '.doc', '.docx/.zip') or null if unknown.
+   */
+  private detectFormat(buffer: Buffer): string | null {
+    if (buffer.length < 4) return null
+    const head = buffer.subarray(0, 4)
+    if (head.equals(DOC_MAGIC_BYTES)) return '.doc'
+    if (head.equals(ZIP_MAGIC_BYTES)) return '.docx/.zip'
+    return null
   }
 
   getStats() {

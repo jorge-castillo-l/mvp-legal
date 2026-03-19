@@ -129,7 +129,7 @@ function switchTab(tabId) {
     panel.classList.toggle('active', panel.id === `tab-${tabId}`);
   });
 
-  if (tabId === 'cases' && !casesLoaded && currentUser) {
+  if (tabId === 'cases' && currentUser) {
     loadCases();
   }
 }
@@ -499,6 +499,7 @@ async function handleSync() {
   updateProgress(0, 'Conectando...');
 
   let syncSuccess = false;
+  let syncResult = null;
 
   try {
     updateProgress(5, 'Extrayendo paquete de la causa...');
@@ -508,12 +509,10 @@ async function handleSync() {
     const nCuadernos = (causaPackage.otros_cuadernos?.length || 0) + 1;
     updateCausaPackagePreview(nCuadernos);
 
-    const session = await supabase.getSession();
-    if (!session?.access_token) throw new Error('Sesión no disponible. Por favor recargue la extensión.');
+    const initialSession = await supabase.ensureFreshSession();
+    if (!initialSession?.access_token) throw new Error('Sesión no disponible. Por favor recargue la extensión.');
 
     updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s)...`);
-
-    let syncResult = null;
     let totalAccumulated = 0;
     let allDocumentsNew = [];
     let allChanges = [];
@@ -538,7 +537,10 @@ async function handleSync() {
         );
       }
 
-      const iterResult = await callSyncWithSSE(payload, session.access_token);
+      const freshSession = await supabase.ensureFreshSession();
+      if (!freshSession?.access_token) throw new Error('Sesión expirada durante la sincronización. Por favor inicie sesión nuevamente.');
+
+      const iterResult = await callSyncWithSSE(payload, freshSession.access_token);
 
       if (iterResult) {
         nullStreakCount = 0;
@@ -608,10 +610,11 @@ async function handleSync() {
       applySyncStateUI(lastDetectedCausa, syncState);
       await saveSyncedCausaRegistry(lastDetectedCausa);
     }
-    if (casesLoaded) { casesLoaded = false; loadCases(); }
   } catch (postErr) {
     console.warn('[Sync] Post-sync bookkeeping error (sync succeeded):', postErr.message);
   }
+
+  if (casesLoaded) { casesLoaded = false; loadCases(); }
 }
 
 /**

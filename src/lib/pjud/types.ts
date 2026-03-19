@@ -401,6 +401,8 @@ export interface PdfDownloadTask {
   fecha: string | null
   source_url: string
   referencia?: string
+  retry_count?: number
+  skip_reason?: 'unsupported_format' | 'max_retries'
 }
 
 // ════════════════════════════════════════════════════════

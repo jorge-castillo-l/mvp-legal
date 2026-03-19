@@ -9,7 +9,9 @@
  *   2) Intentar extracción nativa (pdf-parse) — gratis
  *   3) Si falla/necesita OCR → Document AI — de pago
  *   4) Guardar resultado en extracted_texts
- *   5) Actualizar estado en processing_queue
+ *   5) Normalizar texto (7.07a) → limpiar artefactos PJUD
+ *   6) Chunkear texto (7.07b) → INSERT document_chunks
+ *   7) Actualizar estado en processing_queue
  *
  * Reintentos: máximo 3 con backoff exponencial (10s, 60s, 5min).
  * PDFs grandes (>15 páginas): Document AI ya los divide en lotes
@@ -22,7 +24,11 @@
 
 import { createAdminClient } from '@/lib/supabase/server'
 import { extractPdfTextWithFallback } from '@/lib/pdf-processing'
-import type { ExtractedTextInsert } from '@/types/database'
+import { normalizePjudText, type NormalizerResult, type ExtractionMethod } from '@/lib/pipeline/chunking/normalizer'
+import { detectSections } from '@/lib/pipeline/chunking/section-detector'
+import { chunkText } from '@/lib/pipeline/chunking/token-chunker'
+import { enrichChunkMetadata, type DocumentParentMetadata, type CaseMetadata } from '@/lib/pipeline/chunking/metadata-enricher'
+import type { ExtractedTextInsert, DocumentChunkInsert } from '@/types/database'
 
 const BUCKET_NAME = 'case-files'
 const RETRY_DELAYS_MS = [10_000, 60_000, 300_000] as const // 10s, 1min, 5min
@@ -214,7 +220,129 @@ export async function processDocument(documentId: string): Promise<ProcessingRes
       throw new Error(`Error guardando en extracted_texts: ${upsertError.message}`)
     }
 
-    // ── 7. Actualizar cola según resultado ─────────────────────
+    // ── 7. Normalizar + Chunkear (7.07a + 7.07b) ───────────────
+    // Solo si la extracción fue exitosa y hay texto útil.
+    // El texto original queda intacto en extracted_texts.full_text.
+    if (extraction.status === 'completed' && extraction.fullText.length > 0) {
+      try {
+        const extractionMethod: ExtractionMethod = extraction.extractionMethod as ExtractionMethod
+
+        const normalized = normalizePjudText(extraction.fullText, {
+          extractionMethod,
+          mode: 'conservative',
+        }) as NormalizerResult
+
+        const sectionResult = detectSections(normalized.cleanText)
+
+        const chunked = chunkText(normalized.cleanText, {
+          normalizerMetadata: normalized.extractedMetadata,
+          documentType: entry.metadata?.document_type,
+          detectedSections: sectionResult.sections,
+        })
+
+        if (chunked.chunks.length > 0) {
+          // Idempotencia: eliminar chunks previos del documento
+          await admin
+            .from('document_chunks')
+            .delete()
+            .eq('document_id', documentId)
+
+          // ── 7.07d: Enriquecer metadata de cada chunk ──────────
+          const docMeta = entry.metadata?.doc_metadata
+          const parentMetadata: DocumentParentMetadata = {
+            document_type: entry.metadata?.document_type,
+            folio_numero: docMeta?.folio_numero,
+            cuaderno: docMeta?.cuaderno,
+            fecha_tramite: docMeta?.fecha_tramite,
+            desc_tramite: docMeta?.desc_tramite,
+            foja: docMeta?.foja,
+            etapa: docMeta?.etapa,
+            tramite: docMeta?.tramite,
+          }
+
+          // Obtener metadata de la causa (procedimiento, libro_tipo)
+          let caseMetadata: CaseMetadata = {}
+          const { data: caseRow } = await admin
+            .from('cases')
+            .select('procedimiento, libro_tipo, tribunal, rol')
+            .eq('id', entry.case_id)
+            .single()
+
+          if (caseRow) {
+            caseMetadata = {
+              procedimiento: caseRow.procedimiento,
+              libro_tipo: caseRow.libro_tipo,
+              tribunal: caseRow.tribunal,
+              rol: caseRow.rol,
+            }
+          }
+
+          const enrichmentContext = { parentMetadata, caseMetadata }
+
+          const chunkRows: DocumentChunkInsert[] = chunked.chunks.map((chunk) => {
+            const enriched = enrichChunkMetadata(chunk, enrichmentContext)
+            return {
+              document_id: documentId,
+              case_id: entry.case_id,
+              user_id: entry.user_id,
+              extracted_text_id: undefined as unknown as string,
+              chunk_index: chunk.chunkIndex,
+              chunk_text: chunk.chunkText,
+              page_number: chunk.pageNumber,
+              section_type: chunk.sectionType,
+              metadata: {
+                ...enriched,
+                pipeline_stats: {
+                  normalizer: {
+                    artifacts_removed: normalized.stats.artifactsRemoved,
+                    encoding_fixes: normalized.stats.encodingFixes,
+                    reduction_percent: normalized.stats.reductionPercent,
+                  },
+                  section_detector: {
+                    document_structure: sectionResult.documentStructure,
+                    sections_detected: sectionResult.stats.sectionsDetected,
+                  },
+                  chunker: {
+                    total_chunks: chunked.stats.totalChunks,
+                    avg_tokens: chunked.stats.avgChunkTokens,
+                  },
+                },
+              },
+            }
+          })
+
+          // Obtener extracted_text_id para los chunks
+          const { data: etRow } = await admin
+            .from('extracted_texts')
+            .select('id')
+            .eq('document_id', documentId)
+            .single()
+
+          if (etRow?.id) {
+            for (const row of chunkRows) {
+              row.extracted_text_id = etRow.id
+            }
+          }
+
+          const { error: chunkError } = await admin
+            .from('document_chunks')
+            .insert(chunkRows)
+
+          if (chunkError) {
+            console.error(`[orchestrator] Error insertando chunks para doc ${documentId}: ${chunkError.message}`)
+          }
+        }
+      } catch (chunkingError) {
+        // El chunking es best-effort: si falla, el documento queda en
+        // extracted_texts sin chunks. Se puede reprocesar después.
+        console.error(
+          `[orchestrator] Error en normalización/chunking para doc ${documentId}:`,
+          chunkingError instanceof Error ? chunkingError.message : chunkingError
+        )
+      }
+    }
+
+    // ── 8. Actualizar cola según resultado ─────────────────────
     // 'completed' y 'needs_ocr' son estados terminales válidos.
     // Solo 'failed' dispara reintentos (error real de extracción).
     const extractionFailed = extraction.status === 'failed'

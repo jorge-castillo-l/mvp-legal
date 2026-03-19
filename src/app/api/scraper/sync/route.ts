@@ -83,6 +83,7 @@ function createSseEmitter(controller: ReadableStreamDefaultController<Uint8Array
 const BUCKET_NAME = 'case-files'
 const SYNC_TIMEOUT_MS = 5 * 60 * 1000
 const MAX_FILE_SIZE = 50 * 1024 * 1024
+const MAX_TASK_RETRIES = 3
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>
 
@@ -346,12 +347,28 @@ export async function POST(request: NextRequest) {
         const results: SyncedDocument[] = []
         const errors: string[] = []
         const failedTasks: PdfDownloadTask[] = []
+        const skippedTasks: PdfDownloadTask[] = []
         let existingCount = 0
         let failedCount = 0
+        let skippedCount = 0
         let timedOut = false
 
         for (let i = 0; i < downloadTasks.length; i++) {
           const task = downloadTasks[i]
+
+          if (task.skip_reason) {
+            skippedCount++
+            skippedTasks.push(task)
+            continue
+          }
+
+          if ((task.retry_count ?? 0) >= MAX_TASK_RETRIES) {
+            task.skip_reason = 'max_retries'
+            skippedCount++
+            skippedTasks.push(task)
+            console.warn(`[sync] ${task.filename}: max retries (${MAX_TASK_RETRIES}) reached, skipping permanently`)
+            continue
+          }
 
           if (Date.now() - startTime > SYNC_TIMEOUT_MS) {
             const pendingTasks = [...downloadTasks.slice(i)]
@@ -370,13 +387,20 @@ export async function POST(request: NextRequest) {
               { rol: pkg.rol, tribunal: pkg.tribunal, caratula: pkg.caratula },
             )
             if (result === 'duplicate') existingCount++
+            else if (result === 'unsupported_format') {
+              task.skip_reason = 'unsupported_format'
+              skippedCount++
+              skippedTasks.push(task)
+            }
             else if (result === 'failed') {
               failedCount++
+              task.retry_count = (task.retry_count ?? 0) + 1
               failedTasks.push(task)
             }
             else results.push(result)
           } catch (err) {
             failedCount++
+            task.retry_count = (task.retry_count ?? 0) + 1
             failedTasks.push(task)
             const msg = err instanceof Error ? err.message : String(err)
             errors.push(`${task.filename}: ${msg}`)
@@ -404,10 +428,20 @@ export async function POST(request: NextRequest) {
         if (timedOut) {
           // timeout already saved remaining tasks above
         } else if (failedTasks.length > 0) {
-          caseUpdate.pending_sync_tasks = failedTasks
-          console.log(`[sync] ${failedTasks.length} failed tasks saved for retry`)
+          const retryableTasks = failedTasks.filter(t => (t.retry_count ?? 0) < MAX_TASK_RETRIES)
+          if (retryableTasks.length > 0) {
+            caseUpdate.pending_sync_tasks = retryableTasks
+            console.log(`[sync] ${retryableTasks.length} failed tasks saved for retry (${failedTasks.length - retryableTasks.length} exhausted max retries)`)
+          } else {
+            caseUpdate.pending_sync_tasks = null
+            console.log(`[sync] All ${failedTasks.length} failed tasks exhausted max retries, clearing pending`)
+          }
         } else {
           caseUpdate.pending_sync_tasks = null
+        }
+
+        if (skippedTasks.length > 0) {
+          console.log(`[sync] ${skippedTasks.length} task(s) skipped: ${skippedTasks.map(t => `${t.filename} (${t.skip_reason})`).join(', ')}`)
         }
 
         await db.from('cases').update(caseUpdate).eq('id', caseId)
@@ -425,7 +459,10 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        const failedSavedForRetry = !timedOut && failedTasks.length > 0
+        const retryablePending = !timedOut
+          ? failedTasks.filter(t => (t.retry_count ?? 0) < MAX_TASK_RETRIES)
+          : []
+        const failedSavedForRetry = retryablePending.length > 0
 
         // Generar diff entre snapshot anterior y actual
         const isFirstSync = !prevSnapshot
@@ -454,23 +491,37 @@ export async function POST(request: NextRequest) {
           is_first_sync: isFirstSync,
           has_pending: timedOut || failedSavedForRetry,
           pending_count: timedOut
-            ? downloadTasks.length - (results.length + existingCount + failedCount)
-            : failedTasks.length,
+            ? downloadTasks.length - (results.length + existingCount + failedCount + skippedCount)
+            : retryablePending.length,
           failed_saved_for_retry: failedSavedForRetry,
         }
 
         console.log(
           `[sync] ${pkg.rol} — ${timedOut ? 'Parcial' : 'Completado'} en ${syncResult.duration_ms}ms: ` +
-          `${results.length} nuevos, ${existingCount} existentes, ${failedCount} fallidos` +
+          `${results.length} nuevos, ${existingCount} existentes, ${failedCount} fallidos, ${skippedCount} omitidos` +
           (timedOut ? ` | ${syncResult.pending_count} pendientes` : '') +
-          (failedSavedForRetry ? ` | ${failedTasks.length} guardados para reintento` : '')
+          (failedSavedForRetry ? ` | ${retryablePending.length} guardados para reintento` : '')
         )
+
+        if (skippedCount > 0) {
+          const formatSkipped = skippedTasks.filter(t => t.skip_reason === 'unsupported_format')
+          const retrySkipped = skippedTasks.filter(t => t.skip_reason === 'max_retries')
+          emit('skipped', {
+            count: skippedCount,
+            unsupported_format: formatSkipped.length,
+            max_retries: retrySkipped.length,
+            message: `${skippedCount} documento(s) omitidos`
+              + (formatSkipped.length ? ` (${formatSkipped.length} formato no soportado)` : '')
+              + (retrySkipped.length ? ` (${retrySkipped.length} reintentos agotados)` : ''),
+            filenames: skippedTasks.map(t => t.filename),
+          })
+        }
 
         if (failedSavedForRetry) {
           emit('failed_saved', {
-            count: failedTasks.length,
-            message: `${failedTasks.length} documento(s) no pudieron descargarse y se reintentarán automáticamente.`,
-            filenames: failedTasks.map(t => t.filename),
+            count: retryablePending.length,
+            message: `${retryablePending.length} documento(s) no pudieron descargarse y se reintentarán automáticamente.`,
+            filenames: retryablePending.map(t => t.filename),
           })
         }
 
@@ -1021,7 +1072,7 @@ async function processOneDocument(
   caseId: string,
   task: PdfDownloadTask,
   causaMeta: { rol: string; tribunal?: string | null; caratula?: string | null },
-): Promise<SyncedDocument | 'duplicate' | 'failed'> {
+): Promise<SyncedDocument | 'duplicate' | 'failed' | 'unsupported_format'> {
   const sanitizedName = task.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
 
   // Pre-check
@@ -1032,8 +1083,15 @@ async function processOneDocument(
   if (existingDoc) return 'duplicate'
 
   // Download
-  const pdf = await pjud.downloadPdf(task.endpoint, task.param, task.jwt)
-  if (!pdf) return 'failed'
+  const downloadResult = await pjud.downloadPdf(task.endpoint, task.param, task.jwt)
+  if (!downloadResult.ok) {
+    if (downloadResult.reason === 'unsupported_format') {
+      console.warn(`[sync] ${task.filename}: formato ${downloadResult.detectedFormat} no soportado (${downloadResult.size} bytes)`)
+      return 'unsupported_format'
+    }
+    return 'failed'
+  }
+  const pdf = downloadResult
   if (pdf.buffer.length > MAX_FILE_SIZE) return 'failed'
 
   // Hash dedup
