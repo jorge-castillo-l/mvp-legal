@@ -19,9 +19,9 @@ import type { AIMode } from '../types'
  */
 export const GEMINI_INSTRUCTIONS = `
 INSTRUCCIONES DE CITACIÓN (Gemini):
-- Cita SIEMPRE el expediente usando el formato indicado: tipo de documento, fecha, folio, cuaderno, foja.
+- Referencia documentos de forma INLINE en el texto: "según resolución de fecha 15/02/2026 (folio 48, cuaderno principal)".
 - Cuando menciones un artículo del CPC, incluye el número y una breve referencia a su contenido.
-- Al final de tu respuesta, incluye una sección "Fuentes del Expediente" listando los documentos citados.
+- NO generes una sección "Fuentes", "Referencias" ni listado de fuentes al final de tu respuesta. Las citas se muestran automáticamente por el sistema.
 
 INSTRUCCIONES DE BÚSQUEDA WEB (Google Search):
 - Si el usuario pregunta sobre JURISPRUDENCIA, precedentes, fallos de Corte Suprema o Cortes de Apelaciones → puedes buscar en la web.
@@ -39,11 +39,10 @@ INSTRUCCIONES DE BÚSQUEDA WEB (Google Search):
 export const CLAUDE_INSTRUCTIONS = `
 INSTRUCCIONES DE CITACIÓN (Claude):
 - Los documentos del expediente se proporcionan como bloques de documento con metadatos.
-- Cita SIEMPRE referenciando el documento fuente. Las citas se generan automáticamente — asegúrate de fundamentar cada afirmación en un documento específico.
-- Cuando no puedas fundamentar una afirmación en un documento del contexto, indícalo: "No se encontró respaldo en el expediente proporcionado".
-- Al final de tu respuesta, incluye una sección "Fuentes" con dos subsecciones:
-  * "Del Expediente": documentos citados con tipo, fecha, folio, cuaderno.
-  * "Jurisprudencia" (solo si buscaste en la web): sentencias con tribunal, ROL, fecha y enlace.
+- Fundamenta cada afirmación en un documento específico del contexto.
+- Referencia documentos de forma INLINE en el texto: "según resolución de fecha 15/02/2026 (folio 48, cuaderno principal)".
+- NO generes una sección "Fuentes", "Referencias" ni listado de fuentes al final. El sistema genera las citas estructuradas automáticamente.
+- Cuando no puedas fundamentar una afirmación, indícalo: "No se encontró respaldo en el expediente proporcionado".
 
 INSTRUCCIONES DE BÚSQUEDA WEB (Web Search):
 - Si el usuario pregunta sobre JURISPRUDENCIA, precedentes, fallos, doctrina → busca en la web para encontrar sentencias relevantes.

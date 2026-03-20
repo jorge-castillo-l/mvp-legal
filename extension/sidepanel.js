@@ -132,6 +132,28 @@ function switchTab(tabId) {
   if (tabId === 'cases' && currentUser) {
     loadCases();
   }
+
+  if (tabId === 'chat') {
+    loadChatIframe();
+  }
+}
+
+let chatIframeLoaded = false;
+async function loadChatIframe() {
+  const iframe = document.getElementById('chat-iframe');
+  if (!iframe) return;
+
+  const session = await supabase.getSession();
+  const token = session?.access_token ?? '';
+  const chatUrl = `${CONFIG.DASHBOARD_URL}/chat?token=${encodeURIComponent(token)}`;
+
+  if (chatIframeLoaded && iframe.src.includes('/chat')) {
+    iframe.contentWindow?.postMessage({ type: 'auth_token', token }, '*');
+    return;
+  }
+
+  iframe.src = chatUrl;
+  chatIframeLoaded = true;
 }
 
 // ══════════════════════════════════════════════════════════

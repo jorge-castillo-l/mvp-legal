@@ -246,11 +246,14 @@ function parseResponse(
     }
 
     if (block.type === 'text') {
-      text += block.text
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const blockCitations = (block as any).citations as ClaudeCitation[] | undefined
+      const hasExpedienteCite = blockCitations?.some(c => c.type !== 'web_search_result_location')
+
+      text += block.text
+
       if (blockCitations?.length) {
+        let insertedFootnote = false
         for (const c of blockCitations) {
           if (c.type === 'web_search_result_location') {
             webSources.push({
@@ -260,7 +263,13 @@ function parseResponse(
             })
           } else {
             const mapped = mapClaudeCitationToExpediente(c, context)
-            if (mapped) citations.push(mapped)
+            if (mapped) {
+              citations.push(mapped)
+              if (!insertedFootnote && hasExpedienteCite) {
+                text += ` [${citations.length}]`
+                insertedFootnote = true
+              }
+            }
           }
         }
       }
@@ -425,6 +434,7 @@ export class AnthropicProvider implements AIProviderInterface {
               const mapped = mapClaudeCitationToExpediente(c, options.context)
               if (mapped) {
                 expedienteCitations.push(mapped)
+                yield { type: 'text_delta', delta: ` [${expedienteCitations.length}]` }
                 yield { type: 'citation', citation: mapped }
               }
             }

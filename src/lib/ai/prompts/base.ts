@@ -77,11 +77,8 @@ ABANDONO DEL PROCEDIMIENTO (Arts. 152-157 CPC):
 - Requiere "gestión útil para dar curso progresivo a los autos", no cualquier actuación.`
 
 export const CITATION_FORMAT = `
-FORMATO DE CITAS AL EXPEDIENTE:
-Cuando cites información del expediente, usa este formato:
-"Según [tipo de documento] de fecha [DD/MM/YYYY], folio [N], cuaderno [nombre], foja [N]: [contenido citado]"
-
-Ejemplo: "Según resolución de fecha 15/02/2026, folio 48, cuaderno principal, foja 95: se tiene por contestada la demanda en rebeldía."
-
-Si no tienes algún dato (foja, cuaderno), omítelo pero cita lo que tengas disponible.
-Agrupa las citas por relevancia, no por orden de aparición.`
+FORMATO DE CITAS EN LA RESPUESTA:
+- Cuando menciones un hecho del expediente, referéncialo INLINE: "según resolución de fecha 15/02/2026 (folio 48, cuaderno principal)".
+- NO generes una sección "Fuentes" ni "Referencias" al final de tu respuesta. Las citas estructuradas se generan automáticamente por el sistema.
+- Integra las referencias de forma natural en el texto, como lo haría un abogado en un informe en derecho.
+- Si no tienes algún dato (foja, cuaderno), omítelo pero menciona lo que tengas disponible.`

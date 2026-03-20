@@ -29,6 +29,7 @@
         <nav class="tabs" id="main-tabs">
           <button class="tab active" data-tab="sync">Sincronizar</button>
           <button class="tab" data-tab="cases">Mis Causas</button>
+          <button class="tab" data-tab="chat">Chat IA</button>
         </nav>
 
         <!-- ══════════════════════════════════════ -->
@@ -110,6 +111,18 @@
             <p class="error-text" id="cases-error-msg"></p>
             <button class="btn-secondary" id="cases-retry-btn">Reintentar</button>
           </div>
+        </div>
+
+        <!-- ══════════════════════════════════════ -->
+        <!-- TAB: CHAT IA                           -->
+        <!-- ══════════════════════════════════════ -->
+        <div id="tab-chat" class="tab-content tab-chat-container">
+          <iframe
+            id="chat-iframe"
+            class="chat-iframe"
+            src="about:blank"
+            title="Chat IA"
+          ></iframe>
         </div>
 
       </div>

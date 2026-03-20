@@ -10,8 +10,9 @@
  * ============================================================
  */
 
-import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, type FormEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { createBrowserClient } from '@supabase/ssr'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -74,8 +75,42 @@ export default function ChatPage() {
   const [loadingCases, setLoadingCases] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const authTokenRef = useRef<string | null>(null)
+
+  const getAuthToken = useCallback((): string | null => {
+    if (authTokenRef.current) return authTokenRef.current
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const token = params.get('token')
+      if (token) {
+        authTokenRef.current = token
+        return token
+      }
+    }
+    return null
+  }, [])
+
+  const getSupabaseForQuery = useCallback(() => {
+    const token = getAuthToken()
+    if (token) {
+      return createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { global: { headers: { Authorization: `Bearer ${token}` } } },
+      )
+    }
+    return createClient()
+  }, [getAuthToken])
 
   useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'auth_token' && event.data.token) {
+        authTokenRef.current = event.data.token
+        loadCases()
+      }
+    }
+    window.addEventListener('message', handleMessage)
+
     loadCases()
     const params = new URLSearchParams(window.location.search)
     const caseIdParam = params.get('caseId')
@@ -85,6 +120,7 @@ export default function ChatPage() {
         if (found) setSelectedCase(found)
       })
     }
+    return () => window.removeEventListener('message', handleMessage)
   }, [])
 
   useEffect(() => {
@@ -98,7 +134,7 @@ export default function ChatPage() {
   }, [messages])
 
   async function loadCases(): Promise<CaseInfo[] | undefined> {
-    const supabase = createClient()
+    const supabase = getSupabaseForQuery()
     const { data } = await supabase
       .from('cases')
       .select('id, rol, tribunal, procedimiento, caratula')
@@ -115,7 +151,7 @@ export default function ChatPage() {
   }
 
   async function loadHistory(caseId: string, currentMode: AIMode) {
-    const supabase = createClient()
+    const supabase = getSupabaseForQuery()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: conv } = await (supabase as any)
       .from('conversations')
@@ -181,14 +217,18 @@ export default function ChatPage() {
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
+      let token = getAuthToken()
+      if (!token) {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        token = session?.access_token ?? null
+      }
 
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           caseId: selectedCase.id,
@@ -218,47 +258,39 @@ export default function ChatPage() {
           const json = line.slice(6)
           try {
             const event: AIStreamEvent = JSON.parse(json)
-            setMessages(prev => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (!last || last.role !== 'assistant') return prev
+            setMessages(prev => prev.map((msg, idx) => {
+              if (idx !== prev.length - 1 || msg.role !== 'assistant') return msg
 
               switch (event.type) {
                 case 'text_delta':
-                  last.content += event.delta ?? ''
-                  break
+                  return { ...msg, content: msg.content + (event.delta ?? '') }
                 case 'citation':
-                  if (event.citation) last.citations = [...(last.citations ?? []), event.citation]
-                  break
+                  return event.citation
+                    ? { ...msg, citations: [...(msg.citations ?? []), event.citation] }
+                    : msg
                 case 'web_source':
-                  if (event.webSource) last.webSources = [...(last.webSources ?? []), event.webSource]
-                  break
+                  return event.webSource
+                    ? { ...msg, webSources: [...(msg.webSources ?? []), event.webSource] }
+                    : msg
                 case 'thinking_delta':
-                  last.thinkingContent = (last.thinkingContent ?? '') + (event.delta ?? '')
-                  break
+                  return { ...msg, thinkingContent: (msg.thinkingContent ?? '') + (event.delta ?? '') }
                 case 'done':
-                  last.isStreaming = false
-                  break
+                  return { ...msg, isStreaming: false }
                 case 'error':
-                  last.content += `\n\n⚠️ Error: ${event.error}`
-                  last.isStreaming = false
-                  break
+                  return { ...msg, content: msg.content + `\n\n⚠️ Error: ${event.error}`, isStreaming: false }
+                default:
+                  return msg
               }
-              return updated
-            })
+            }))
           } catch { /* skip malformed */ }
         }
       }
     } catch (err) {
-      setMessages(prev => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last?.role === 'assistant') {
-          last.content = `⚠️ Error: ${err instanceof Error ? err.message : 'Error de conexión'}`
-          last.isStreaming = false
-        }
-        return updated
-      })
+      setMessages(prev => prev.map((msg, idx) =>
+        idx === prev.length - 1 && msg.role === 'assistant'
+          ? { ...msg, content: `⚠️ Error: ${err instanceof Error ? err.message : 'Error de conexión'}`, isStreaming: false }
+          : msg,
+      ))
     } finally {
       setIsLoading(false)
       inputRef.current?.focus()
@@ -366,7 +398,7 @@ export default function ChatPage() {
       </header>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 px-4 py-3" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" ref={scrollRef}>
         {messages.length === 0 ? (
           <EmptyState actions={quickActions} onAction={sendMessage} disabled={isLoading} />
         ) : (
@@ -375,7 +407,7 @@ export default function ChatPage() {
               <MessageBubble key={msg.id} message={msg} />
             ))}
             {messages.length > 0 && !isLoading && (
-              <div className="pt-2">
+              <div className="pt-2 pb-2">
                 <p className="text-[10px] text-muted-foreground mb-1.5">Acciones rápidas</p>
                 <div className="flex flex-wrap gap-1">
                   {quickActions.slice(0, 5).map(a => (
@@ -392,7 +424,7 @@ export default function ChatPage() {
             )}
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="border-t p-3 flex-shrink-0">
@@ -471,26 +503,34 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         )}
 
-        <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+        <div className="text-sm whitespace-pre-wrap break-words">
+          <RenderTextWithFootnotes
+            text={message.content}
+            citations={message.citations}
+          />
+        </div>
 
         {message.isStreaming && message.content && (
           <span className="inline-block w-1.5 h-3 bg-foreground/50 animate-pulse ml-0.5" />
         )}
 
-        {/* Dual Citation System — formato forense chileno */}
-        {hasSources && !message.isStreaming && (
-          <div className="mt-2.5 pt-2 border-t border-border/50 space-y-2">
-
-            {/* Fuentes del Expediente — formato "a fojas" */}
-            {hasCitations && (
-              <ExpedienteCitations citations={message.citations!} />
-            )}
-
-            {/* Jurisprudencia — agrupada por tribunal */}
-            {hasWebSources && (
-              <JurisprudenciaCitations sources={message.webSources!} />
-            )}
+        {/* Footnotes — notas al pie numeradas con link a PDF */}
+        {hasCitations && !message.isStreaming && message.citations!.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-border/50">
+            <Footnotes citations={message.citations!} />
           </div>
+        )}
+
+        {/* Jurisprudencia — acordeón colapsado */}
+        {hasWebSources && !message.isStreaming && (
+          <details className="mt-1.5">
+            <summary className="text-[10px] font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+              🌐 Ver {message.webSources!.length} fuente{message.webSources!.length !== 1 ? 's' : ''} de jurisprudencia
+            </summary>
+            <div className="mt-1">
+              <JurisprudenciaCitations sources={message.webSources!} />
+            </div>
+          </details>
         )}
 
         {/* Thinking content (collapsible) */}
@@ -660,4 +700,118 @@ function inferTribunal(ws: AIWebCitation): string {
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Footnote system — superíndices clickeables + notas al pie
+// ─────────────────────────────────────────────────────────────
+
+function RenderTextWithFootnotes({
+  text,
+  citations,
+}: {
+  text: string
+  citations?: AIExpedienteCitation[]
+}) {
+  if (!citations?.length || !text.includes('[')) {
+    return <>{text}</>
+  }
+
+  const parts = text.split(/(\[\d+\])/)
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        const match = part.match(/^\[(\d+)\]$/)
+        if (match) {
+          const num = parseInt(match[1], 10)
+          const cite = citations[num - 1]
+          if (!cite) return <span key={i}>{part}</span>
+
+          const pdfLink = cite.documentId
+            ? `/pdf-viewer?documentId=${cite.documentId}${cite.pageNumber ? `&page=${cite.pageNumber}` : ''}`
+            : null
+
+          return pdfLink ? (
+            <a
+              key={i}
+              href={pdfLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-medium bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 no-underline align-super"
+              title={formatFootnoteTooltip(cite)}
+            >
+              {num}
+            </a>
+          ) : (
+            <span
+              key={i}
+              className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-medium bg-muted text-muted-foreground rounded-full ml-0.5 align-super"
+              title={formatFootnoteTooltip(cite)}
+            >
+              {num}
+            </span>
+          )
+        }
+        return <span key={i}>{part}</span>
+      })}
+    </>
+  )
+}
+
+function formatFootnoteTooltip(c: AIExpedienteCitation): string {
+  const parts = [
+    c.foja != null ? `A fojas ${c.foja}` : null,
+    c.cuaderno ? `cuaderno ${c.cuaderno}` : null,
+    c.fechaTramite ? `(${c.fechaTramite})` : null,
+    c.documentType,
+  ].filter(Boolean)
+  return parts.join(', ') || 'Fuente del expediente'
+}
+
+function Footnotes({ citations }: { citations: AIExpedienteCitation[] }) {
+  if (citations.length === 0) return null
+
+  return (
+    <details>
+      <summary className="text-[10px] font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+        📄 {citations.length} fuente{citations.length !== 1 ? 's' : ''} del expediente
+      </summary>
+      <div className="mt-1 space-y-0.5">
+        {citations.map((c, i) => {
+          const pdfLink = c.documentId
+            ? `/pdf-viewer?documentId=${c.documentId}${c.pageNumber ? `&page=${c.pageNumber}` : ''}`
+            : null
+
+          return (
+            <div key={i} className="flex items-start gap-1.5 pl-1">
+              <span className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-medium bg-muted text-muted-foreground rounded-full flex-shrink-0 mt-0.5">
+                {i + 1}
+              </span>
+              <div className="min-w-0">
+                <span className="text-[10px] text-muted-foreground">
+                  {formatFojaCitation(c)}
+                </span>
+                {pdfLink && (
+                  <a
+                    href={pdfLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[9px] text-blue-500 hover:underline ml-1"
+                  >
+                    Ver PDF →
+                  </a>
+                )}
+                {c.citedText && (
+                  <p className="text-[10px] text-muted-foreground/60 italic truncate">
+                    &ldquo;{c.citedText.slice(0, 100)}{c.citedText.length > 100 ? '...' : ''}&rdquo;
+                  </p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </details>
+  )
 }
