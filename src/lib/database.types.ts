@@ -29,6 +29,13 @@ export type DocumentEmbeddingRow = Tables<'document_embeddings'>
 export type ProcessingQueueInsert = TablesInsert<'processing_queue'>
 export type ProcessingQueueRow = Tables<'processing_queue'>
 
+export type {
+  ConversationInsert,
+  ConversationRow,
+  ChatMessageInsert,
+  ChatMessageRow,
+} from '@/types/database'
+
 /**
  * Plan Limits Constants
  * 

@@ -283,3 +283,60 @@ export interface CasePiezaExhortoInsert {
   tiene_doc?: boolean
   tiene_anexo?: boolean
 }
+
+// ════════════════════════════════════════════════════════
+// Chat — Tarea 3.10
+// ════════════════════════════════════════════════════════
+
+export interface ConversationInsert {
+  case_id: string
+  user_id: string
+  title?: string | null
+  mode: 'fast_chat' | 'full_analysis' | 'deep_thinking'
+}
+
+export interface ConversationRow {
+  id: string
+  case_id: string
+  user_id: string
+  title: string | null
+  mode: 'fast_chat' | 'full_analysis' | 'deep_thinking'
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatMessageInsert {
+  conversation_id: string
+  user_id: string
+  role: 'user' | 'assistant'
+  content: string
+  sources_cited?: Record<string, unknown>[]
+  web_sources_cited?: Record<string, unknown>[]
+  thinking_content?: string | null
+  tokens_input?: number
+  tokens_output?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  model_used?: string | null
+  provider?: 'google' | 'anthropic' | null
+  latency_ms?: number
+}
+
+export interface ChatMessageRow {
+  id: string
+  conversation_id: string
+  user_id: string
+  role: 'user' | 'assistant'
+  content: string
+  sources_cited: Record<string, unknown>[] | null
+  web_sources_cited: Record<string, unknown>[] | null
+  thinking_content: string | null
+  tokens_input: number
+  tokens_output: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  model_used: string | null
+  provider: 'google' | 'anthropic' | null
+  latency_ms: number
+  created_at: string
+}
