@@ -477,11 +477,74 @@ h2 {
   font-size: 11px;
 }
 
-/* ══════ AUTH SECTION ══════ */
+/* ══════ AUTH BAR (compacta) ══════ */
 
-#auth-section p {
-  margin: 4px 0;
-  font-size: 13px;
+.auth-bar {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.auth-bar-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s;
+}
+
+.auth-bar-summary:hover {
+  background-color: var(--bg-color);
+}
+
+.auth-indicator {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted-color);
+  flex-shrink: 0;
+}
+
+.auth-indicator.active {
+  color: var(--success-color);
+}
+
+.auth-indicator.inactive {
+  color: var(--warning-color);
+}
+
+.auth-email {
+  font-size: 12px;
+  color: var(--secondary-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.auth-chevron {
+  font-size: 10px;
+  color: var(--muted-color);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.auth-chevron.open {
+  transform: rotate(180deg);
+}
+
+.auth-dropdown {
+  border-top: 1px solid var(--border-color);
+  padding: 8px 12px;
+  background-color: var(--bg-color);
+}
+
+.auth-dropdown .btn-secondary {
+  margin-top: 0;
 }
 
 #unauthenticated-content .card p {
@@ -940,15 +1003,6 @@ h2 {
   cursor: not-allowed;
 }
 
-/* ══════ FOOTER ══════ */
-
-footer {
-  margin-top: auto;
-  text-align: center;
-  color: var(--muted-color);
-  border-top: 1px solid var(--border-color);
-  padding-top: 10px;
-}
 
 /* ══════ SCROLLBAR CUSTOM ══════ */
 

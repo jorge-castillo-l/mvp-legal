@@ -25,7 +25,7 @@ import { resolve } from 'path'
 config({ path: resolve(process.cwd(), '.env.local') })
 
 import { createClient } from '@supabase/supabase-js'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 import { normalizePjudText, type NormalizerResult, type ExtractionMethod } from './chunking/normalizer'
 import { detectSections } from './chunking/section-detector'
 import { chunkText, type Chunk } from './chunking/token-chunker'
@@ -52,10 +52,10 @@ function createAdmin() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 }
 
-function getGenAI(): GoogleGenerativeAI {
+function getGenAI(): GoogleGenAI {
   const apiKey = process.env.GOOGLE_API_KEY
   if (!apiKey) throw new Error('Falta GOOGLE_API_KEY en .env.local')
-  return new GoogleGenerativeAI(apiKey)
+  return new GoogleGenAI({ apiKey })
 }
 
 function truncateVector(vector: number[], dim: number): number[] {
@@ -356,20 +356,28 @@ async function main() {
     printInfo(`Inputs preparados:  ${embeddingInputs.length}`)
 
     let embeddingsGenerated = 0
-    const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL })
 
     for (let i = 0; i < embeddingInputs.length; i += BATCH_SIZE) {
       const batch = embeddingInputs.slice(i, i + BATCH_SIZE)
       const texts = batch.map(b => b.text)
 
-      const requests = texts.map(text => ({
-        content: { parts: [{ text }], role: 'user' as const },
-      }))
+      const embedResults = await Promise.all(
+        texts.map(text =>
+          genAI.models.embedContent({
+            model: EMBEDDING_MODEL,
+            contents: text,
+          })
+        )
+      )
 
-      const result = await model.batchEmbedContents({ requests })
+      const vectors = embedResults.map(r => {
+        const values = r.embeddings?.[0]?.values
+        if (!values) throw new Error('Embedding vacío')
+        return truncateVector(values, EMBEDDING_DIMENSION)
+      })
 
-      if (!result.embeddings || result.embeddings.length !== batch.length) {
-        printFail(`Batch ${Math.floor(i / BATCH_SIZE)}: esperados ${batch.length} vectores, recibidos ${result.embeddings?.length ?? 0}`)
+      if (vectors.length !== batch.length) {
+        printFail(`Batch ${Math.floor(i / BATCH_SIZE)}: esperados ${batch.length} vectores, recibidos ${vectors.length}`)
         failed++
         continue
       }
@@ -378,7 +386,7 @@ async function main() {
         chunk_id: input.chunkId,
         case_id: target.case_id,
         user_id: target.user_id,
-        embedding: JSON.stringify(truncateVector(result.embeddings[idx].values, EMBEDDING_DIMENSION)),
+        embedding: JSON.stringify(vectors[idx]),
       }))
 
       const { error: embInsertErr } = await admin

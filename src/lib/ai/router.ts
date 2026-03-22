@@ -106,10 +106,6 @@ export function aiStreamToSSE(stream: AIResponseStream): ReadableStream<Uint8Arr
         for await (const event of stream) {
           const data = JSON.stringify(event)
           controller.enqueue(encoder.encode(`data: ${data}\n\n`))
-
-          if (event.type === 'done' || event.type === 'error') {
-            break
-          }
         }
       } catch (error) {
         const errorEvent: AIStreamEvent = {

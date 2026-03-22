@@ -22,8 +22,8 @@ import type { AIMode, ModelConfig } from './types'
 
 export const MODEL_IDS = {
   GEMINI_FLASH: 'gemini-3-flash-preview',
-  CLAUDE_SONNET: 'claude-sonnet-4-20250514',
-  CLAUDE_OPUS: 'claude-opus-4-20250514',
+  CLAUDE_SONNET: 'claude-sonnet-4-6',
+  CLAUDE_OPUS: 'claude-opus-4-6',
 } as const
 
 // ─────────────────────────────────────────────────────────────

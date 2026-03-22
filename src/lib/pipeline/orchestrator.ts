@@ -250,7 +250,7 @@ export async function processDocument(documentId: string): Promise<ProcessingRes
 
           // ── 7.07d: Enriquecer metadata de cada chunk ──────────
           const docMeta = entry.metadata?.doc_metadata
-          const parentMetadata: DocumentParentMetadata = {
+          let parentMetadata: DocumentParentMetadata = {
             document_type: entry.metadata?.document_type,
             folio_numero: docMeta?.folio_numero,
             cuaderno: docMeta?.cuaderno,
@@ -259,6 +259,12 @@ export async function processDocument(documentId: string): Promise<ProcessingRes
             foja: docMeta?.foja,
             etapa: docMeta?.etapa,
             tramite: docMeta?.tramite,
+          }
+
+          // Fallback: si doc_metadata no tiene folio_numero, buscar en
+          // case_folios + case_cuadernos via documents.filename pattern
+          if (parentMetadata.folio_numero == null) {
+            parentMetadata = await resolveParentMetadataFromDb(admin, documentId, entry.case_id, parentMetadata)
           }
 
           // Obtener metadata de la causa (procedimiento, libro_tipo)
@@ -445,6 +451,89 @@ export async function processDocument(documentId: string): Promise<ProcessingRes
       attempts: newAttempts,
       error: errorMessage,
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Resolve folio metadata from DB when doc_metadata is missing
+// ─────────────────────────────────────────────────────────────
+
+type AdminClient = ReturnType<typeof createAdminClient>
+
+async function resolveParentMetadataFromDb(
+  admin: AdminClient,
+  documentId: string,
+  caseId: string,
+  current: DocumentParentMetadata,
+): Promise<DocumentParentMetadata> {
+  try {
+    // Try matching via documents.filename → folio number + cuaderno name
+    const { data: doc } = await admin
+      .from('documents')
+      .select('filename, origen, tramite_pjud')
+      .eq('id', documentId)
+      .single()
+
+    if (!doc?.filename) return current
+
+    // Extract folio number from filename pattern: ..._f{N}_...
+    const folioMatch = doc.filename.match(/_f(\d+)_/)
+    if (!folioMatch) return current
+    const folioNum = parseInt(folioMatch[1], 10)
+    if (isNaN(folioNum)) return current
+
+    // Look up the folio in case_folios
+    const { data: folios } = await (admin as any)
+      .from('case_folios')
+      .select('numero_folio, etapa, tramite, desc_tramite, fecha_tramite, foja, cuaderno_id')
+      .eq('case_id', caseId)
+      .eq('numero_folio', folioNum)
+
+    if (!folios || folios.length === 0) return current
+
+    // If multiple cuadernos have same folio number, match by cuaderno name in filename
+    let folio = folios[0]
+    if (folios.length > 1) {
+      const { data: cuadernos } = await (admin as any)
+        .from('case_cuadernos')
+        .select('id, nombre')
+        .eq('case_id', caseId)
+
+      if (cuadernos) {
+        for (const c of cuadernos) {
+          const cleanName = c.nombre.replace(/[^a-zA-Z0-9]/g, '_')
+          if (doc.filename.includes(cleanName)) {
+            const match = folios.find((f: any) => f.cuaderno_id === c.id)
+            if (match) { folio = match; break }
+          }
+        }
+      }
+    }
+
+    // Resolve cuaderno name
+    let cuadernoNombre: string | null = current.cuaderno ?? null
+    if (!cuadernoNombre && folio.cuaderno_id) {
+      const { data: cuadRow } = await (admin as any)
+        .from('case_cuadernos')
+        .select('nombre')
+        .eq('id', folio.cuaderno_id)
+        .single()
+      if (cuadRow) cuadernoNombre = cuadRow.nombre
+    }
+
+    return {
+      ...current,
+      folio_numero: folio.numero_folio,
+      cuaderno: cuadernoNombre,
+      fecha_tramite: current.fecha_tramite ?? folio.fecha_tramite,
+      desc_tramite: current.desc_tramite ?? folio.desc_tramite,
+      foja: current.foja ?? folio.foja,
+      etapa: current.etapa ?? folio.etapa,
+      tramite: current.tramite ?? folio.tramite,
+    }
+  } catch (err) {
+    console.error('[orchestrator] Error resolving parent metadata from DB:', err)
+    return current
   }
 }
 

@@ -14,11 +14,17 @@
       <span>Sincronización en progreso en el servidor. Puede seguir navegando con libertad.</span>
     </div>
 
-    <!-- Sección de Autenticación -->
-    <div id="auth-section" class="card" style="display: none;">
-      <div id="auth-status"><p>Verificando sesión...</p></div>
-      <button id="login-btn" class="btn-secondary" style="display: none;">Iniciar Sesión en Dashboard</button>
-      <button id="logout-btn" class="btn-secondary" style="display: none;">Cerrar Sesión</button>
+    <!-- Barra compacta de Autenticación -->
+    <div id="auth-section" class="auth-bar" style="display: none;">
+      <div class="auth-bar-summary" id="auth-toggle">
+        <span class="auth-indicator" id="auth-dot">●</span>
+        <span class="auth-email" id="auth-email">Verificando...</span>
+        <span class="auth-chevron" id="auth-chevron">▾</span>
+      </div>
+      <div class="auth-dropdown" id="auth-dropdown" style="display: none;">
+        <button id="login-btn" class="btn-secondary" style="display: none;">Iniciar Sesión en Dashboard</button>
+        <button id="logout-btn" class="btn-secondary" style="display: none;">Cerrar Sesión</button>
+      </div>
     </div>
 
     <main>
@@ -150,9 +156,6 @@
       </div>
     </div>
 
-    <footer>
-      <small>MVP Legal v1.3</small>
-    </footer>
   </div>
   <script src="lib/config.js"></script>
   <script src="lib/supabase.js"></script>

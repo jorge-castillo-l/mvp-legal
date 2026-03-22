@@ -26,10 +26,12 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/server'
+import type { Json } from '@/lib/database.types'
 import { getAIResponse, getAIResponseStream } from '../router'
 import { buildSystemPrompt } from '../prompts'
 import { retrieveChunks } from './retrieval'
 import { fetchKeyDocuments } from './key-documents'
+import { fetchCaseStructuredContext } from './case-context'
 import type {
   AIMode,
   AIResponse,
@@ -119,8 +121,8 @@ async function persistAssistantMessage(
     user_id: userId,
     role: 'assistant',
     content: response.text,
-    sources_cited: response.citations.length > 0 ? response.citations : [],
-    web_sources_cited: response.webSources.length > 0 ? response.webSources : [],
+    sources_cited: (response.citations.length > 0 ? response.citations : []) as unknown as Json,
+    web_sources_cited: (response.webSources.length > 0 ? response.webSources : []) as unknown as Json,
     thinking_content: response.thinkingContent ?? null,
     tokens_input: response.usage.inputTokens,
     tokens_output: response.usage.outputTokens,
@@ -169,16 +171,18 @@ export async function getEnhancedAnalysis(
   const retrievalStart = Date.now()
   const caseMeta = await getCaseMetadata(options.caseId)
 
-  const [retrieval, keyDocsResult] = await Promise.all([
+  const [retrieval, keyDocsResult, structuredContext] = await Promise.all([
     retrieveChunks({
       caseId: options.caseId,
       query: options.query,
       topK: ENHANCED_TOP_K,
     }),
     fetchKeyDocuments(options.caseId, caseMeta?.procedimiento ?? null),
+    fetchCaseStructuredContext(options.caseId),
   ])
 
-  const context = mergeContext(keyDocsResult.documents, retrieval.chunks)
+  const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
+  const context = structuredContext ? [structuredContext, ...merged] : merged
   const retrievalDurationMs = Date.now() - retrievalStart
 
   const systemPrompt = buildSystemPrompt({
@@ -225,16 +229,18 @@ export async function* getEnhancedAnalysisStream(
 ): AIResponseStream {
   const caseMeta = await getCaseMetadata(options.caseId)
 
-  const [retrieval, keyDocsResult] = await Promise.all([
+  const [retrieval, keyDocsResult, structuredContext] = await Promise.all([
     retrieveChunks({
       caseId: options.caseId,
       query: options.query,
       topK: ENHANCED_TOP_K,
     }),
     fetchKeyDocuments(options.caseId, caseMeta?.procedimiento ?? null),
+    fetchCaseStructuredContext(options.caseId),
   ])
 
-  const context = mergeContext(keyDocsResult.documents, retrieval.chunks)
+  const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
+  const context = structuredContext ? [structuredContext, ...merged] : merged
 
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
@@ -285,8 +291,8 @@ export async function* getEnhancedAnalysisStream(
   }
 
   const modeConfig = options.mode === 'deep_thinking'
-    ? { model: 'claude-opus-4-20250514', provider: 'anthropic' as const }
-    : { model: 'claude-sonnet-4-20250514', provider: 'anthropic' as const }
+    ? { model: 'claude-opus-4-6', provider: 'anthropic' as const }
+    : { model: 'claude-sonnet-4-6', provider: 'anthropic' as const }
 
   const responseForPersistence: AIResponse = {
     text: fullText,

@@ -85,22 +85,46 @@ async function checkAuthentication() {
 }
 
 function showAuthenticatedUI() {
-  document.getElementById('auth-status').innerHTML = `
-    <p style="color: #16a34a;">● Sesión activa</p>
-    <p><strong>Email:</strong> ${currentUser.email}</p>
-  `;
+  const dot = document.getElementById('auth-dot');
+  const email = document.getElementById('auth-email');
+  dot.className = 'auth-indicator active';
+  email.textContent = currentUser.email;
+  email.title = currentUser.email;
+
   document.getElementById('login-btn').style.display = 'none';
   document.getElementById('logout-btn').style.display = 'block';
   document.getElementById('authenticated-content').style.display = 'block';
   document.getElementById('unauthenticated-content').style.display = 'none';
+  closeAuthDropdown();
 }
 
 function showUnauthenticatedUI() {
-  document.getElementById('auth-status').innerHTML = '<p style="color: #ea580c;">● Sin sesión activa</p>';
+  const dot = document.getElementById('auth-dot');
+  const email = document.getElementById('auth-email');
+  dot.className = 'auth-indicator inactive';
+  email.textContent = 'Sin sesión activa';
+  email.title = '';
+
   document.getElementById('login-btn').style.display = 'block';
   document.getElementById('logout-btn').style.display = 'none';
   document.getElementById('authenticated-content').style.display = 'none';
   document.getElementById('unauthenticated-content').style.display = 'block';
+  closeAuthDropdown();
+}
+
+function toggleAuthDropdown() {
+  const dropdown = document.getElementById('auth-dropdown');
+  const chevron = document.getElementById('auth-chevron');
+  const isOpen = dropdown.style.display !== 'none';
+  dropdown.style.display = isOpen ? 'none' : 'block';
+  chevron.classList.toggle('open', !isOpen);
+}
+
+function closeAuthDropdown() {
+  const dropdown = document.getElementById('auth-dropdown');
+  const chevron = document.getElementById('auth-chevron');
+  if (dropdown) dropdown.style.display = 'none';
+  if (chevron) chevron.classList.remove('open');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -161,6 +185,8 @@ async function loadChatIframe() {
 // ══════════════════════════════════════════════════════════
 
 function setupEventListeners() {
+  document.getElementById('auth-toggle')?.addEventListener('click', toggleAuthDropdown);
+
   document.getElementById('login-btn')?.addEventListener('click', () => {
     chrome.tabs.create({ url: CONFIG.PAGES.LOGIN });
   });

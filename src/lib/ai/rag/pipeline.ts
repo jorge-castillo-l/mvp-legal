@@ -20,9 +20,11 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/server'
+import type { Json } from '@/lib/database.types'
 import { getAIResponse, getAIResponseStream, aiStreamToSSE } from '../router'
 import { buildSystemPrompt } from '../prompts'
 import { retrieveChunks, type RetrievalOptions } from './retrieval'
+import { fetchCaseStructuredContext } from './case-context'
 import type {
   AIMode,
   AIResponse,
@@ -124,8 +126,8 @@ async function persistAssistantMessage(
       user_id: userId,
       role: 'assistant',
       content: response.text,
-      sources_cited: response.citations.length > 0 ? response.citations : [],
-      web_sources_cited: response.webSources.length > 0 ? response.webSources : [],
+      sources_cited: (response.citations.length > 0 ? response.citations : []) as unknown as Json,
+      web_sources_cited: (response.webSources.length > 0 ? response.webSources : []) as unknown as Json,
       thinking_content: response.thinkingContent ?? null,
       tokens_input: response.usage.inputTokens,
       tokens_output: response.usage.outputTokens,
@@ -167,19 +169,26 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
     tribunal: caseMeta?.tribunal,
   })
 
-  const retrieval = await retrieveChunks({
-    caseId: options.caseId,
-    query: options.query,
-    documentType: options.documentType,
-    sectionType: options.sectionType,
-  })
+  const [retrieval, structuredContext] = await Promise.all([
+    retrieveChunks({
+      caseId: options.caseId,
+      query: options.query,
+      documentType: options.documentType,
+      sectionType: options.sectionType,
+    }),
+    fetchCaseStructuredContext(options.caseId),
+  ])
+
+  const context = structuredContext
+    ? [structuredContext, ...retrieval.chunks]
+    : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
 
   const response = await getAIResponse({
     mode: options.mode,
     query: options.query,
-    context: retrieval.chunks,
+    context,
     systemPrompt,
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
@@ -222,19 +231,26 @@ export async function* askCaseStream(
     tribunal: caseMeta?.tribunal,
   })
 
-  const retrieval = await retrieveChunks({
-    caseId: options.caseId,
-    query: options.query,
-    documentType: options.documentType,
-    sectionType: options.sectionType,
-  })
+  const [retrieval, structuredContext] = await Promise.all([
+    retrieveChunks({
+      caseId: options.caseId,
+      query: options.query,
+      documentType: options.documentType,
+      sectionType: options.sectionType,
+    }),
+    fetchCaseStructuredContext(options.caseId),
+  ])
+
+  const context = structuredContext
+    ? [structuredContext, ...retrieval.chunks]
+    : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
 
   const stream = getAIResponseStream({
     mode: options.mode,
     query: options.query,
-    context: retrieval.chunks,
+    context,
     systemPrompt,
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
@@ -275,8 +291,8 @@ export async function* askCaseStream(
   const caseModeConfig = options.mode === 'fast_chat'
     ? { model: 'gemini-3-flash-preview', provider: 'google' as const }
     : options.mode === 'deep_thinking'
-      ? { model: 'claude-opus-4-20250514', provider: 'anthropic' as const }
-      : { model: 'claude-sonnet-4-20250514', provider: 'anthropic' as const }
+      ? { model: 'claude-opus-4-6', provider: 'anthropic' as const }
+      : { model: 'claude-sonnet-4-6', provider: 'anthropic' as const }
 
   model = caseModeConfig.model
   provider = caseModeConfig.provider

@@ -75,12 +75,40 @@ type TextBlock = { type: 'text'; text: string }
 
 type ContentBlock = DocumentBlock | TextBlock
 
+const ANTHROPIC_DOC_LABELS: Record<string, string> = {
+  folio_principal: 'Documento principal',
+  folio_certificado: 'Certificado de envío',
+  folio_anexo: 'Anexo de solicitud',
+  sentencia: 'Sentencia', resolucion: 'Resolución', escrito: 'Escrito',
+  actuacion: 'Actuación', demanda: 'Demanda', contestacion: 'Contestación',
+  mandamiento: 'Mandamiento', receptor: 'Diligencia de receptor',
+}
+
+const ANTHROPIC_SECTION_LABELS: Record<string, string> = {
+  vistos: 'Vistos', considerando: 'Considerando', considerando_n: 'Considerando',
+  resolutivo: 'Resolutivo', individualizacion: 'Individualización',
+  en_lo_principal: 'Petición principal', hechos: 'Hechos',
+  derecho: 'Fundamentos de derecho', petitorio: 'Petitorio', otrosi: 'Otrosí',
+  receptor_certificacion: 'Certificación', receptor_diligencia: 'Diligencia',
+  resolucion_proveyendo: 'Proveído', resolucion_dispositivo: 'Parte dispositiva',
+  general: '',
+}
+
+function humanizeField(value: string, map: Record<string, string>): string {
+  return map[value] || value.replace(/_/g, ' ')
+}
+
 function buildDocumentTitle(chunk: AIContextChunk, index: number): string {
   const m = chunk.metadata
+  const docType = m.documentType ? humanizeField(m.documentType, ANTHROPIC_DOC_LABELS) : null
+  const section = m.sectionType && m.sectionType !== 'general'
+    ? humanizeField(m.sectionType, ANTHROPIC_SECTION_LABELS)
+    : null
+
   const parts = [
     `Doc ${index + 1}`,
-    m.documentType,
-    m.sectionType,
+    docType,
+    section,
     m.folioNumero != null ? `Folio ${m.folioNumero}` : null,
     m.cuaderno ? `Cuaderno: ${m.cuaderno}` : null,
     m.fechaTramite,
@@ -322,7 +350,7 @@ export class AnthropicProvider implements AIProviderInterface {
   async generate(options: AIRequestOptions): Promise<AIResponse> {
     const startTime = Date.now()
     const config = this.resolveConfig(options.mode)
-    const useWebSearch = options.enableWebSearch ?? shouldEnableWebSearch(options.query)
+    const useWebSearch = options.enableWebSearch === true
     const timeout = getTimeout(options.mode)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -374,7 +402,7 @@ export class AnthropicProvider implements AIProviderInterface {
   async *stream(options: AIRequestOptions): AIResponseStream {
     const startTime = Date.now()
     const config = this.resolveConfig(options.mode)
-    const useWebSearch = options.enableWebSearch ?? shouldEnableWebSearch(options.query)
+    const useWebSearch = options.enableWebSearch === true
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {

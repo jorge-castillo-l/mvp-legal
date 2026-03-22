@@ -1,8 +1,9 @@
 /**
  * ============================================================
  * Embedding Generation Pipeline — Tarea 7.08
+ * (migrado a @google/genai SDK)
  * ============================================================
- * Genera embeddings con text-embedding-004 de Google para
+ * Genera embeddings con gemini-embedding-001 de Google para
  * búsqueda semántica RAG por causa.
  *
  * Usa buildEmbeddingInput() de 7.07d para generar input
@@ -13,24 +14,23 @@
  * Flujo:
  *   1. Recibe chunks con metadata enriquecida
  *   2. Genera embedding input con buildEmbeddingInput()
- *   3. Llama a text-embedding-004 en batches de 100
+ *   3. Llama a gemini-embedding-001 en batches de 100
  *   4. Upsert en document_embeddings (idempotente por chunk_id)
  *
  * Costo: ~$0.00625 / 1M tokens → ~$0.0005 por causa de 500 págs.
  * ============================================================
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 import { createAdminClient } from '@/lib/supabase/server'
 import {
   enrichChunkMetadata,
   buildEmbeddingInput,
   type DocumentParentMetadata,
   type CaseMetadata,
-  type EnrichedChunkMetadata,
 } from '@/lib/pipeline/chunking/metadata-enricher'
 import type { Chunk } from '@/lib/pipeline/chunking/token-chunker'
-import type { DocumentEmbeddingInsert } from '@/types/database'
+import type { DocumentEmbeddingInsert } from '@/lib/database.types'
 
 // ─────────────────────────────────────────────────────────────
 // Configuration
@@ -80,64 +80,56 @@ export interface GenerateEmbeddingsForDocumentOptions {
 // Google AI client (lazy init)
 // ─────────────────────────────────────────────────────────────
 
-let _genAI: GoogleGenerativeAI | null = null
+let _ai: GoogleGenAI | null = null
 
-function getGenAI(): GoogleGenerativeAI {
-  if (!_genAI) {
+function getAI(): GoogleGenAI {
+  if (!_ai) {
     const apiKey = process.env.GOOGLE_API_KEY
     if (!apiKey) {
       throw new Error('GOOGLE_API_KEY no configurada en variables de entorno')
     }
-    _genAI = new GoogleGenerativeAI(apiKey)
+    _ai = new GoogleGenAI({ apiKey })
   }
-  return _genAI
+  return _ai
 }
 
 // ─────────────────────────────────────────────────────────────
 // Core embedding function
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Trunca un vector a la dimensión objetivo.
- * Google recomienda truncación (tomar los primeros N valores)
- * como forma oficial de reducir dimensionalidad en sus modelos.
- */
 function truncateVector(vector: number[], targetDim: number): number[] {
   if (vector.length <= targetDim) return vector
   return vector.slice(0, targetDim)
 }
 
 /**
- * Genera embeddings en batch usando batchEmbedContents.
- * Trunca cada vector a EMBEDDING_DIMENSION (768) para compatibilidad
- * con pgvector schema.
+ * Genera embeddings en batch.
+ * El nuevo SDK no tiene batchEmbedContents en ai.models, así que
+ * procesamos en paralelo con Promise.all dentro de cada batch.
  */
 async function generateEmbeddingsBatch(
   texts: string[]
 ): Promise<number[][]> {
-  const genAI = getGenAI()
-  const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL })
+  const ai = getAI()
 
-  const requests = texts.map(text => ({
-    content: { parts: [{ text }], role: 'user' as const },
-  }))
-
-  const result = await model.batchEmbedContents({
-    requests,
-  })
-
-  if (!result.embeddings || result.embeddings.length !== texts.length) {
-    throw new Error(
-      `Batch embedding: esperados ${texts.length} embeddings, recibidos ${result.embeddings?.length ?? 0}`
+  const results = await Promise.all(
+    texts.map(text =>
+      ai.models.embedContent({
+        model: EMBEDDING_MODEL,
+        contents: text,
+      })
     )
-  }
+  )
 
-  return result.embeddings.map(e => truncateVector(e.values, EMBEDDING_DIMENSION))
+  return results.map(result => {
+    const values = result.embeddings?.[0]?.values
+    if (!values) {
+      throw new Error('Embedding vacío en batch')
+    }
+    return truncateVector(values, EMBEDDING_DIMENSION)
+  })
 }
 
-/**
- * Wrapper con retry y exponential backoff.
- */
 async function generateEmbeddingsBatchWithRetry(
   texts: string[],
   retryCount = 0
@@ -195,7 +187,6 @@ export async function generateEmbeddingsForDocument(
   const admin = createAdminClient()
   const enrichmentContext = { parentMetadata: parentMetadata ?? {}, caseMetadata: caseMetadata ?? {} }
 
-  // Obtener chunk_ids desde DB (los chunks en memoria no tienen el UUID de DB)
   const { data: dbChunks, error: fetchError } = await admin
     .from('document_chunks')
     .select('id, chunk_index')
@@ -213,7 +204,6 @@ export async function generateEmbeddingsForDocument(
     }
   }
 
-  // Verificar embeddings existentes (idempotencia)
   const chunkIds = dbChunks.map(c => c.id)
   const { data: existingEmbeddings } = await admin
     .from('document_embeddings')
@@ -222,7 +212,6 @@ export async function generateEmbeddingsForDocument(
 
   const existingChunkIds = new Set((existingEmbeddings ?? []).map(e => e.chunk_id))
 
-  // Preparar inputs: enriquecer cada chunk y generar embedding input
   const inputs: Array<{
     chunkId: string
     chunkIndex: number
@@ -266,7 +255,6 @@ export async function generateEmbeddingsForDocument(
     }
   }
 
-  // Procesar en batches
   let totalTokens = 0
 
   for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
@@ -282,7 +270,6 @@ export async function generateEmbeddingsForDocument(
         continue
       }
 
-      // Insertar embeddings en DB
       const rows: DocumentEmbeddingInsert[] = batch.map((input, idx) => ({
         chunk_id: input.chunkId,
         case_id: caseId,
@@ -328,21 +315,18 @@ export async function generateEmbeddingsForDocument(
 // Utilidad: generar embedding de una query (para RAG search)
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Genera el embedding de una query del usuario para búsqueda RAG.
- * Usado en el pipeline de chat (3.02) para encontrar chunks relevantes.
- */
 export async function generateQueryEmbedding(query: string): Promise<number[]> {
-  const genAI = getGenAI()
-  const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL })
+  const ai = getAI()
 
-  const result = await model.embedContent({
-    content: { parts: [{ text: query }], role: 'user' },
+  const result = await ai.models.embedContent({
+    model: EMBEDDING_MODEL,
+    contents: query,
   })
 
-  if (!result.embedding?.values) {
+  const values = result.embeddings?.[0]?.values
+  if (!values) {
     throw new Error('Embedding de query vacío')
   }
 
-  return truncateVector(result.embedding.values, EMBEDDING_DIMENSION)
+  return truncateVector(values, EMBEDDING_DIMENSION)
 }

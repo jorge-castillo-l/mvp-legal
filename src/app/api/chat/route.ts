@@ -49,11 +49,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { caseId, query, mode, conversationId: providedConvId } = body as {
+    const { caseId, query, mode, conversationId: providedConvId, enableWebSearch } = body as {
       caseId: string
       query: string
       mode: AIMode
       conversationId?: string
+      enableWebSearch?: boolean
     }
 
     if (!caseId || !query || !mode) {
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
         userId,
         query,
         mode,
+        enableWebSearch: enableWebSearch ?? false,
       })
     } else {
       stream = getEnhancedAnalysisStream({
@@ -81,6 +83,7 @@ export async function POST(request: NextRequest) {
         userId,
         query,
         mode: mode as 'full_analysis' | 'deep_thinking',
+        enableWebSearch: enableWebSearch ?? false,
       })
     }
 
@@ -113,7 +116,6 @@ async function resolveConversation(
     .select('id')
     .eq('user_id', userId)
     .eq('case_id', caseId)
-    .eq('mode', mode)
     .order('updated_at', { ascending: false })
     .limit(1)
     .single()

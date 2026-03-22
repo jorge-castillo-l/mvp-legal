@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * Gemini Provider — Tarea 3.01
+ * Gemini Provider — Tarea 3.01 (migrado a @google/genai SDK)
  * ============================================================
  * Implementa AIProviderInterface para Google Gemini (Capa 1).
  *
@@ -8,13 +8,13 @@
  *   - generateContent / generateContentStream
  *   - Google Search Grounding (googleSearch tool)
  *   - groundingMetadata → AIWebCitation normalization
+ *   - Context caching via ai.caches (Tarea 3.05)
  *
  * Modelo: gemini-3-flash-preview ($0.50/$3.00 /MTok)
  * ============================================================
  */
 
-import { GoogleGenerativeAI, type GenerativeModel } from '@google/generative-ai'
-import type { Content, Part, GenerateContentResult } from '@google/generative-ai'
+import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
 import { MODEL_CONFIGS, getTimeout, shouldEnableWebSearch } from '../config'
 import { getOrCreateGeminiCache } from '../cache'
 import {
@@ -25,7 +25,6 @@ import {
   type AIRequestOptions,
   type AIResponse,
   type AIResponseStream,
-  type AIStreamEvent,
   type AIExpedienteCitation,
   type AIWebCitation,
   type AIUsage,
@@ -33,12 +32,12 @@ import {
 } from '../types'
 
 // ─────────────────────────────────────────────────────────────
-// Client (lazy init — same pattern as embeddings.ts)
+// Client (lazy init)
 // ─────────────────────────────────────────────────────────────
 
-let _client: GoogleGenerativeAI | null = null
+let _client: GoogleGenAI | null = null
 
-function getClient(): GoogleGenerativeAI {
+function getClient(): GoogleGenAI {
   if (!_client) {
     const apiKey = process.env.GOOGLE_API_KEY
     if (!apiKey) {
@@ -47,7 +46,7 @@ function getClient(): GoogleGenerativeAI {
         'google',
       )
     }
-    _client = new GoogleGenerativeAI(apiKey)
+    _client = new GoogleGenAI({ apiKey })
   }
   return _client
 }
@@ -56,14 +55,60 @@ function getClient(): GoogleGenerativeAI {
 // Message formatting
 // ─────────────────────────────────────────────────────────────
 
+const DOC_TYPE_LABELS: Record<string, string> = {
+  folio_principal: 'Documento principal',
+  folio_certificado: 'Certificado de envío',
+  folio_anexo: 'Anexo de solicitud',
+  sentencia: 'Sentencia',
+  resolucion: 'Resolución',
+  escrito: 'Escrito',
+  actuacion: 'Actuación',
+  demanda: 'Demanda',
+  contestacion: 'Contestación',
+  mandamiento: 'Mandamiento',
+  auto_prueba: 'Auto de prueba',
+  acta_embargo: 'Acta de embargo',
+  acta_audiencia: 'Acta de audiencia',
+  receptor: 'Diligencia de receptor',
+}
+
+const SECTION_LABELS: Record<string, string> = {
+  vistos: 'Vistos',
+  considerando: 'Considerando',
+  considerando_n: 'Considerando',
+  resolutivo: 'Resolutivo',
+  cierre_sentencia: 'Cierre',
+  individualizacion: 'Individualización',
+  en_lo_principal: 'Petición principal',
+  hechos: 'Hechos',
+  derecho: 'Fundamentos de derecho',
+  petitorio: 'Petitorio',
+  otrosi: 'Otrosí',
+  receptor_certificacion: 'Certificación del receptor',
+  receptor_diligencia: 'Diligencia del receptor',
+  resolucion_proveyendo: 'Proveído',
+  resolucion_dispositivo: 'Parte dispositiva',
+  general: '',
+}
+
+function humanizeLabel(value: string, map: Record<string, string>): string {
+  if (map[value]) return map[value]
+  return value.replace(/_/g, ' ')
+}
+
 function buildContextBlock(chunks: AIContextChunk[]): string {
   if (chunks.length === 0) return ''
 
   const lines = chunks.map((chunk, i) => {
     const m = chunk.metadata
+    const docType = m.documentType ? humanizeLabel(m.documentType, DOC_TYPE_LABELS) : null
+    const section = m.sectionType && m.sectionType !== 'general'
+      ? humanizeLabel(m.sectionType, SECTION_LABELS)
+      : null
+
     const header = [
-      m.documentType && `Tipo: ${m.documentType}`,
-      m.sectionType && `Sección: ${m.sectionType}`,
+      docType && `Tipo: ${docType}`,
+      section && `Sección: ${section}`,
       m.folioNumero != null && `Folio: ${m.folioNumero}`,
       m.cuaderno && `Cuaderno: ${m.cuaderno}`,
       m.fechaTramite && `Fecha: ${m.fechaTramite}`,
@@ -77,10 +122,17 @@ function buildContextBlock(chunks: AIContextChunk[]): string {
   return `CONTEXTO DEL EXPEDIENTE:\n\n${lines.join('\n\n---\n\n')}`
 }
 
-function buildContents(
-  options: AIRequestOptions,
-): Content[] {
-  const contents: Content[] = []
+interface ContentPart {
+  text: string
+}
+
+interface ContentEntry {
+  role: 'user' | 'model'
+  parts: ContentPart[]
+}
+
+function buildContents(options: AIRequestOptions): ContentEntry[] {
+  const contents: ContentEntry[] = []
 
   if (options.conversationHistory?.length) {
     for (const msg of options.conversationHistory) {
@@ -91,7 +143,7 @@ function buildContents(
     }
   }
 
-  const userParts: Part[] = []
+  const userParts: ContentPart[] = []
 
   if (options.context?.length) {
     userParts.push({ text: buildContextBlock(options.context) })
@@ -112,19 +164,13 @@ interface GroundingChunk {
   web?: { uri?: string; title?: string }
 }
 
-interface GroundingSupport {
-  segment?: { startIndex?: number; endIndex?: number; text?: string }
-  groundingChunkIndices?: number[]
-}
-
 interface GroundingMetadata {
   groundingChunks?: GroundingChunk[]
-  groundingSupports?: GroundingSupport[]
   webSearchQueries?: string[]
 }
 
-function extractWebCitations(result: GenerateContentResult): AIWebCitation[] {
-  const candidate = result.response.candidates?.[0]
+function extractWebCitations(response: GenerateContentResponse): AIWebCitation[] {
+  const candidate = response.candidates?.[0]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const metadata = (candidate as any)?.groundingMetadata as GroundingMetadata | undefined
   if (!metadata?.groundingChunks?.length) return []
@@ -164,55 +210,12 @@ function extractExpedienteCitations(
   return citations
 }
 
-function extractUsage(result: GenerateContentResult): AIUsage {
-  const meta = result.response.usageMetadata
+function extractUsage(response: GenerateContentResponse): AIUsage {
+  const meta = response.usageMetadata
   return {
     inputTokens: meta?.promptTokenCount ?? 0,
     outputTokens: meta?.candidatesTokenCount ?? 0,
   }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Model resolution with caching (Tarea 3.05)
-//
-// If a system prompt is provided and meets the minimum token
-// threshold, we create an explicit Gemini cache (TTL 30min).
-// Subsequent requests with the same prompt reuse the cache.
-// Cache read: $0.05/MTok (90% off the $0.50 input rate).
-// ─────────────────────────────────────────────────────────────
-
-async function resolveModel(
-  options: AIRequestOptions,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools: any[] | undefined,
-): Promise<GenerativeModel> {
-  const config = MODEL_CONFIGS.fast_chat
-  const client = getClient()
-
-  if (options.systemPrompt) {
-    const cached = await getOrCreateGeminiCache(config.modelId, options.systemPrompt)
-    if (cached) {
-      return client.getGenerativeModelFromCachedContent(cached, {
-        generationConfig: {
-          temperature: config.temperature,
-          maxOutputTokens: config.maxOutputTokens,
-        },
-        tools,
-      })
-    }
-  }
-
-  return client.getGenerativeModel({
-    model: config.modelId,
-    systemInstruction: options.systemPrompt
-      ? { parts: [{ text: options.systemPrompt }], role: 'user' }
-      : undefined,
-    generationConfig: {
-      temperature: config.temperature,
-      maxOutputTokens: config.maxOutputTokens,
-    },
-    tools,
-  })
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -225,21 +228,40 @@ export class GeminiProvider implements AIProviderInterface {
   async generate(options: AIRequestOptions): Promise<AIResponse> {
     const startTime = Date.now()
     const config = MODEL_CONFIGS.fast_chat
-    const useWebSearch = options.enableWebSearch ?? shouldEnableWebSearch(options.query)
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tools: any[] | undefined = useWebSearch
-      ? [{ googleSearch: {} }]
-      : undefined
-
-    const model = await resolveModel(options, tools)
+    const useWebSearch = options.enableWebSearch === true
+    const ai = getClient()
     const contents = buildContents(options)
     const timeout = getTimeout(options.mode)
 
-    let result: GenerateContentResult
+    const cachedContentName = options.systemPrompt
+      ? await getOrCreateGeminiCache(config.modelId, options.systemPrompt)
+      : null
+
+    const requestConfig: Record<string, unknown> = {
+      temperature: config.temperature,
+      maxOutputTokens: config.maxOutputTokens,
+    }
+
+    if (options.systemPrompt && !cachedContentName) {
+      requestConfig.systemInstruction = options.systemPrompt
+    }
+
+    if (cachedContentName) {
+      requestConfig.cachedContent = cachedContentName
+    }
+
+    if (useWebSearch) {
+      requestConfig.tools = [{ googleSearch: {} }]
+    }
+
+    let response: GenerateContentResponse
     try {
-      result = await Promise.race([
-        model.generateContent({ contents }),
+      response = await Promise.race([
+        ai.models.generateContent({
+          model: config.modelId,
+          contents,
+          config: requestConfig,
+        }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new AITimeoutError('google', timeout)), timeout),
         ),
@@ -248,21 +270,19 @@ export class GeminiProvider implements AIProviderInterface {
       throw classifyGeminiError(error)
     }
 
-    const text = result.response.text()
-    const usage = extractUsage(result)
+    const text = response.text ?? ''
+    const usage = extractUsage(response)
 
-    if (result.response.usageMetadata) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const meta = result.response.usageMetadata as any
-      if (meta.cachedContentTokenCount) {
-        usage.cacheReadTokens = meta.cachedContentTokenCount
-      }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meta = response.usageMetadata as any
+    if (meta?.cachedContentTokenCount) {
+      usage.cacheReadTokens = meta.cachedContentTokenCount
     }
 
     return {
       text,
       citations: extractExpedienteCitations(text, options.context),
-      webSources: extractWebCitations(result),
+      webSources: extractWebCitations(response),
       usage,
       model: config.modelId,
       provider: 'google',
@@ -272,19 +292,38 @@ export class GeminiProvider implements AIProviderInterface {
 
   async *stream(options: AIRequestOptions): AIResponseStream {
     const config = MODEL_CONFIGS.fast_chat
-    const useWebSearch = options.enableWebSearch ?? shouldEnableWebSearch(options.query)
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tools: any[] | undefined = useWebSearch
-      ? [{ googleSearch: {} }]
-      : undefined
-
-    const model = await resolveModel(options, tools)
+    const useWebSearch = options.enableWebSearch === true
+    const ai = getClient()
     const contents = buildContents(options)
+
+    const cachedContentName = options.systemPrompt
+      ? await getOrCreateGeminiCache(config.modelId, options.systemPrompt)
+      : null
+
+    const requestConfig: Record<string, unknown> = {
+      temperature: config.temperature,
+      maxOutputTokens: config.maxOutputTokens,
+    }
+
+    if (options.systemPrompt && !cachedContentName) {
+      requestConfig.systemInstruction = options.systemPrompt
+    }
+
+    if (cachedContentName) {
+      requestConfig.cachedContent = cachedContentName
+    }
+
+    if (useWebSearch) {
+      requestConfig.tools = [{ googleSearch: {} }]
+    }
 
     let streamResult
     try {
-      streamResult = await model.generateContentStream({ contents })
+      streamResult = await ai.models.generateContentStream({
+        model: config.modelId,
+        contents,
+        config: requestConfig,
+      })
     } catch (error) {
       yield { type: 'error', error: classifyGeminiError(error).message }
       return
@@ -292,10 +331,11 @@ export class GeminiProvider implements AIProviderInterface {
 
     let fullText = ''
     let lastUsage: AIUsage = { inputTokens: 0, outputTokens: 0 }
+    let lastResponse: GenerateContentResponse | null = null
 
     try {
-      for await (const chunk of streamResult.stream) {
-        const delta = chunk.text()
+      for await (const chunk of streamResult) {
+        const delta = chunk.text ?? ''
         if (delta) {
           fullText += delta
           yield { type: 'text_delta', delta }
@@ -312,12 +352,15 @@ export class GeminiProvider implements AIProviderInterface {
             lastUsage.cacheReadTokens = meta.cachedContentTokenCount
           }
         }
+
+        lastResponse = chunk
       }
 
-      const aggregated = await streamResult.response
-      const webSources = extractWebCitations({ response: aggregated } as GenerateContentResult)
-      for (const ws of webSources) {
-        yield { type: 'web_source', webSource: ws }
+      if (lastResponse) {
+        const webSources = extractWebCitations(lastResponse)
+        for (const ws of webSources) {
+          yield { type: 'web_source', webSource: ws }
+        }
       }
 
       const expedienteCitations = extractExpedienteCitations(fullText, options.context)

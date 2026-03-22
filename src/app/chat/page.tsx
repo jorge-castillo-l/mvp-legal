@@ -2,15 +2,23 @@
 
 /**
  * ============================================================
- * Chat Page — Tarea 3.08
+ * Chat Page — Tarea 3.08 (v2: conversación unificada)
  * ============================================================
  * Embeddable en el sidepanel via iframe o accesible desde /chat.
  * Acepta ?caseId=xxx como query param.
- * Minimalista: modo selector + quick actions + messages + input.
+ *
+ * v2 changes:
+ *   - Single conversation per case (no mode split)
+ *   - Compact mode selector next to send button
+ *   - Renamed modes: Rápido / Avanzado / Experto
+ *   - Model badge on assistant messages
+ *   - AbortController for stream cancellation
  * ============================================================
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo, type FormEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { createClient } from '@/lib/supabase/client'
 import { createBrowserClient } from '@supabase/ssr'
 import { Button } from '@/components/ui/button'
@@ -18,7 +26,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getQuickActions, type QuickAction } from '@/lib/ai/prompts/quick-actions'
 import type { AIMode, AIStreamEvent, AIExpedienteCitation, AIWebCitation } from '@/lib/ai/types'
 
 // ─────────────────────────────────────────────────────────────
@@ -33,6 +40,7 @@ interface ChatMessage {
   webSources?: AIWebCitation[]
   thinkingContent?: string
   isStreaming?: boolean
+  modelUsed?: string | null
 }
 
 interface CaseInfo {
@@ -47,11 +55,30 @@ interface CaseInfo {
 // Mode config
 // ─────────────────────────────────────────────────────────────
 
-const MODES: { value: AIMode; label: string; icon: string; description: string }[] = [
-  { value: 'fast_chat', label: 'Chat Rápido', icon: '⚡', description: 'Gemini Flash' },
-  { value: 'full_analysis', label: 'Análisis Completo', icon: '🔍', description: 'Claude Sonnet' },
-  { value: 'deep_thinking', label: 'Pensamiento Profundo', icon: '🧠', description: 'Claude Opus' },
+const MODES: { value: AIMode; label: string; icon: string; hint: string }[] = [
+  { value: 'fast_chat', label: 'Rápido', icon: '⚡', hint: 'Consultas ágiles' },
+  { value: 'full_analysis', label: 'Avanzado', icon: '◆', hint: 'Análisis detallado' },
+  { value: 'deep_thinking', label: 'Experto', icon: '◈', hint: 'Razonamiento profundo' },
 ]
+
+const MODEL_BADGE: Record<string, { label: string; icon: string }> = {
+  'gemini-3-flash-preview': { label: 'Rápido', icon: '⚡' },
+  'claude-sonnet-4-20250514': { label: 'Avanzado', icon: '◆' },
+  'claude-opus-4-20250514': { label: 'Experto', icon: '◈' },
+  'claude-sonnet-4-6': { label: 'Avanzado', icon: '◆' },
+  'claude-opus-4-6': { label: 'Experto', icon: '◈' },
+}
+
+function getModeBadge(modelUsed: string | null | undefined): { label: string; icon: string } | null {
+  if (!modelUsed) return null
+  return MODEL_BADGE[modelUsed] ?? null
+}
+
+const MODE_TO_MODEL: Record<AIMode, string> = {
+  fast_chat: 'gemini-3-flash-preview',
+  full_analysis: 'claude-sonnet-4-6',
+  deep_thinking: 'claude-opus-4-6',
+}
 
 const PROCEDURE_LABELS: Record<string, string> = {
   ordinario: 'Ordinario',
@@ -73,9 +100,14 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [loadingCases, setLoadingCases] = useState(true)
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const authTokenRef = useRef<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const currentMode = MODES.find(m => m.value === mode)!
 
   const getAuthToken = useCallback((): string | null => {
     if (authTokenRef.current) return authTokenRef.current
@@ -125,13 +157,24 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (selectedCase) {
-      loadHistory(selectedCase.id, mode)
+      abortRef.current?.abort()
+      loadHistory(selectedCase.id)
     }
-  }, [selectedCase, mode])
+  }, [selectedCase])
 
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (modeMenuOpen) setModeMenuOpen(false)
+    }
+    if (modeMenuOpen) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [modeMenuOpen])
 
   async function loadCases(): Promise<CaseInfo[] | undefined> {
     const supabase = getSupabaseForQuery()
@@ -150,14 +193,13 @@ export default function ChatPage() {
     return undefined
   }
 
-  async function loadHistory(caseId: string, currentMode: AIMode) {
+  async function loadHistory(caseId: string) {
     const supabase = getSupabaseForQuery()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: conv } = await (supabase as any)
       .from('conversations')
       .select('id')
       .eq('case_id', caseId)
-      .eq('mode', currentMode)
       .order('updated_at', { ascending: false })
       .limit(1)
       .single()
@@ -170,7 +212,7 @@ export default function ChatPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: msgs } = await (supabase as any)
       .from('chat_messages')
-      .select('id, role, content, sources_cited, web_sources_cited, thinking_content')
+      .select('id, role, content, sources_cited, web_sources_cited, thinking_content, model_used')
       .eq('conversation_id', conv.id)
       .order('created_at', { ascending: true })
       .limit(100)
@@ -184,6 +226,7 @@ export default function ChatPage() {
         citations: m.sources_cited as AIExpedienteCitation[] ?? [],
         webSources: m.web_sources_cited as AIWebCitation[] ?? [],
         thinkingContent: m.thinking_content ?? undefined,
+        modelUsed: m.model_used ?? null,
       })))
     }
   }
@@ -210,11 +253,15 @@ export default function ChatPage() {
       citations: [],
       webSources: [],
       isStreaming: true,
+      modelUsed: MODE_TO_MODEL[mode],
     }
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
     setInput('')
     setIsLoading(true)
+
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       let token = getAuthToken()
@@ -234,7 +281,9 @@ export default function ChatPage() {
           caseId: selectedCase.id,
           query: query.trim(),
           mode,
+          enableWebSearch: webSearchEnabled,
         }),
+        signal: controller.signal,
       })
 
       if (!res.ok || !res.body) {
@@ -286,6 +335,7 @@ export default function ChatPage() {
         }
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setMessages(prev => prev.map((msg, idx) =>
         idx === prev.length - 1 && msg.role === 'assistant'
           ? { ...msg, content: `⚠️ Error: ${err instanceof Error ? err.message : 'Error de conexión'}`, isStreaming: false }
@@ -293,9 +343,10 @@ export default function ChatPage() {
       ))
     } finally {
       setIsLoading(false)
+      abortRef.current = null
       inputRef.current?.focus()
     }
-  }, [selectedCase, mode, isLoading])
+  }, [selectedCase, mode, isLoading, webSearchEnabled])
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -309,7 +360,15 @@ export default function ChatPage() {
     }
   }
 
-  const quickActions = getQuickActions(selectedCase?.procedimiento)
+  function handleSelectCase(c: CaseInfo) {
+    abortRef.current?.abort()
+    setSelectedCase(c)
+  }
+
+  function handleBackToCases() {
+    abortRef.current?.abort()
+    setSelectedCase(null)
+  }
 
   // ─── Case selector (no case selected) ───
 
@@ -333,7 +392,7 @@ export default function ChatPage() {
               {cases.map(c => (
                 <button
                   key={c.id}
-                  onClick={() => setSelectedCase(c)}
+                  onClick={() => handleSelectCase(c)}
                   className="w-full text-left p-3 rounded-md border hover:bg-accent transition-colors"
                 >
                   <div className="flex items-center gap-2">
@@ -363,10 +422,10 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
+      {/* Header — compact, just case info */}
       <header className="border-b px-4 py-2.5 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <button onClick={() => setSelectedCase(null)} className="text-xs text-muted-foreground hover:text-foreground">
+          <button onClick={handleBackToCases} className="text-xs text-muted-foreground hover:text-foreground">
             ← Causas
           </button>
           <div className="flex items-center gap-1.5">
@@ -378,57 +437,26 @@ export default function ChatPage() {
             )}
           </div>
         </div>
-
-        {/* Mode selector */}
-        <div className="flex gap-1 mt-2">
-          {MODES.map(m => (
-            <button
-              key={m.value}
-              onClick={() => setMode(m.value)}
-              className={`flex-1 text-center py-1.5 px-2 rounded-md text-[11px] transition-colors ${
-                mode === m.value
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <span className="mr-1">{m.icon}</span>{m.label}
-            </button>
-          ))}
-        </div>
       </header>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" ref={scrollRef}>
         {messages.length === 0 ? (
-          <EmptyState actions={quickActions} onAction={sendMessage} disabled={isLoading} />
+          <div className="flex items-center justify-center h-full">
+            <p className="text-sm text-muted-foreground">¿Qué quieres saber sobre esta causa?</p>
+          </div>
         ) : (
           <div className="space-y-4">
             {messages.map(msg => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
-            {messages.length > 0 && !isLoading && (
-              <div className="pt-2 pb-2">
-                <p className="text-[10px] text-muted-foreground mb-1.5">Acciones rápidas</p>
-                <div className="flex flex-wrap gap-1">
-                  {quickActions.slice(0, 5).map(a => (
-                    <button
-                      key={a.id}
-                      onClick={() => sendMessage(a.query)}
-                      className="text-[10px] px-2 py-1 rounded-md bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {a.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
 
-      {/* Input */}
+      {/* Input + compact mode selector */}
       <form onSubmit={handleSubmit} className="border-t p-3 flex-shrink-0">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-end">
           <Textarea
             ref={inputRef}
             value={input}
@@ -439,7 +467,54 @@ export default function ChatPage() {
             rows={1}
             className="resize-none text-sm min-h-[38px] max-h-[120px]"
           />
-          <Button type="submit" size="sm" disabled={isLoading || !input.trim()} className="self-end">
+          <Button
+            type="button"
+            variant={webSearchEnabled ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setWebSearchEnabled(prev => !prev)}
+            className="h-[38px] px-2 text-xs whitespace-nowrap"
+            disabled={isLoading}
+            title={webSearchEnabled ? 'Búsqueda web activada (costo adicional)' : 'Activar búsqueda web de jurisprudencia'}
+          >
+            🌐
+          </Button>
+          {/* Mode selector button */}
+          <div className="relative">
+            {modeMenuOpen && (
+              <div
+                className="absolute bottom-full right-0 mb-1 w-48 bg-popover border rounded-lg shadow-lg py-1 z-50"
+                onClick={e => e.stopPropagation()}
+              >
+                {MODES.map(m => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => { setMode(m.value); setModeMenuOpen(false) }}
+                    className={`w-full text-left px-3 py-2 transition-colors ${
+                      mode === m.value
+                        ? 'bg-accent text-accent-foreground'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    <span className="text-xs font-medium">{m.icon} {m.label}</span>
+                    {mode === m.value && <span className="float-right text-xs">✓</span>}
+                    <p className="text-[10px] text-muted-foreground">{m.hint}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={e => { e.stopPropagation(); setModeMenuOpen(prev => !prev) }}
+              className="h-[38px] px-2 text-xs whitespace-nowrap"
+              disabled={isLoading}
+            >
+              {currentMode.icon}<span className="ml-1 hidden min-[360px]:inline">▾</span>
+            </Button>
+          </div>
+          <Button type="submit" size="sm" disabled={isLoading || !input.trim()} className="h-[38px]">
             {isLoading ? '...' : '→'}
           </Button>
         </div>
@@ -449,33 +524,81 @@ export default function ChatPage() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Empty state with quick actions grid
+// Markdown renderer with clickable footnotes
 // ─────────────────────────────────────────────────────────────
 
-function EmptyState({
-  actions,
-  onAction,
-  disabled,
-}: {
-  actions: QuickAction[]
-  onAction: (query: string) => void
-  disabled: boolean
-}) {
+const FOOTNOTE_LINK_PREFIX = '#cite-'
+
+function preprocessFootnotes(text: string, citations?: AIExpedienteCitation[]): string {
+  if (!citations?.length) return text
+  return text.replace(/\[(\d+)\]/g, (match, num) => {
+    const idx = parseInt(num, 10) - 1
+    const cite = citations[idx]
+    if (!cite) return match
+    const href = cite.documentId
+      ? `/pdf-viewer?documentId=${cite.documentId}${cite.pageNumber ? `&page=${cite.pageNumber}` : ''}`
+      : `${FOOTNOTE_LINK_PREFIX}${num}`
+    return `[⁽${num}⁾](${href})`
+  })
+}
+
+function MarkdownWithFootnotes({ content, citations }: { content: string; citations?: AIExpedienteCitation[] }) {
+  const processed = preprocessFootnotes(content, citations)
+
   return (
-    <div className="flex flex-col items-center justify-center h-full py-8">
-      <p className="text-sm text-muted-foreground mb-4">¿Qué quieres saber sobre esta causa?</p>
-      <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
-        {actions.map(a => (
-          <button
-            key={a.id}
-            onClick={() => onAction(a.query)}
-            disabled={disabled}
-            className="text-left text-xs p-2.5 rounded-md border hover:bg-accent transition-colors disabled:opacity-50"
-          >
-            {a.label}
-          </button>
-        ))}
-      </div>
+    <div className="text-sm break-words prose-chat">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => <h3 className="text-sm font-bold mt-3 mb-1.5">{children}</h3>,
+          h2: ({ children }) => <h3 className="text-sm font-bold mt-3 mb-1.5">{children}</h3>,
+          h3: ({ children }) => <h4 className="text-[13px] font-semibold mt-2.5 mb-1">{children}</h4>,
+          h4: ({ children }) => <h4 className="text-xs font-semibold mt-2 mb-1">{children}</h4>,
+          p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+          blockquote: ({ children }) => <blockquote className="border-l-2 border-border pl-3 my-2 italic text-muted-foreground">{children}</blockquote>,
+          code: ({ children, className }) => {
+            const isBlock = className?.includes('language-')
+            return isBlock
+              ? <pre className="bg-background/50 rounded p-2 my-2 text-xs overflow-x-auto"><code>{children}</code></pre>
+              : <code className="bg-background/50 rounded px-1 py-0.5 text-xs">{children}</code>
+          },
+          hr: () => <hr className="my-3 border-border/50" />,
+          table: ({ children }) => <div className="overflow-x-auto my-2"><table className="text-xs border-collapse w-full">{children}</table></div>,
+          th: ({ children }) => <th className="border border-border/50 px-2 py-1 font-semibold text-left bg-background/50">{children}</th>,
+          td: ({ children }) => <td className="border border-border/50 px-2 py-1">{children}</td>,
+          a: ({ href, children }) => {
+            const text = String(children)
+            const isFootnote = text.match(/^⁽(\d+)⁾$/)
+            if (isFootnote) {
+              const num = isFootnote[1]
+              const isClickable = href && !href.startsWith(FOOTNOTE_LINK_PREFIX)
+              return isClickable ? (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-medium bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors cursor-pointer ml-0.5 no-underline align-super"
+                  title={`Fuente ${num}`}
+                >
+                  {num}
+                </a>
+              ) : (
+                <span className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-medium bg-muted text-muted-foreground rounded-full ml-0.5 align-super">
+                  {num}
+                </span>
+              )
+            }
+            return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">{children}</a>
+          },
+        }}
+      >
+        {processed}
+      </ReactMarkdown>
     </div>
   )
 }
@@ -488,13 +611,20 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user'
   const hasCitations = !isUser && message.citations && message.citations.length > 0
   const hasWebSources = !isUser && message.webSources && message.webSources.length > 0
-  const hasSources = hasCitations || hasWebSources
+  const badge = !isUser ? getModeBadge(message.modelUsed) : null
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[85%] rounded-lg px-3 py-2 ${
         isUser ? 'bg-primary text-primary-foreground' : 'bg-muted'
       }`}>
+        {/* Model badge */}
+        {badge && !message.isStreaming && (
+          <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground mb-1">
+            {badge.icon} {badge.label}
+          </span>
+        )}
+
         {message.isStreaming && !message.content && (
           <div className="flex gap-1 py-1">
             <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" />
@@ -503,25 +633,22 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         )}
 
-        <div className="text-sm whitespace-pre-wrap break-words">
-          <RenderTextWithFootnotes
-            text={message.content}
-            citations={message.citations}
-          />
-        </div>
+        {isUser ? (
+          <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
+        ) : (
+          <MarkdownWithFootnotes content={message.content} citations={message.citations} />
+        )}
 
         {message.isStreaming && message.content && (
           <span className="inline-block w-1.5 h-3 bg-foreground/50 animate-pulse ml-0.5" />
         )}
 
-        {/* Footnotes — notas al pie numeradas con link a PDF */}
         {hasCitations && !message.isStreaming && message.citations!.length > 0 && (
           <div className="mt-2 pt-2 border-t border-border/50">
             <Footnotes citations={message.citations!} />
           </div>
         )}
 
-        {/* Jurisprudencia — acordeón colapsado */}
         {hasWebSources && !message.isStreaming && (
           <details className="mt-1.5">
             <summary className="text-[10px] font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
@@ -533,7 +660,6 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </details>
         )}
 
-        {/* Thinking content (collapsible) */}
         {!isUser && message.thinkingContent && (
           <details className="mt-2 pt-2 border-t border-border/50">
             <summary className="text-[10px] text-muted-foreground cursor-pointer">
@@ -553,97 +679,51 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 // Expediente Citations — formato "a fojas" agrupadas por tipo
 // ─────────────────────────────────────────────────────────────
 
-const DOC_TYPE_DISPLAY: Record<string, string> = {
-  sentencia: 'Sentencias',
-  resolucion: 'Resoluciones',
-  resolución: 'Resoluciones',
-  escrito: 'Escritos',
-  actuacion: 'Actuaciones',
-  actuación: 'Actuaciones',
+const CITE_DOC_LABELS: Record<string, string> = {
+  folio_principal: 'Documento principal',
+  folio_certificado: 'Certificado de envío',
+  folio_anexo: 'Anexo de solicitud',
+  folio: 'Documento del expediente',
+  directo: 'Escrito presentado',
+  sentencia: 'Sentencia',
+  resolucion: 'Resolución',
+  resolución: 'Resolución',
+  escrito: 'Escrito',
+  actuacion: 'Actuación',
+  actuación: 'Actuación',
   demanda: 'Demanda',
   contestacion: 'Contestación',
   contestación: 'Contestación',
   mandamiento: 'Mandamiento',
-  auto_prueba: 'Auto de Prueba',
-  acta_embargo: 'Acta de Embargo',
-  acta_audiencia: 'Acta de Audiencia',
+  auto_prueba: 'Auto de prueba',
+  acta_embargo: 'Acta de embargo',
+  acta_audiencia: 'Acta de audiencia',
+  receptor: 'Diligencia de receptor',
 }
 
-function ExpedienteCitations({ citations }: { citations: AIExpedienteCitation[] }) {
-  const grouped = new Map<string, AIExpedienteCitation[]>()
-
-  for (const c of citations) {
-    const type = c.documentType ?? 'documento'
-    const existing = grouped.get(type) ?? []
-    existing.push(c)
-    grouped.set(type, existing)
-  }
-
-  return (
-    <div>
-      <p className="text-[10px] font-semibold text-muted-foreground mb-1">📄 FUENTES DEL EXPEDIENTE</p>
-      {Array.from(grouped.entries()).map(([type, cites]) => (
-        <div key={type} className="mb-1.5">
-          <p className="text-[10px] font-medium text-muted-foreground/80">
-            {DOC_TYPE_DISPLAY[type.toLowerCase()] ?? capitalize(type)}
-          </p>
-          {cites.map((c, i) => (
-            <div key={i} className="pl-2 mb-0.5">
-              <div className="flex items-center gap-1">
-                <p className="text-[10px] text-muted-foreground">
-                  {formatFojaCitation(c)}
-                </p>
-                {c.documentId && (
-                  <a
-                    href={`/pdf-viewer?documentId=${c.documentId}${c.pageNumber ? `&page=${c.pageNumber}` : ''}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[9px] text-blue-500 hover:underline flex-shrink-0"
-                  >
-                    Ver PDF →
-                  </a>
-                )}
-              </div>
-              {c.citedText && (
-                <p className="text-[10px] text-muted-foreground/60 italic pl-1 truncate">
-                  &ldquo;{c.citedText.slice(0, 120)}{c.citedText.length > 120 ? '...' : ''}&rdquo;
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  )
+function humanizeDocType(raw: string): string {
+  return CITE_DOC_LABELS[raw] ?? raw.replace(/_/g, ' ')
 }
 
 function formatFojaCitation(c: AIExpedienteCitation): string {
+  const docLabel = c.documentType ? humanizeDocType(c.documentType) : null
+  const sectionLabel = c.sectionType && c.sectionType !== 'general'
+    ? c.sectionType.replace(/_/g, ' ')
+    : null
+
   const parts: string[] = []
 
-  if (c.foja != null) {
-    parts.push(`A fojas ${c.foja}`)
+  if (docLabel) parts.push(docLabel)
+  if (c.foja != null) parts.push(`fojas ${c.foja}`)
+  if (c.folioNumero != null) parts.push(`folio ${c.folioNumero}`)
+  if (c.cuaderno) parts.push(`cuaderno ${c.cuaderno}`)
+  if (c.fechaTramite) parts.push(c.fechaTramite)
+  if (sectionLabel && !parts.some(p => p.toLowerCase().includes(sectionLabel.toLowerCase()))) {
+    parts.push(sectionLabel)
   }
+  if (c.pageNumber != null && parts.length < 3) parts.push(`pág. ${c.pageNumber}`)
 
-  if (c.cuaderno) {
-    parts.push(`cuaderno ${c.cuaderno}`)
-  }
-
-  if (c.fechaTramite) {
-    parts.push(`(${c.fechaTramite})`)
-  } else if (c.folioNumero != null) {
-    parts.push(`folio ${c.folioNumero}`)
-  }
-
-  if (parts.length === 0) {
-    const fallback = [
-      c.documentType,
-      c.folioNumero != null ? `folio ${c.folioNumero}` : null,
-      c.fechaTramite,
-    ].filter(Boolean)
-    return fallback.join(', ') || 'Documento del expediente'
-  }
-
-  return parts.join(', ')
+  return parts.length > 0 ? parts.join(' · ') : 'Documento del expediente'
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -760,13 +840,7 @@ function RenderTextWithFootnotes({
 }
 
 function formatFootnoteTooltip(c: AIExpedienteCitation): string {
-  const parts = [
-    c.foja != null ? `A fojas ${c.foja}` : null,
-    c.cuaderno ? `cuaderno ${c.cuaderno}` : null,
-    c.fechaTramite ? `(${c.fechaTramite})` : null,
-    c.documentType,
-  ].filter(Boolean)
-  return parts.join(', ') || 'Fuente del expediente'
+  return formatFojaCitation(c)
 }
 
 function Footnotes({ citations }: { citations: AIExpedienteCitation[] }) {
