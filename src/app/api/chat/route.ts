@@ -17,7 +17,7 @@ import { createClient, createAdminClient, createClientWithToken } from '@/lib/su
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { askCaseStream } from '@/lib/ai/rag/pipeline'
 import { getEnhancedAnalysisStream } from '@/lib/ai/rag/enhanced-pipeline'
-import { aiStreamToSSE } from '@/lib/ai/router'
+import { aiStreamToResilientSSE } from '@/lib/ai/router'
 import type { AIMode } from '@/lib/ai/types'
 
 export async function OPTIONS(request: NextRequest) {
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const sseStream = aiStreamToSSE(stream)
+    const sseStream = aiStreamToResilientSSE(stream)
 
     return new Response(sseStream, {
       headers: {

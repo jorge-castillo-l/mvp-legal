@@ -16,6 +16,7 @@
 
 // Cargar configuración centralizada (MV3 Service Workers requieren importScripts al top-level)
 importScripts('lib/config.js');
+importScripts('lib/supabase.js');
 
 // ══════════════════════════════════════════════════════════
 // SETUP: SidePanel behavior
@@ -196,6 +197,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Sync orchestrator messages
+  if (message.type === 'start_sync') {
+    executeSyncInBackground(message.causaPackage, message.causaInfo)
+      .catch(err => console.error('[SW-Sync] Unhandled:', err));
+    sendResponse({ status: 'started' });
+    return;
+  }
+
+  if (message.type === 'get_sync_state') {
+    getSyncJob().then(job => sendResponse({ syncJob: job }));
+    return true;
+  }
+
+  if (message.type === 'clear_sync_state') {
+    clearSyncJob().then(() => sendResponse({ status: 'cleared' }));
+    return true;
+  }
+
   // Enviar mensaje al content script de la pestaña activa
   if (message.type === 'forward_to_content') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -210,6 +229,301 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 });
+
+// ══════════════════════════════════════════════════════════
+// SYNC ORCHESTRATOR
+// Runs sync in the background, independent of sidepanel.
+// The sidepanel delegates sync here via 'start_sync' message.
+// Progress is broadcast back; state is persisted in storage
+// so the panel can recover on reopen.
+// ══════════════════════════════════════════════════════════
+
+let isSWsyncing = false;
+let lastStorageProgressUpdate = 0;
+const STORAGE_PROGRESS_INTERVAL = 3000;
+
+function getSyncJob() {
+  return new Promise(resolve => {
+    chrome.storage.local.get(['sync_job'], r => resolve(r.sync_job || null));
+  });
+}
+
+function setSyncJob(job) {
+  return new Promise(resolve => {
+    chrome.storage.local.set({ sync_job: job }, resolve);
+  });
+}
+
+function clearSyncJob() {
+  return new Promise(resolve => {
+    chrome.storage.local.remove(['sync_job'], resolve);
+  });
+}
+
+function broadcastSyncUpdate(update) {
+  chrome.runtime.sendMessage({ type: 'sync_update', ...update }).catch(() => {});
+
+  if (update.event === 'progress') {
+    const now = Date.now();
+    if (now - lastStorageProgressUpdate > STORAGE_PROGRESS_INTERVAL) {
+      lastStorageProgressUpdate = now;
+      chrome.storage.local.get(['sync_job'], (r) => {
+        const job = r.sync_job;
+        if (job && job.status === 'syncing') {
+          job.progress = update.data;
+          chrome.storage.local.set({ sync_job: job });
+        }
+      });
+    }
+  }
+}
+
+async function executeSyncInBackground(causaPackage, causaInfo) {
+  if (isSWsyncing) {
+    broadcastSyncUpdate({ event: 'error', data: { message: 'Ya hay una sincronización en curso.' } });
+    return;
+  }
+  isSWsyncing = true;
+
+  const MAX_RESUME_ITERATIONS = 30;
+  const MAX_NULL_RETRIES = 3;
+
+  let totalAccumulated = 0;
+  let allDocumentsNew = [];
+  let allChanges = [];
+  let resumeCaseId = null;
+  let lastKnownCaseId = null;
+  let iteration = 0;
+  let nullStreakCount = 0;
+  let syncResult = null;
+
+  const nCuadernos = (causaPackage.otros_cuadernos?.length || 0) + 1;
+
+  await setSyncJob({
+    status: 'syncing',
+    rol: causaInfo.rol,
+    tribunal: causaInfo.tribunal,
+    caratula: causaInfo.caratula,
+    startedAt: Date.now(),
+    progress: { percent: 10, message: `Iniciando sync: ${nCuadernos} cuaderno(s)...` },
+    totalAccumulated: 0,
+    result: null,
+    error: null,
+    completedAt: null,
+  });
+
+  broadcastSyncUpdate({
+    event: 'progress',
+    data: { percent: 10, message: `Iniciando sync: ${nCuadernos} cuaderno(s)...` },
+  });
+
+  try {
+    do {
+      iteration++;
+      const payload = resumeCaseId
+        ? { ...causaPackage, resume_case_id: resumeCaseId }
+        : causaPackage;
+
+      if (resumeCaseId) {
+        console.log(`[SW-Sync] Resume iteration ${iteration}, case ${resumeCaseId}`);
+        const pct = 10 + Math.round((totalAccumulated / (totalAccumulated + 100)) * 80);
+        broadcastSyncUpdate({
+          event: 'progress',
+          data: { percent: pct, message: `Continuando descarga (lote ${iteration})…` },
+        });
+      }
+
+      const session = await supabase.ensureFreshSession();
+      if (!session?.access_token) {
+        throw new Error('Sesión expirada durante la sincronización. Abra el panel y reintente.');
+      }
+
+      const iterResult = await swCallSyncSSE(payload, session.access_token);
+
+      if (iterResult) {
+        nullStreakCount = 0;
+        syncResult = iterResult;
+        totalAccumulated += iterResult.total_downloaded || 0;
+        if (iterResult.documents_new?.length) allDocumentsNew.push(...iterResult.documents_new);
+        if (iterResult.changes?.length) allChanges.push(...iterResult.changes);
+        lastKnownCaseId = iterResult.case_id || lastKnownCaseId;
+        resumeCaseId = iterResult.has_pending ? iterResult.case_id : null;
+
+        if (iterResult.has_pending) {
+          console.log(`[SW-Sync] Pending: ${iterResult.pending_count} tasks. Retrying in 3s...`);
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      } else {
+        nullStreakCount++;
+        console.warn(`[SW-Sync] Stream cortado sin resultado (intento ${nullStreakCount}/${MAX_NULL_RETRIES})`);
+
+        if (lastKnownCaseId && nullStreakCount <= MAX_NULL_RETRIES) {
+          resumeCaseId = lastKnownCaseId;
+          const pct = 10 + Math.round((totalAccumulated / (totalAccumulated + 100)) * 80);
+          broadcastSyncUpdate({
+            event: 'progress',
+            data: { percent: pct, message: `Reconectando (intento ${nullStreakCount})…` },
+          });
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          resumeCaseId = null;
+        }
+      }
+    } while (resumeCaseId && iteration < MAX_RESUME_ITERATIONS);
+
+    if (syncResult) {
+      syncResult.total_downloaded = totalAccumulated;
+      syncResult.documents_new = allDocumentsNew;
+      syncResult.changes = allChanges;
+
+      // Store sync badge for "Mis Causas" tab
+      if (syncResult.case_id && allDocumentsNew.length > 0) {
+        try {
+          const badgeResult = await new Promise(resolve =>
+            chrome.storage.local.get(['sync_badges'], r => resolve(r.sync_badges || {}))
+          );
+          badgeResult[syncResult.case_id] = {
+            newCount: allDocumentsNew.length,
+            rol: syncResult.rol,
+            syncedAt: new Date().toISOString(),
+          };
+          await new Promise(resolve =>
+            chrome.storage.local.set({ sync_badges: badgeResult }, resolve)
+          );
+        } catch (e) {
+          console.warn('[SW-Sync] Badge storage error:', e.message);
+        }
+      }
+
+      await setSyncJob({
+        status: 'completed',
+        rol: causaInfo.rol,
+        tribunal: causaInfo.tribunal,
+        caratula: causaInfo.caratula,
+        startedAt: Date.now(),
+        progress: { percent: 100, message: '¡Sincronización completada!' },
+        totalAccumulated,
+        result: syncResult,
+        error: null,
+        completedAt: Date.now(),
+      });
+
+      broadcastSyncUpdate({ event: 'complete', data: syncResult });
+    } else {
+      await setSyncJob({
+        status: 'failed',
+        rol: causaInfo.rol,
+        tribunal: causaInfo.tribunal,
+        caratula: causaInfo.caratula,
+        progress: { percent: 100, message: 'La conexión se perdió.' },
+        result: null,
+        error: 'Conexión perdida — los documentos descargados se guardaron. Vuelva a sincronizar para continuar.',
+        completedAt: Date.now(),
+      });
+
+      broadcastSyncUpdate({
+        event: 'error',
+        data: { message: 'Conexión perdida — los documentos descargados se guardaron. Vuelva a sincronizar para continuar.' },
+      });
+    }
+  } catch (error) {
+    console.error('[SW-Sync] Error:', error);
+
+    await setSyncJob({
+      status: 'failed',
+      rol: causaInfo.rol,
+      tribunal: causaInfo.tribunal,
+      caratula: causaInfo.caratula,
+      progress: { percent: 100, message: `Error: ${error.message}` },
+      result: null,
+      error: error.message,
+      completedAt: Date.now(),
+    });
+
+    broadcastSyncUpdate({ event: 'error', data: { message: error.message } });
+  } finally {
+    isSWsyncing = false;
+  }
+}
+
+async function swCallSyncSSE(causaPackage, accessToken) {
+  const response = await fetch(CONFIG.API.SCRAPER_SYNC, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    },
+    body: JSON.stringify(causaPackage),
+  });
+
+  if (!response.ok) {
+    let errMsg = `Error del servidor: HTTP ${response.status}`;
+    try {
+      const err = await response.json();
+      if (err.error) errMsg = err.error;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!contentType.includes('text/event-stream')) {
+    return await response.json();
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let syncResult = null;
+  let errorMsg = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        const eventMatch = block.match(/^event:\s*(.+)$/m);
+        const dataMatch = block.match(/^data:\s*(.+)$/m);
+        if (!eventMatch || !dataMatch) continue;
+
+        const event = eventMatch[1].trim();
+        let data;
+        try { data = JSON.parse(dataMatch[1]); } catch { continue; }
+
+        if (event === 'progress') {
+          const total = data.total || 0;
+          const current = data.current || 0;
+          const pct = total > 0 ? 10 + Math.round((current / total) * 80) : 15;
+          broadcastSyncUpdate({ event: 'progress', data: { percent: pct, message: data.message } });
+        } else if (event === 'complete') {
+          if (data.has_pending) {
+            broadcastSyncUpdate({ event: 'progress', data: { percent: 90, message: 'Lote completado. Continuando descarga…' } });
+          } else {
+            broadcastSyncUpdate({ event: 'progress', data: { percent: 100, message: '¡Sincronización completada!' } });
+          }
+          syncResult = data;
+        } else if (event === 'error') {
+          errorMsg = data.message;
+        }
+      }
+
+      if (syncResult || errorMsg) break;
+    }
+  } finally {
+    try { reader.cancel(); } catch {}
+    try { reader.releaseLock(); } catch {}
+  }
+
+  if (errorMsg) throw new Error(errorMsg);
+  return syncResult;
+}
 
 // ══════════════════════════════════════════════════════════
 // CONFIG CACHE: Pre-cargar configuración remota

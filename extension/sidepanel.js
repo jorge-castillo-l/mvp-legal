@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupDeleteListeners();
   setupScraperEventListener();
   setupTabChangeDetection();
+  await recoverSyncState();
 
   setTimeout(requestCausaDetection, 1000);
   setInterval(checkAuthentication, 30000);
@@ -506,7 +507,13 @@ function hideCausaPackagePreview() {
 }
 
 // ══════════════════════════════════════════════════════════
-// 7. SYNC v2 — Flujo directo a API + SSE (4.18)
+// 7. SYNC v2 — Delegated to Service Worker (resilient)
+//
+// The sidepanel triggers sync and extracts the CausaPackage,
+// then delegates execution to the Service Worker which runs
+// the SSE loop independently. If the panel closes mid-sync,
+// the SW continues and stores the result. On reopen the panel
+// recovers the state from chrome.storage.local.
 // ══════════════════════════════════════════════════════════
 
 async function handleSync() {
@@ -520,18 +527,46 @@ async function handleSync() {
     caratula: lastDetectedCausa.caratula || '',
   };
 
+  enterSyncingUI();
+  updateProgress(0, 'Conectando...');
+
+  try {
+    updateProgress(5, 'Extrayendo paquete de la causa...');
+    const causaPackage = await getCausaPackage();
+    if (!causaPackage) throw new Error('No se pudo obtener el paquete de la causa. Asegúrese de estar viendo el modal de una causa en PJUD.');
+
+    const nCuadernos = (causaPackage.otros_cuadernos?.length || 0) + 1;
+    updateCausaPackagePreview(nCuadernos);
+    updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s)...`);
+
+    chrome.runtime.sendMessage({
+      type: 'start_sync',
+      causaPackage,
+      causaInfo: syncingCausaInfo,
+    });
+
+  } catch (error) {
+    console.error('[Sync] Error preparing sync:', error);
+    updateProgress(100, `Error: ${error.message}`, 'error');
+    renderCompactResult(null, `Error: ${error.message}`, 'error');
+    leaveSyncingUI(false);
+  }
+}
+
+function enterSyncingUI() {
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.disabled = true;
 
   const syncBtn = document.getElementById('sync-btn');
   const compactEl = document.getElementById('sync-compact');
   const waitBanner = document.getElementById('sync-wait-banner');
-  const causaRol = document.getElementById('causa-rol');
 
-  syncBtn.disabled = true;
-  syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando…';
-  compactEl.style.display = 'block';
-  if (waitBanner) {
+  if (syncBtn) {
+    syncBtn.disabled = true;
+    syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando…';
+  }
+  if (compactEl) compactEl.style.display = 'block';
+  if (waitBanner && syncingCausaInfo) {
     const parts = [`<strong>${escapeHtml(syncingCausaInfo.rol)}</strong>`];
     if (syncingCausaInfo.tribunal) parts.push(escapeHtml(syncingCausaInfo.tribunal));
     if (syncingCausaInfo.caratula) parts.push(escapeHtml(syncingCausaInfo.caratula));
@@ -543,126 +578,86 @@ async function handleSync() {
   document.getElementById('sync-compact-details').innerHTML = '';
   const sizeWarnings = document.getElementById('size-warnings-content');
   if (sizeWarnings) { sizeWarnings.style.display = 'none'; sizeWarnings.innerHTML = ''; }
+}
 
-  updateProgress(0, 'Conectando...');
-
-  let syncSuccess = false;
-  let syncResult = null;
-
-  try {
-    updateProgress(5, 'Extrayendo paquete de la causa...');
-    const causaPackage = await getCausaPackage();
-    if (!causaPackage) throw new Error('No se pudo obtener el paquete de la causa. Asegúrese de estar viendo el modal de una causa en PJUD.');
-
-    const nCuadernos = (causaPackage.otros_cuadernos?.length || 0) + 1;
-    updateCausaPackagePreview(nCuadernos);
-
-    const initialSession = await supabase.ensureFreshSession();
-    if (!initialSession?.access_token) throw new Error('Sesión no disponible. Por favor recargue la extensión.');
-
-    updateProgress(10, `Iniciando sync: ${nCuadernos} cuaderno(s)...`);
-    let totalAccumulated = 0;
-    let allDocumentsNew = [];
-    let allChanges = [];
-    let resumeCaseId = null;
-    let lastKnownCaseId = null;
-    let iteration = 0;
-    let nullStreakCount = 0;
-    const MAX_RESUME_ITERATIONS = 30;
-    const MAX_NULL_RETRIES = 3;
-
-    do {
-      iteration++;
-      const payload = resumeCaseId
-        ? { ...causaPackage, resume_case_id: resumeCaseId }
-        : causaPackage;
-
-      if (resumeCaseId) {
-        console.log(`[Sync] Resume iteration ${iteration}, case ${resumeCaseId}`);
-        updateProgress(
-          10 + Math.round((totalAccumulated / (totalAccumulated + 100)) * 80),
-          `Continuando descarga (lote ${iteration})…`
-        );
-      }
-
-      const freshSession = await supabase.ensureFreshSession();
-      if (!freshSession?.access_token) throw new Error('Sesión expirada durante la sincronización. Por favor inicie sesión nuevamente.');
-
-      const iterResult = await callSyncWithSSE(payload, freshSession.access_token);
-
-      if (iterResult) {
-        nullStreakCount = 0;
-        syncResult = iterResult;
-        totalAccumulated += iterResult.total_downloaded || 0;
-        if (iterResult.documents_new?.length) allDocumentsNew.push(...iterResult.documents_new);
-        if (iterResult.changes?.length) allChanges.push(...iterResult.changes);
-        lastKnownCaseId = iterResult.case_id || lastKnownCaseId;
-        resumeCaseId = iterResult.has_pending ? iterResult.case_id : null;
-
-        if (iterResult.has_pending) {
-          console.log(`[Sync] Pending: ${iterResult.pending_count} tasks. Retrying in 3s...`);
-          await new Promise(r => setTimeout(r, 3000));
-        }
-      } else {
-        nullStreakCount++;
-        console.warn(`[Sync] Stream cortado sin resultado (intento ${nullStreakCount}/${MAX_NULL_RETRIES})`);
-
-        if (lastKnownCaseId && nullStreakCount <= MAX_NULL_RETRIES) {
-          resumeCaseId = lastKnownCaseId;
-          updateProgress(
-            10 + Math.round((totalAccumulated / (totalAccumulated + 100)) * 80),
-            `Reconectando (intento ${nullStreakCount})…`
-          );
-          await new Promise(r => setTimeout(r, 3000));
-        } else {
-          resumeCaseId = null;
-        }
-      }
-    } while (resumeCaseId && iteration < MAX_RESUME_ITERATIONS);
-
-    if (syncResult) {
-      syncResult.total_downloaded = totalAccumulated;
-      syncResult.documents_new = allDocumentsNew;
-      syncResult.changes = allChanges;
-      showSyncResultsV2(syncResult);
-      syncSuccess = true;
-    } else {
-      updateProgress(100, 'La conexión se perdió. Al re-sincronizar, continuará donde quedó.', 'warning');
-      renderCompactResult(null, 'Conexión perdida — los documentos descargados se guardaron. Vuelva a sincronizar para continuar.', 'warning');
-    }
-
-  } catch (error) {
-    console.error('[Sync] Error:', error);
-    updateProgress(100, `Error: ${error.message}`, 'error');
-    renderCompactResult(null, `Error: ${error.message}`, 'error');
-  }
-
+function leaveSyncingUI(success) {
   isSyncing = false;
   syncingCausaInfo = null;
+  const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.disabled = false;
+  finishSyncUI(success);
+}
 
-  if (syncSuccess) {
-    lastSyncState = {
-      lastSyncedAt: new Date().toISOString(),
-      rol: lastDetectedCausa?.rol || '',
-      tribunal: lastDetectedCausa?.tribunal || '',
-    };
-  }
+function handleSyncCompleteFromSW(syncResult) {
+  updateProgress(100, '¡Sincronización completada!', 'success');
+  showSyncResultsV2(syncResult);
+  leaveSyncingUI(true);
 
-  finishSyncUI(syncSuccess);
+  lastSyncState = {
+    lastSyncedAt: new Date().toISOString(),
+    rol: syncResult.rol || syncingCausaInfo?.rol || lastDetectedCausa?.rol || '',
+    tribunal: syncResult.tribunal || syncingCausaInfo?.tribunal || lastDetectedCausa?.tribunal || '',
+  };
 
-  try {
-    if (syncResult) await storeSyncBadge(syncResult);
-    if (lastDetectedCausa?.rol && currentUser?.id) {
-      const syncState = await fetchSyncState(currentUser.id, lastDetectedCausa.rol, lastDetectedCausa.tribunal || '');
-      applySyncStateUI(lastDetectedCausa, syncState);
-      await saveSyncedCausaRegistry(lastDetectedCausa);
+  (async () => {
+    try {
+      await storeSyncBadge(syncResult);
+      const rol = syncResult.rol || lastDetectedCausa?.rol;
+      const tribunal = syncResult.tribunal || lastDetectedCausa?.tribunal || '';
+      if (rol && currentUser?.id) {
+        const syncState = await fetchSyncState(currentUser.id, rol, tribunal);
+        if (lastDetectedCausa) {
+          applySyncStateUI(lastDetectedCausa, syncState);
+        }
+        await saveSyncedCausaRegistry({ rol, tribunal, caratula: syncResult.caratula || lastDetectedCausa?.caratula || '' });
+      }
+    } catch (e) {
+      console.warn('[Sync] Post-sync bookkeeping error:', e.message);
     }
-  } catch (postErr) {
-    console.warn('[Sync] Post-sync bookkeeping error (sync succeeded):', postErr.message);
-  }
+  })();
 
   if (casesLoaded) { casesLoaded = false; loadCases(); }
+  chrome.runtime.sendMessage({ type: 'clear_sync_state' }).catch(() => {});
+}
+
+function handleSyncErrorFromSW(errorMessage) {
+  updateProgress(100, `Error: ${errorMessage}`, 'error');
+  renderCompactResult(null, errorMessage, 'error');
+  leaveSyncingUI(false);
+  chrome.runtime.sendMessage({ type: 'clear_sync_state' }).catch(() => {});
+}
+
+async function recoverSyncState() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'get_sync_state' });
+    const job = response?.syncJob;
+    if (!job) return;
+
+    const STALE_THRESHOLD = 10 * 60 * 1000;
+
+    if (job.status === 'syncing') {
+      if (job.startedAt && Date.now() - job.startedAt > STALE_THRESHOLD) {
+        console.warn('[Sidepanel] Stale sync job detected, clearing.');
+        chrome.runtime.sendMessage({ type: 'clear_sync_state' }).catch(() => {});
+        return;
+      }
+
+      isSyncing = true;
+      syncingCausaInfo = { rol: job.rol, tribunal: job.tribunal, caratula: job.caratula };
+      enterSyncingUI();
+      if (job.progress) {
+        updateProgress(job.progress.percent, job.progress.message);
+      }
+
+    } else if (job.status === 'completed' && job.result) {
+      handleSyncCompleteFromSW(job.result);
+
+    } else if (job.status === 'failed') {
+      handleSyncErrorFromSW(job.error || 'Error desconocido durante la sincronización.');
+    }
+  } catch (e) {
+    console.warn('[Sidepanel] Error recovering sync state:', e.message);
+  }
 }
 
 /**
@@ -703,106 +698,6 @@ async function getCausaPackage() {
   }
 
   return null;
-}
-
-/**
- * Llama a /api/scraper/sync con el CausaPackage y consume el SSE stream.
- * El servidor continúa aunque el cliente se desconecte.
- */
-async function callSyncWithSSE(causaPackage, accessToken) {
-  const response = await fetch(CONFIG.API.SCRAPER_SYNC, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream',
-    },
-    body: JSON.stringify(causaPackage),
-  });
-
-  if (!response.ok) {
-    let errMsg = `Error del servidor: HTTP ${response.status}`;
-    try {
-      const err = await response.json();
-      if (err.error) errMsg = err.error;
-    } catch {}
-    throw new Error(errMsg);
-  }
-
-  const contentType = response.headers.get('content-type') || '';
-
-  if (!contentType.includes('text/event-stream')) {
-    // Fallback JSON (compatibilidad)
-    return await response.json();
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let syncResult = null;
-  let errorMsg = null;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const blocks = buffer.split('\n\n');
-      buffer = blocks.pop() || '';
-
-      for (const block of blocks) {
-        if (!block.trim()) continue;
-        const eventMatch = block.match(/^event:\s*(.+)$/m);
-        const dataMatch = block.match(/^data:\s*(.+)$/m);
-        if (!eventMatch || !dataMatch) continue;
-
-        const event = eventMatch[1].trim();
-        let data;
-        try { data = JSON.parse(dataMatch[1]); } catch { continue; }
-
-        handleSSEEvent(event, data);
-
-        if (event === 'complete') syncResult = data;
-        else if (event === 'error') errorMsg = data.message;
-      }
-
-      if (syncResult || errorMsg) break;
-    }
-  } finally {
-    try { reader.cancel(); } catch {}
-    try { reader.releaseLock(); } catch {}
-  }
-
-  if (errorMsg) throw new Error(errorMsg);
-  return syncResult;
-}
-
-/**
- * Procesa cada evento SSE recibido y actualiza la UI.
- */
-function handleSSEEvent(event, data) {
-  switch (event) {
-    case 'progress': {
-      const total = data.total || 0;
-      const current = data.current || 0;
-      const pct = total > 0 ? 10 + Math.round((current / total) * 80) : 15;
-      updateProgress(pct, data.message);
-      break;
-    }
-    case 'complete':
-      if (data.has_pending) {
-        updateProgress(90, 'Lote completado. Continuando descarga…');
-      } else {
-        updateProgress(100, '¡Sincronización completada!', 'success');
-        finishSyncUI(true);
-      }
-      break;
-    case 'error':
-      updateProgress(100, `Error: ${data.message}`, 'error');
-      finishSyncUI(false);
-      break;
-  }
 }
 
 function finishSyncUI(success) {
@@ -1192,7 +1087,25 @@ function setupScraperEventListener() {
     if (message.type === 'scraper_ready') {
       if (message.causa) displayDetectedCausa(message.causa).catch(() => {});
     }
+    if (message.type === 'sync_update') {
+      handleSyncUpdateFromSW(message);
+    }
   });
+}
+
+function handleSyncUpdateFromSW(message) {
+  const { event, data } = message;
+  switch (event) {
+    case 'progress':
+      updateProgress(data.percent, data.message);
+      break;
+    case 'complete':
+      handleSyncCompleteFromSW(data);
+      break;
+    case 'error':
+      handleSyncErrorFromSW(data.message);
+      break;
+  }
 }
 
 function handleScraperEvent(event, data) {

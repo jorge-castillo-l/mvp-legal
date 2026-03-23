@@ -121,6 +121,75 @@ export function aiStreamToSSE(stream: AIResponseStream): ReadableStream<Uint8Arr
 }
 
 // ─────────────────────────────────────────────────────────────
+// Resilient SSE — decouples generator consumption from client.
+//
+// The generator (which includes persistence logic) is consumed
+// in a background task that runs to completion even if the HTTP
+// client disconnects. Events are relayed to the client through
+// an async queue; if the client is gone, events are still
+// consumed so the generator's finally-block (persistence) runs.
+// ─────────────────────────────────────────────────────────────
+
+export function aiStreamToResilientSSE(stream: AIResponseStream): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  const queue: AIStreamEvent[] = []
+  let notifyReader: (() => void) | null = null
+  let generatorDone = false
+  let canceled = false
+
+  const bgConsumer = (async () => {
+    try {
+      for await (const event of stream) {
+        queue.push(event)
+        notifyReader?.()
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      queue.push({ type: 'error', error: msg } as AIStreamEvent)
+      notifyReader?.()
+    } finally {
+      generatorDone = true
+      notifyReader?.()
+    }
+  })()
+
+  bgConsumer.catch(err => {
+    console.error('[aiStreamToResilientSSE] Background consumer error:', err)
+  })
+
+  return new ReadableStream({
+    async pull(controller) {
+      if (canceled) return
+
+      while (queue.length === 0 && !generatorDone && !canceled) {
+        await new Promise<void>(resolve => { notifyReader = resolve })
+        notifyReader = null
+      }
+
+      if (canceled) return
+
+      while (queue.length > 0) {
+        const event = queue.shift()!
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        } catch {
+          canceled = true
+          return
+        }
+      }
+
+      if (generatorDone && queue.length === 0) {
+        controller.close()
+      }
+    },
+    cancel() {
+      canceled = true
+      notifyReader?.()
+    },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
 // Retry logic
 // ─────────────────────────────────────────────────────────────
 

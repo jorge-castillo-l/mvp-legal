@@ -156,6 +156,12 @@ export default function ChatPage() {
   }, [])
 
   useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+    }
+  }, [])
+
+  useEffect(() => {
     if (selectedCase) {
       abortRef.current?.abort()
       loadHistory(selectedCase.id)
