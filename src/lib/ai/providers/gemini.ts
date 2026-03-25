@@ -96,27 +96,33 @@ function humanizeLabel(value: string, map: Record<string, string>): string {
   return value.replace(/_/g, ' ')
 }
 
+function buildDocumentLabel(chunk: AIContextChunk): string {
+  const m = chunk.metadata
+  const docType = m.documentType ? humanizeLabel(m.documentType, DOC_TYPE_LABELS) : null
+  const section = m.sectionType && m.sectionType !== 'general'
+    ? humanizeLabel(m.sectionType, SECTION_LABELS)
+    : null
+  const descTramite = m.descTramite ?? null
+
+  const label = docType ?? descTramite ?? 'Documento del expediente'
+
+  const details = [
+    section && `Sección: ${section}`,
+    m.folioNumero != null && `Folio: ${m.folioNumero}`,
+    m.cuaderno && `Cuaderno: ${m.cuaderno}`,
+    m.fechaTramite && `Fecha: ${m.fechaTramite}`,
+    m.foja != null && `Foja: ${m.foja}`,
+    m.pageNumber != null && `Pág: ${m.pageNumber}`,
+  ].filter(Boolean).join(' | ')
+
+  return `[${label}${details ? ` — ${details}` : ''}]`
+}
+
 function buildContextBlock(chunks: AIContextChunk[]): string {
   if (chunks.length === 0) return ''
 
-  const lines = chunks.map((chunk, i) => {
-    const m = chunk.metadata
-    const docType = m.documentType ? humanizeLabel(m.documentType, DOC_TYPE_LABELS) : null
-    const section = m.sectionType && m.sectionType !== 'general'
-      ? humanizeLabel(m.sectionType, SECTION_LABELS)
-      : null
-
-    const header = [
-      docType && `Tipo: ${docType}`,
-      section && `Sección: ${section}`,
-      m.folioNumero != null && `Folio: ${m.folioNumero}`,
-      m.cuaderno && `Cuaderno: ${m.cuaderno}`,
-      m.fechaTramite && `Fecha: ${m.fechaTramite}`,
-      m.foja != null && `Foja: ${m.foja}`,
-      m.pageNumber != null && `Pág: ${m.pageNumber}`,
-    ].filter(Boolean).join(' | ')
-
-    return `[Documento ${i + 1}${header ? ` — ${header}` : ''}]\n${chunk.text}`
+  const lines = chunks.map((chunk) => {
+    return `${buildDocumentLabel(chunk)}\n${chunk.text}`
   })
 
   return `CONTEXTO DEL EXPEDIENTE:\n\n${lines.join('\n\n---\n\n')}`
@@ -190,20 +196,58 @@ function extractExpedienteCitations(
 ): AIExpedienteCitation[] {
   if (!context?.length) return []
 
+  const lower = text.toLowerCase()
+  const seen = new Set<string>()
   const citations: AIExpedienteCitation[] = []
+
   for (const chunk of context) {
-    const snippet = chunk.text.slice(0, 80)
-    if (text.toLowerCase().includes(snippet.toLowerCase().slice(0, 40))) {
+    const m = chunk.metadata
+    if (m.documentType === 'structured_context') continue
+
+    const key = m.documentId ?? chunk.chunkId
+    if (seen.has(key)) continue
+
+    let matchScore = 0
+
+    if (m.folioNumero != null && lower.includes(`folio ${m.folioNumero}`)) {
+      matchScore += 2
+    }
+    if (m.fechaTramite && lower.includes(m.fechaTramite.toLowerCase())) {
+      matchScore += 2
+    }
+    if (m.foja != null) {
+      const fojaStr = `foja${m.foja > 1 ? 's' : ''} ${m.foja}`
+      if (lower.includes(fojaStr) || lower.includes(`foja ${m.foja}`)) {
+        matchScore += 2
+      }
+    }
+    if (m.documentType) {
+      const label = humanizeLabel(m.documentType, DOC_TYPE_LABELS).toLowerCase()
+      if (lower.includes(label)) matchScore += 1
+    }
+    if (m.descTramite && lower.includes(m.descTramite.toLowerCase().slice(0, 30))) {
+      matchScore += 1
+    }
+
+    if (matchScore === 0) {
+      const snippet = chunk.text.slice(0, 80)
+      if (lower.includes(snippet.toLowerCase().slice(0, 40))) {
+        matchScore += 1
+      }
+    }
+
+    if (matchScore >= 2) {
+      seen.add(key)
       citations.push({
-        citedText: snippet,
-        documentId: chunk.metadata.documentId ?? '',
-        documentType: chunk.metadata.documentType,
-        sectionType: chunk.metadata.sectionType,
-        folioNumero: chunk.metadata.folioNumero,
-        cuaderno: chunk.metadata.cuaderno,
-        fechaTramite: chunk.metadata.fechaTramite,
-        foja: chunk.metadata.foja,
-        pageNumber: chunk.metadata.pageNumber,
+        citedText: chunk.text.slice(0, 120),
+        documentId: m.documentId ?? '',
+        documentType: m.documentType,
+        sectionType: m.sectionType,
+        folioNumero: m.folioNumero,
+        cuaderno: m.cuaderno,
+        fechaTramite: m.fechaTramite,
+        foja: m.foja,
+        pageNumber: m.pageNumber,
       })
     }
   }
@@ -233,7 +277,9 @@ export class GeminiProvider implements AIProviderInterface {
     const contents = buildContents(options)
     const timeout = getTimeout(options.mode)
 
-    const cachedContentName = options.systemPrompt
+    // Gemini API prohibits cachedContent together with tools/tool_config,
+    // so skip cache when web search (googleSearch tool) is requested.
+    const cachedContentName = (options.systemPrompt && !useWebSearch)
       ? await getOrCreateGeminiCache(config.modelId, options.systemPrompt)
       : null
 
@@ -296,7 +342,7 @@ export class GeminiProvider implements AIProviderInterface {
     const ai = getClient()
     const contents = buildContents(options)
 
-    const cachedContentName = options.systemPrompt
+    const cachedContentName = (options.systemPrompt && !useWebSearch)
       ? await getOrCreateGeminiCache(config.modelId, options.systemPrompt)
       : null
 

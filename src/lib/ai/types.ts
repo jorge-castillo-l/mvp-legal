@@ -45,6 +45,13 @@ export interface AIRequestOptions {
    */
   enableWebSearch?: boolean
 
+  /**
+   * Indica que el usuario pidió EXPLÍCITAMENTE buscar en la web.
+   * Cuando es true, el provider fuerza el uso del tool de búsqueda web
+   * a nivel de API (tool_choice), no solo como sugerencia en el prompt.
+   */
+  isExplicitWebSearch?: boolean
+
   /** Señal de abort para cancelación por el usuario */
   signal?: AbortSignal
 }

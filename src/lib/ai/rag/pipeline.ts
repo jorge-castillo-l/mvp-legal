@@ -23,7 +23,7 @@ import { createAdminClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/database.types'
 import { getAIResponse, getAIResponseStream, aiStreamToSSE } from '../router'
 import { buildSystemPrompt } from '../prompts'
-import { shouldEnableWebSearch } from '../config'
+import { shouldEnableWebSearch, isExplicitWebSearchRequest } from '../config'
 import { retrieveChunks, type RetrievalOptions } from './retrieval'
 import { fetchCaseStructuredContext, getFilteredContextChunk, type CaseMetadataFromContext } from './case-context'
 import type {
@@ -150,11 +150,15 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
 
   const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
 
+  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
+  const explicitWeb = isExplicitWebSearchRequest(options.query)
+
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
     mode: options.mode,
     rol: caseMeta?.rol,
     tribunal: caseMeta?.tribunal,
+    isExplicitWebSearch: webSearch && explicitWeb,
   })
 
   const context = structuredResult
@@ -162,8 +166,6 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
     : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
-
-  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
 
   const response = await getAIResponse({
     mode: options.mode,
@@ -173,6 +175,7 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
     enableWebSearch: webSearch,
+    isExplicitWebSearch: webSearch && explicitWeb,
   })
 
   await Promise.all([
@@ -214,11 +217,15 @@ export async function* askCaseStream(
 
   const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
 
+  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
+  const explicitWeb = isExplicitWebSearchRequest(options.query)
+
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
     mode: options.mode,
     rol: caseMeta?.rol,
     tribunal: caseMeta?.tribunal,
+    isExplicitWebSearch: webSearch && explicitWeb,
   })
 
   const context = structuredResult
@@ -226,8 +233,6 @@ export async function* askCaseStream(
     : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
-
-  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
 
   const stream = getAIResponseStream({
     mode: options.mode,
@@ -237,6 +242,7 @@ export async function* askCaseStream(
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
     enableWebSearch: webSearch,
+    isExplicitWebSearch: webSearch && explicitWeb,
   })
 
   let fullText = ''

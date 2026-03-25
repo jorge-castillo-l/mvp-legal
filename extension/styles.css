@@ -140,6 +140,7 @@ h2 {
 
 .btn-icon {
   font-size: 18px;
+  filter: grayscale(1) brightness(100);
 }
 
 .spinner {

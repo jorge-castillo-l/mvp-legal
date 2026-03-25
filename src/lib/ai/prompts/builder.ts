@@ -26,7 +26,7 @@ import {
   DEADLINE_RULES,
   CITATION_FORMAT,
 } from './base'
-import { getProviderInstructions } from './provider-instructions'
+import { getProviderInstructions, MANDATORY_WEB_SEARCH_INSTRUCTION } from './provider-instructions'
 import { ORDINARIO_PROMPT } from './procedures/ordinario'
 import { EJECUTIVO_PROMPT } from './procedures/ejecutivo'
 import { SUMARIO_PROMPT } from './procedures/sumario'
@@ -50,6 +50,7 @@ export interface BuildSystemPromptOptions {
   mode: AIMode
   rol?: string | null
   tribunal?: string | null
+  isExplicitWebSearch?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ function buildCaseContext(options: BuildSystemPromptOptions): string {
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const sections = [
     BASE_ROLE,
+    options.isExplicitWebSearch ? MANDATORY_WEB_SEARCH_INSTRUCTION : '',
     buildCaseContext(options),
     BASE_RULES,
     TERMINOLOGY,

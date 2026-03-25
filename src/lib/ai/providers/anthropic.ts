@@ -245,9 +245,13 @@ function mapClaudeCitationToExpediente(
   const chunk = context[citation.document_index]
   if (!chunk) return null
 
+  if (chunk.metadata.documentType === 'structured_context' || !chunk.metadata.documentId) {
+    return null
+  }
+
   return {
     citedText: citation.cited_text ?? '',
-    documentId: chunk.metadata.documentId ?? '',
+    documentId: chunk.metadata.documentId,
     documentType: chunk.metadata.documentType,
     sectionType: chunk.metadata.sectionType,
     folioNumero: chunk.metadata.folioNumero,
@@ -351,6 +355,8 @@ export class AnthropicProvider implements AIProviderInterface {
     const startTime = Date.now()
     const config = this.resolveConfig(options.mode)
     const useWebSearch = options.enableWebSearch === true
+    const forceWebSearch = useWebSearch && options.isExplicitWebSearch === true
+      && !config.features.extendedThinking
     const timeout = getTimeout(options.mode)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -361,6 +367,7 @@ export class AnthropicProvider implements AIProviderInterface {
       system: buildSystemParam(options.systemPrompt),
       messages: buildMessages(options),
       tools: buildTools(useWebSearch),
+      ...(forceWebSearch && { tool_choice: { type: 'any' } }),
     }
 
     if (config.features.extendedThinking) {
@@ -403,6 +410,8 @@ export class AnthropicProvider implements AIProviderInterface {
     const startTime = Date.now()
     const config = this.resolveConfig(options.mode)
     const useWebSearch = options.enableWebSearch === true
+    const forceWebSearch = useWebSearch && options.isExplicitWebSearch === true
+      && !config.features.extendedThinking
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
@@ -412,6 +421,7 @@ export class AnthropicProvider implements AIProviderInterface {
       system: buildSystemParam(options.systemPrompt),
       messages: buildMessages(options),
       tools: buildTools(useWebSearch),
+      ...(forceWebSearch && { tool_choice: { type: 'any' } }),
     }
 
     if (config.features.extendedThinking) {
@@ -431,11 +441,32 @@ export class AnthropicProvider implements AIProviderInterface {
     }
 
     const webSources: AIWebCitation[] = []
+    const webSourceUrls = new Set<string>()
     const expedienteCitations: AIExpedienteCitation[] = []
     let lastUsage: AIUsage = { inputTokens: 0, outputTokens: 0 }
 
     try {
       for await (const event of messageStream) {
+        // Capture web search results from content_block_start events
+        if (event.type === 'content_block_start') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const block = (event as any).content_block
+          if (block?.type === 'web_search_tool_result' && Array.isArray(block.content)) {
+            for (const r of block.content) {
+              if (r.type === 'web_search_result' && r.url && !webSourceUrls.has(r.url)) {
+                const ws: AIWebCitation = {
+                  title: r.title ?? 'Fuente web',
+                  url: r.url,
+                  snippet: r.page_snippet,
+                }
+                webSources.push(ws)
+                webSourceUrls.add(r.url)
+                yield { type: 'web_source', webSource: ws }
+              }
+            }
+          }
+        }
+
         if (event.type === 'content_block_delta') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const delta = event.delta as any
@@ -451,13 +482,16 @@ export class AnthropicProvider implements AIProviderInterface {
           if (delta.type === 'citations_delta' && delta.citation) {
             const c = delta.citation as ClaudeCitation
             if (c.type === 'web_search_result_location') {
-              const ws: AIWebCitation = {
-                title: c.title ?? c.document_title ?? 'Fuente web',
-                url: c.url ?? '',
-                snippet: c.cited_text,
+              if (c.url && !webSourceUrls.has(c.url)) {
+                const ws: AIWebCitation = {
+                  title: c.title ?? c.document_title ?? 'Fuente web',
+                  url: c.url,
+                  snippet: c.cited_text,
+                }
+                webSources.push(ws)
+                webSourceUrls.add(c.url)
+                yield { type: 'web_source', webSource: ws }
               }
-              webSources.push(ws)
-              yield { type: 'web_source', webSource: ws }
             } else {
               const mapped = mapClaudeCitationToExpediente(c, options.context)
               if (mapped) {
@@ -484,6 +518,16 @@ export class AnthropicProvider implements AIProviderInterface {
       const finalMessage = await messageStream.finalMessage()
       lastUsage = extractUsage(finalMessage)
       logAnthropicCacheUsage(lastUsage.cacheReadTokens ?? 0, lastUsage.cacheWriteTokens ?? 0)
+
+      // Fallback: extract web sources from finalMessage that weren't captured during streaming
+      const fallbackParsed = parseResponse(finalMessage, options.context)
+      for (const ws of fallbackParsed.webSources) {
+        if (ws.url && !webSourceUrls.has(ws.url)) {
+          webSources.push(ws)
+          webSourceUrls.add(ws.url)
+          yield { type: 'web_source', webSource: ws }
+        }
+      }
     } catch (error) {
       yield { type: 'error', error: classifyAnthropicError(error).message }
       return

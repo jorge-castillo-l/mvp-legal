@@ -13,11 +13,13 @@ export const runtime = 'nodejs'
 export const maxDuration = 120
 
 import { NextRequest } from 'next/server'
+import { GoogleGenAI } from '@google/genai'
 import { createClient, createAdminClient, createClientWithToken } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { askCaseStream } from '@/lib/ai/rag/pipeline'
 import { getEnhancedAnalysisStream } from '@/lib/ai/rag/enhanced-pipeline'
 import { aiStreamToResilientSSE } from '@/lib/ai/router'
+import { MODEL_IDS } from '@/lib/ai/config'
 import type { AIMode } from '@/lib/ai/types'
 
 export async function OPTIONS(request: NextRequest) {
@@ -112,15 +114,65 @@ function autoTitleIfNeeded(conversationId: string, query: string) {
     .select('title')
     .eq('id', conversationId)
     .single()
-    .then(({ data }) => {
-      if (data && !data.title) {
-        const title = query.length > 60 ? query.slice(0, 57) + '...' : query
-        return db.from('conversations')
-          .update({ title })
-          .eq('id', conversationId)
+    .then(async ({ data, error }) => {
+      if (error) {
+        console.error('[autoTitle] Select error:', error.message)
+        return
+      }
+      if (!data || data.title) return
+
+      const title = await generateTitle(query)
+      console.log(`[autoTitle] Generated: "${title}" for conv ${conversationId.slice(0, 8)}`)
+
+      const { error: updateError } = await db
+        .from('conversations')
+        .update({ title })
+        .eq('id', conversationId)
+
+      if (updateError) {
+        console.error('[autoTitle] Update error:', updateError.message)
       }
     })
-    .catch(() => {})
+    .catch((err) => {
+      console.error('[autoTitle] Unexpected error:', err instanceof Error ? err.message : err)
+    })
+}
+
+async function generateTitle(query: string): Promise<string> {
+  const fallback = query.length > 60 ? query.slice(0, 57) + '...' : query
+  const apiKey = process.env.GOOGLE_API_KEY
+  if (!apiKey) {
+    console.warn('[autoTitle] GOOGLE_API_KEY not set, using fallback')
+    return fallback
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey })
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: MODEL_IDS.GEMINI_FLASH,
+        contents: [
+          {
+            role: 'user',
+            parts: [{
+              text: `Genera un título corto y descriptivo (máximo 8 palabras) para una conversación de chat legal cuya primera consulta es:\n\n"${query}"\n\nResponde SOLO con el título, sin comillas, sin puntos finales, sin explicaciones. Nunca trunces palabras.`,
+            }],
+          },
+        ],
+        config: { temperature: 0.4, maxOutputTokens: 150 },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 5_000),
+      ),
+    ])
+
+    const title = (response.text ?? '').trim().replace(/^["'"""'']+|["'"""'']+$/g, '').replace(/\.$/, '')
+    if (!title || title.length > 80) return fallback
+    return title
+  } catch (err) {
+    console.warn('[autoTitle] AI generation failed, using fallback:', err instanceof Error ? err.message : err)
+    return fallback
+  }
 }
 
 async function resolveConversation(

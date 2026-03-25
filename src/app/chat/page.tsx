@@ -372,8 +372,30 @@ export default function ChatPage() {
     })
   }
 
+  const refreshConversationTitle = useCallback(async (conversationId: string) => {
+    await new Promise(resolve => setTimeout(resolve, 2_000))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = getSupabaseForQuery() as any
+    const { data } = await supabase
+      .from('conversations')
+      .select('title')
+      .eq('id', conversationId)
+      .single()
+
+    if (data?.title) {
+      setConversations(prev => prev.map(c =>
+        c.id === conversationId ? { ...c, title: data.title } : c,
+      ))
+      setSelectedConversation(prev =>
+        prev && prev.id === conversationId ? { ...prev, title: data.title } : prev,
+      )
+    }
+  }, [getSupabaseForQuery])
+
   const sendMessage = useCallback(async (query: string) => {
     if (!selectedCase || !selectedConversation || !query.trim() || isLoading) return
+
+    const shouldRefreshTitle = !selectedConversation.title
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -480,8 +502,12 @@ export default function ChatPage() {
       setIsLoading(false)
       abortRef.current = null
       inputRef.current?.focus()
+
+      if (shouldRefreshTitle && selectedConversation) {
+        refreshConversationTitle(selectedConversation.id)
+      }
     }
-  }, [selectedCase, selectedConversation, mode, isLoading])
+  }, [selectedCase, selectedConversation, mode, isLoading, refreshConversationTitle])
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -755,6 +781,9 @@ export default function ChatPage() {
             <button onClick={handleBackToCases} className="text-xs text-muted-foreground hover:text-foreground cursor-pointer">
               ← Causas
             </button>
+            {selectedCase.tribunal && (
+              <span className="text-xs text-muted-foreground truncate max-w-[50%]">{selectedCase.tribunal}</span>
+            )}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-medium">{selectedCase.rol}</span>
               {selectedCase.procedimiento && (
@@ -886,6 +915,9 @@ export default function ChatPage() {
           <button onClick={handleBackToConversations} className="text-xs text-muted-foreground hover:text-foreground cursor-pointer">
             ← Chats
           </button>
+          {selectedCase.tribunal && (
+            <span className="text-xs text-muted-foreground truncate max-w-[50%]">{selectedCase.tribunal}</span>
+          )}
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">{selectedCase.rol}</span>
             {selectedCase.procedimiento && (
@@ -943,7 +975,7 @@ export default function ChatPage() {
                         : 'hover:bg-muted text-foreground'
                     }`}
                   >
-                    <span className="text-xs font-medium">{m.icon} {m.label}</span>
+                    <span className="text-xs font-medium"><span style={{ filter: 'grayscale(1) brightness(0)' }}>{m.icon}</span> {m.label}</span>
                     {mode === m.value && <span className="float-right text-xs">✓</span>}
                     <p className="text-[10px] text-muted-foreground">{m.hint}</p>
                   </button>
@@ -957,8 +989,9 @@ export default function ChatPage() {
               onClick={e => { e.stopPropagation(); setModeMenuOpen(prev => !prev) }}
               className="h-[38px] px-2 text-xs whitespace-nowrap"
               disabled={isLoading}
+              title="Cambiar nivel de análisis"
             >
-              {currentMode.icon}<span className="ml-1 hidden min-[360px]:inline">▾</span>
+              <span style={{ filter: 'grayscale(1) brightness(0)' }}>{currentMode.icon}</span><span className="ml-1 inline">▾</span>
             </Button>
           </div>
           <Button type="submit" size="sm" disabled={isLoading || !input.trim()} className="h-[38px]">
@@ -976,21 +1009,41 @@ export default function ChatPage() {
 
 const FOOTNOTE_LINK_PREFIX = '#cite-'
 
-function preprocessFootnotes(text: string, citations?: AIExpedienteCitation[]): string {
-  if (!citations?.length) return text
+function preprocessFootnotes(
+  text: string,
+  citations?: AIExpedienteCitation[],
+  webSources?: AIWebCitation[],
+): string {
+  const hasCitations = citations && citations.length > 0
+  const hasWebSources = webSources && webSources.length > 0
+  if (!hasCitations && !hasWebSources) return text
+
   return text.replace(/\[(\d+)\]/g, (match, num) => {
     const idx = parseInt(num, 10) - 1
-    const cite = citations[idx]
-    if (!cite) return match
-    const href = cite.documentId
-      ? `/pdf-viewer?documentId=${cite.documentId}${cite.pageNumber ? `&page=${cite.pageNumber}` : ''}`
-      : `${FOOTNOTE_LINK_PREFIX}${num}`
-    return `[⁽${num}⁾](${href})`
+
+    if (hasCitations) {
+      const cite = citations[idx]
+      if (cite) {
+        const href = cite.documentId
+          ? `/pdf-viewer?documentId=${cite.documentId}${cite.pageNumber ? `&page=${cite.pageNumber}` : ''}`
+          : `${FOOTNOTE_LINK_PREFIX}${num}`
+        return `[⁽${num}⁾](${href})`
+      }
+    }
+
+    if (hasWebSources) {
+      const ws = webSources[idx]
+      if (ws?.url) {
+        return `[⁽${num}⁾](${ws.url})`
+      }
+    }
+
+    return match
   })
 }
 
-function MarkdownWithFootnotes({ content, citations }: { content: string; citations?: AIExpedienteCitation[] }) {
-  const processed = preprocessFootnotes(content, citations)
+function MarkdownWithFootnotes({ content, citations, webSources }: { content: string; citations?: AIExpedienteCitation[]; webSources?: AIWebCitation[] }) {
+  const processed = preprocessFootnotes(content, citations, webSources)
 
   return (
     <div className="text-sm break-words prose-chat">
@@ -1068,7 +1121,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {/* Model badge */}
         {badge && !message.isStreaming && (
           <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-muted-foreground mb-1">
-            {badge.icon} {badge.label}
+            <span style={{ filter: 'grayscale(1) brightness(0)' }}>{badge.icon}</span> {badge.label}
           </span>
         )}
 
@@ -1083,7 +1136,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {isUser ? (
           <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
         ) : (
-          <MarkdownWithFootnotes content={message.content} citations={message.citations} />
+          <MarkdownWithFootnotes content={message.content} citations={message.citations} webSources={message.webSources} />
         )}
 
         {message.isStreaming && message.content && (
@@ -1097,14 +1150,16 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         )}
 
         {hasWebSources && !message.isStreaming && (
-          <details className="mt-1.5">
-            <summary className="text-[10px] font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
-              🌐 Ver {message.webSources!.length} fuente{message.webSources!.length !== 1 ? 's' : ''} de jurisprudencia
-            </summary>
-            <div className="mt-1">
-              <JurisprudenciaCitations sources={message.webSources!} />
-            </div>
-          </details>
+          <div className="mt-2 pt-2 border-t border-border/50">
+            <details>
+              <summary className="text-[10px] font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+                🌐 {message.webSources!.length} fuente{message.webSources!.length !== 1 ? 's' : ''} web
+              </summary>
+              <div className="mt-1">
+                <WebSourcesCitations sources={message.webSources!} />
+              </div>
+            </details>
+          </div>
         )}
 
         {!isUser && message.thinkingContent && (
@@ -1177,56 +1232,37 @@ function formatFojaCitation(c: AIExpedienteCitation): string {
 // Jurisprudencia Citations — agrupadas por tribunal/dominio
 // ─────────────────────────────────────────────────────────────
 
-function JurisprudenciaCitations({ sources }: { sources: AIWebCitation[] }) {
-  const grouped = new Map<string, AIWebCitation[]>()
+function safeHostname(url: string): string {
+  try { return new URL(url).hostname } catch { return 'Ver fuente' }
+}
 
-  for (const ws of sources) {
-    const tribunal = inferTribunal(ws)
-    const existing = grouped.get(tribunal) ?? []
-    existing.push(ws)
-    grouped.set(tribunal, existing)
-  }
-
+function WebSourcesCitations({ sources }: { sources: AIWebCitation[] }) {
   return (
-    <div>
-      <p className="text-[10px] font-semibold text-muted-foreground mb-1">🌐 JURISPRUDENCIA</p>
-      {Array.from(grouped.entries()).map(([tribunal, cites]) => (
-        <div key={tribunal} className="mb-1.5">
-          <p className="text-[10px] font-medium text-muted-foreground/80">{tribunal}</p>
-          {cites.map((ws, i) => (
-            <div key={i} className="pl-2 mb-0.5">
-              <a
-                href={ws.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[10px] text-blue-500 hover:underline"
-              >
-                {ws.title || 'Ver sentencia →'}
-              </a>
-              {ws.snippet && (
-                <p className="text-[10px] text-muted-foreground/60 italic pl-1 truncate">
-                  &ldquo;{ws.snippet.slice(0, 120)}{ws.snippet.length > 120 ? '...' : ''}&rdquo;
-                </p>
-              )}
-            </div>
-          ))}
+    <div className="space-y-1">
+      {sources.map((ws, i) => (
+        <div key={i} className="flex items-start gap-1.5">
+          <span className="inline-flex items-center justify-center w-4 h-4 text-[9px] font-medium bg-blue-100 text-blue-700 rounded-full flex-shrink-0 mt-0.5">
+            {i + 1}
+          </span>
+          <div className="min-w-0 flex-1">
+            <a
+              href={ws.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-blue-500 hover:underline font-medium break-all"
+            >
+              {ws.title || safeHostname(ws.url)}
+            </a>
+            {ws.snippet && (
+              <p className="text-[10px] text-muted-foreground/60 italic truncate">
+                &ldquo;{ws.snippet.slice(0, 120)}{ws.snippet.length > 120 ? '...' : ''}&rdquo;
+              </p>
+            )}
+          </div>
         </div>
       ))}
     </div>
   )
-}
-
-function inferTribunal(ws: AIWebCitation): string {
-  const text = `${ws.title} ${ws.url}`.toLowerCase()
-  if (text.includes('suprema')) return 'Corte Suprema'
-  if (text.includes('apelaciones') || text.includes('corte de')) return 'Corte de Apelaciones'
-  if (text.includes('vlex')) return 'Doctrina (vLex)'
-  if (text.includes('pjud') || text.includes('juris')) return 'Poder Judicial'
-  return 'Fuentes web'
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 // ─────────────────────────────────────────────────────────────

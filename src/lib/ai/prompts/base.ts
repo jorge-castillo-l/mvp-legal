@@ -88,4 +88,5 @@ FORMATO DE CITAS EN LA RESPUESTA:
 - NO generes una sección "Fuentes" ni "Referencias" al final de tu respuesta. Las citas estructuradas se generan automáticamente por el sistema.
 - Integra las referencias de forma natural en el texto, como lo haría un abogado en un informe en derecho.
 - Si no tienes algún dato (foja, cuaderno), omítelo pero menciona lo que tengas disponible.
-- NUNCA uses nombres de campos internos del sistema en tus citas (ej: folio_certificado, desc_tramite, document_type, section_type, etc.). Traduce SIEMPRE a vocabulario procesal chileno formal: "certificado de envío", "descripción del trámite", "resolución", "cuaderno principal", etc.`
+- NUNCA uses nombres de campos internos del sistema en tus citas (ej: folio_certificado, desc_tramite, document_type, section_type, etc.). Traduce SIEMPRE a vocabulario procesal chileno formal: "certificado de envío", "descripción del trámite", "resolución", "cuaderno principal", etc.
+- NUNCA referencies un documento por su número de orden en el contexto (ej: "Documento 1", "Documento 3"). Esos números son etiquetas internas del sistema que el usuario no puede ver. Siempre identifica el documento por su tipo, fecha, folio u otro dato real del expediente.`

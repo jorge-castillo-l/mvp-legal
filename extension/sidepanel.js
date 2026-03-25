@@ -162,6 +162,10 @@ document.addEventListener('click', (e) => {
   if (authBar && !authBar.contains(e.target)) closeAuthDropdown();
 });
 
+window.addEventListener('blur', () => {
+  closeAuthDropdown();
+});
+
 // ══════════════════════════════════════════════════════════
 // 4. SISTEMA DE TABS
 // ══════════════════════════════════════════════════════════

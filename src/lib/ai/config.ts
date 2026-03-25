@@ -104,10 +104,38 @@ export const TIMEOUT_CONFIG: Record<AIMode, number> = {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Keywords que activan Google Search Grounding (Gemini) o
- * Claude Web Search Tool automáticamente.
+ * Keywords exactos que indican que el usuario pide EXPLÍCITAMENTE buscar en internet.
  */
-export const WEB_SEARCH_TRIGGER_KEYWORDS = [
+const EXPLICIT_WEB_SEARCH_EXACT_KEYWORDS = [
+  'busca en internet',
+  'buscar en internet',
+  'busca en la web',
+  'buscar en la web',
+  'googlea',
+  'investiga en internet',
+  'busca online',
+  'buscar online',
+  'busca en google',
+  'buscar en google',
+  'búsqueda web',
+  'busqueda web',
+] as const
+
+/**
+ * Patrones regex para detectar solicitudes explícitas de búsqueda web
+ * con palabras intermedias (ej: "busca qué dice la doctrina en la web").
+ */
+const EXPLICIT_WEB_SEARCH_PATTERNS = [
+  /\bbusca\w*\b.{0,60}\ben\s+(?:la\s+)?(?:web|internet|google|línea|linea)\b/i,
+  /\binvestiga\w*\b.{0,60}\ben\s+(?:la\s+)?(?:web|internet|google|línea|linea)\b/i,
+  /\ben\s+(?:la\s+)?(?:web|internet|google)\b.{0,60}\bbusca/i,
+  /\bbusca\w*\b.{0,60}\bonline\b/i,
+] as const
+
+/**
+ * Keywords temáticos que sugieren jurisprudencia/doctrina y activan búsqueda web.
+ */
+const LEGAL_TOPIC_KEYWORDS = [
   'jurisprudencia',
   'sentencia de',
   'corte suprema',
@@ -120,14 +148,15 @@ export const WEB_SEARCH_TRIGGER_KEYWORDS = [
   'recurso de protección',
   'recurso de nulidad',
   'unificación de jurisprudencia',
-  'busca en internet',
-  'buscar en internet',
-  'busca en la web',
-  'buscar en la web',
-  'googlea',
-  'investiga en internet',
-  'busca online',
-  'buscar online',
+] as const
+
+/**
+ * Todos los keywords que activan Google Search Grounding (Gemini) o
+ * Claude Web Search Tool automáticamente.
+ */
+export const WEB_SEARCH_TRIGGER_KEYWORDS = [
+  ...EXPLICIT_WEB_SEARCH_EXACT_KEYWORDS,
+  ...LEGAL_TOPIC_KEYWORDS,
 ] as const
 
 /**
@@ -137,6 +166,18 @@ export const WEB_SEARCH_TRIGGER_KEYWORDS = [
 export function shouldEnableWebSearch(query: string): boolean {
   const lower = query.toLowerCase()
   return WEB_SEARCH_TRIGGER_KEYWORDS.some(kw => lower.includes(kw))
+}
+
+/**
+ * Determina si el usuario pidió EXPLÍCITAMENTE buscar en internet
+ * (vs. solo mencionar un tema de jurisprudencia/doctrina).
+ * Usa tanto keywords exactos como patrones regex para detectar
+ * frases naturales como "busca qué dice la doctrina en la web".
+ */
+export function isExplicitWebSearchRequest(query: string): boolean {
+  const lower = query.toLowerCase()
+  if (EXPLICIT_WEB_SEARCH_EXACT_KEYWORDS.some(kw => lower.includes(kw))) return true
+  return EXPLICIT_WEB_SEARCH_PATTERNS.some(pattern => pattern.test(lower))
 }
 
 // ─────────────────────────────────────────────────────────────
