@@ -29,9 +29,10 @@ import { createAdminClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/database.types'
 import { getAIResponse, getAIResponseStream } from '../router'
 import { buildSystemPrompt } from '../prompts'
+import { shouldEnableWebSearch } from '../config'
 import { retrieveChunks } from './retrieval'
 import { fetchKeyDocuments } from './key-documents'
-import { fetchCaseStructuredContext } from './case-context'
+import { fetchCaseStructuredContext, getFilteredContextChunk, type CaseMetadataFromContext } from './case-context'
 import type {
   AIMode,
   AIResponse,
@@ -70,27 +71,8 @@ export interface EnhancedAnalysisResult {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Case metadata
-// ─────────────────────────────────────────────────────────────
-
-interface CaseMetadata {
-  procedimiento: string | null
-  rol: string
-  tribunal: string | null
-}
-
-async function getCaseMetadata(caseId: string): Promise<CaseMetadata | null> {
-  const db = createAdminClient()
-  const { data, error } = await db
-    .from('cases')
-    .select('procedimiento, rol, tribunal')
-    .eq('id', caseId)
-    .single()
-
-  if (error || !data) return null
-  return data as CaseMetadata
-}
+// CaseMetadata is now provided by fetchCaseStructuredContext (no extra query)
+type CaseMetadata = CaseMetadataFromContext
 
 // ─────────────────────────────────────────────────────────────
 // Persistence (reuses same chat_messages table as 3.02)
@@ -169,20 +151,21 @@ export async function getEnhancedAnalysis(
   options: EnhancedAnalysisOptions,
 ): Promise<EnhancedAnalysisResult> {
   const retrievalStart = Date.now()
-  const caseMeta = await getCaseMetadata(options.caseId)
 
-  const [retrieval, keyDocsResult, structuredContext] = await Promise.all([
+  const structuredResult = await fetchCaseStructuredContext(options.caseId)
+  const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
+
+  const [retrieval, keyDocsResult] = await Promise.all([
     retrieveChunks({
       caseId: options.caseId,
       query: options.query,
       topK: ENHANCED_TOP_K,
     }),
     fetchKeyDocuments(options.caseId, caseMeta?.procedimiento ?? null),
-    fetchCaseStructuredContext(options.caseId),
   ])
 
   const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
-  const context = structuredContext ? [structuredContext, ...merged] : merged
+  const context = structuredResult ? [getFilteredContextChunk(structuredResult, options.query), ...merged] : merged
   const retrievalDurationMs = Date.now() - retrievalStart
 
   const systemPrompt = buildSystemPrompt({
@@ -194,6 +177,8 @@ export async function getEnhancedAnalysis(
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
 
+  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
+
   const response = await getAIResponse({
     mode: options.mode,
     query: options.query,
@@ -201,7 +186,7 @@ export async function getEnhancedAnalysis(
     systemPrompt,
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
-    enableWebSearch: options.enableWebSearch,
+    enableWebSearch: webSearch,
   })
 
   await Promise.all([
@@ -227,20 +212,20 @@ export async function getEnhancedAnalysis(
 export async function* getEnhancedAnalysisStream(
   options: EnhancedAnalysisOptions,
 ): AIResponseStream {
-  const caseMeta = await getCaseMetadata(options.caseId)
+  const structuredResult = await fetchCaseStructuredContext(options.caseId)
+  const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
 
-  const [retrieval, keyDocsResult, structuredContext] = await Promise.all([
+  const [retrieval, keyDocsResult] = await Promise.all([
     retrieveChunks({
       caseId: options.caseId,
       query: options.query,
       topK: ENHANCED_TOP_K,
     }),
     fetchKeyDocuments(options.caseId, caseMeta?.procedimiento ?? null),
-    fetchCaseStructuredContext(options.caseId),
   ])
 
   const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
-  const context = structuredContext ? [structuredContext, ...merged] : merged
+  const context = structuredResult ? [getFilteredContextChunk(structuredResult, options.query), ...merged] : merged
 
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
@@ -251,6 +236,8 @@ export async function* getEnhancedAnalysisStream(
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
 
+  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
+
   const stream = getAIResponseStream({
     mode: options.mode,
     query: options.query,
@@ -258,7 +245,7 @@ export async function* getEnhancedAnalysisStream(
     systemPrompt,
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
-    enableWebSearch: options.enableWebSearch,
+    enableWebSearch: webSearch,
   })
 
   let fullText = ''

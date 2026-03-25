@@ -39,6 +39,7 @@ import {
   parseReceptorRetiros,
 } from '@/lib/pjud/parser'
 import { buildSnapshotFromDb, generateDiff } from '@/lib/pjud/sync-diff'
+import { invalidateCaseContextCache } from '@/lib/ai/rag/case-context'
 import type {
   CausaPackage,
   CuadernoData,
@@ -217,6 +218,7 @@ export async function POST(request: NextRequest) {
           buildFolioTasks(downloadTasks, pkg.cuaderno_visible, pkg.rol, cuadernoVisibleId)
 
           // PASO 5: Fetch + insertar cuadernos adicionales
+          const parsedOtrosCuadernos: CuadernoData[] = []
           for (let i = 0; i < pkg.otros_cuadernos.length; i++) {
             const ref = pkg.otros_cuadernos[i]
             emit('progress', { message: `Obteniendo cuaderno "${ref.nombre}"…`, current: 0, total: 0 })
@@ -228,6 +230,7 @@ export async function POST(request: NextRequest) {
               const { cuaderno } = parseCuadernoFromHtml(html, ref.nombre)
               const cuadernoId = await insertCuaderno(db, user.id, caseId, cuaderno, i + 1)
               buildFolioTasks(downloadTasks, cuaderno, pkg.rol, cuadernoId)
+              parsedOtrosCuadernos.push(cuaderno)
 
               console.log(`[sync] Cuaderno "${ref.nombre}": ${cuaderno.folios.length} folios`)
             } catch (err) {
@@ -305,7 +308,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Folio anexos solicitud (de todos los cuadernos)
-          await fetchAllFolioAnexos(db, pjud, user.id, caseId, pkg, downloadTasks, emit)
+          await fetchAllFolioAnexos(db, pjud, user.id, caseId, pkg, parsedOtrosCuadernos, downloadTasks, emit)
 
           // PASO 8: Remisiones
           for (let i = 0; i < pkg.remisiones.length; i++) {
@@ -445,6 +448,7 @@ export async function POST(request: NextRequest) {
         }
 
         await db.from('cases').update(caseUpdate).eq('id', caseId)
+        invalidateCaseContextCache(caseId)
 
         // Trigger procesamiento async
         const pipelineKey = process.env.PIPELINE_SECRET_KEY
@@ -911,19 +915,26 @@ async function insertRemision(
 
 async function fetchAllFolioAnexos(
   db: SupabaseAdmin, pjud: PjudClient, userId: string, caseId: string,
-  pkg: CausaPackage, downloadTasks: PdfDownloadTask[], emit: SseEmitter,
+  pkg: CausaPackage, otrosCuadernos: CuadernoData[], downloadTasks: PdfDownloadTask[], emit: SseEmitter,
 ): Promise<void> {
   const { data: foliosWithAnexos } = await db
     .from('case_folios')
-    .select('id, numero_folio, case_id')
+    .select('id, numero_folio, cuaderno_id, case_id')
     .eq('case_id', caseId)
     .eq('tiene_anexo_solicitud', true)
 
   if (!foliosWithAnexos || foliosWithAnexos.length === 0) return
 
+  // Mapear nombre de cuaderno → cuaderno_id para matching preciso
+  const { data: cuadernoRows } = await db
+    .from('case_cuadernos')
+    .select('id, nombre')
+    .eq('case_id', caseId)
+  const cuadernoNameToId = new Map((cuadernoRows ?? []).map((c: { id: string; nombre: string }) => [c.nombre, c.id]))
+
   const allFolios = [
-    ...pkg.cuaderno_visible.folios,
-    // JWTs de otros cuadernos no disponibles aquí, se obtendrán al parsear
+    ...pkg.cuaderno_visible.folios.map(f => ({ ...f, cuadernoNombre: pkg.cuaderno_visible.nombre })),
+    ...otrosCuadernos.flatMap(c => c.folios.map(f => ({ ...f, cuadernoNombre: c.nombre }))),
   ].filter(f => f.jwt_anexo_solicitud)
 
   emit('progress', { message: `Obteniendo anexos de ${allFolios.length} folio(s)…`, current: 0, total: 0 })
@@ -935,7 +946,10 @@ async function fetchAllFolioAnexos(
       if (!html) continue
 
       const anexos = parseAnexosFromHtml(html)
-      const folioRow = foliosWithAnexos.find(f => f.numero_folio === folio.numero)
+      const expectedCuadernoId = cuadernoNameToId.get(folio.cuadernoNombre)
+      const folioRow = foliosWithAnexos.find(f =>
+        f.numero_folio === folio.numero && f.cuaderno_id === expectedCuadernoId
+      )
 
       if (folioRow && anexos.length > 0) {
         const anexoRows = anexos.map(a => ({
@@ -944,20 +958,21 @@ async function fetchAllFolioAnexos(
         }))
         await db.from('case_folio_anexos').insert(anexoRows)
 
+        const cleanCuaderno = folio.cuadernoNombre.replace(/[^a-zA-Z0-9]/g, '_')
         for (let i = 0; i < anexos.length; i++) {
           const a = anexos[i]
           const cleanRef = (a.referencia || `anexo_${i + 1}`).replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '').trim().substring(0, 30).replace(/\s+/g, '_')
           downloadTasks.push({
             jwt: a.jwt.jwt, endpoint: a.jwt.action, param: a.jwt.param,
-            filename: `${pkg.rol}_f${folio.numero}_anexo_${i + 1}_${cleanRef}.pdf`,
+            filename: `${pkg.rol}_${cleanCuaderno}_f${folio.numero}_anexo_${i + 1}_${cleanRef}.pdf`,
             origen: 'anexo_solicitud', tramite_pjud: null,
-            folio: folio.numero, cuaderno: null, fecha: a.fecha, source_url: a.jwt.action,
+            folio: folio.numero, cuaderno: folio.cuadernoNombre, fecha: a.fecha, source_url: a.jwt.action,
             referencia: a.referencia,
           })
         }
       }
     } catch (err) {
-      console.error(`[sync] Error anexo solicitud folio ${folio.numero}:`, err)
+      console.error(`[sync] Error anexo solicitud folio ${folio.numero} [${folio.cuadernoNombre}]:`, err)
     }
   }
 }

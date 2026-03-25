@@ -212,11 +212,115 @@ interface CaseData {
   remIncompetencias: DbRemisionIncompetencia[]
 }
 
+// ── Public types ─────────────────────────────────────────────
+
+export interface CaseMetadataFromContext {
+  procedimiento: string | null
+  rol: string
+  tribunal: string | null
+}
+
+export interface StructuredContextResult {
+  chunk: AIContextChunk
+  caseMeta: CaseMetadataFromContext
+}
+
+// ── Query-based section filtering ────────────────────────────
+// Core sections (DATOS GENERALES, LITIGANTES, CUADERNO) are always included.
+// Secondary sections are only included if the query matches relevant keywords.
+
+interface SectionFilter {
+  header: string
+  keywords: string[]
+}
+
+const SECONDARY_SECTIONS: SectionFilter[] = [
+  { header: 'ESCRITOS PRESENTADOS:', keywords: ['escrito', 'presentación', 'presentacion', 'solicitud', 'demanda', 'contestación', 'contestacion', 'réplica', 'replica', 'dúplica', 'duplica', 'ingreso'] },
+  { header: 'NOTIFICACIONES:', keywords: ['notific', 'notif', 'cédula', 'cedula', 'estado diario', 'personal', 'plazo', 'vencimiento', 'rebeldía', 'rebeldia'] },
+  { header: 'ANEXOS DE LA CAUSA:', keywords: ['anexo', 'adjunto', 'documento adjunt'] },
+  { header: 'RETIROS DE RECEPTOR:', keywords: ['receptor', 'retiro', 'ministro de fe', 'requerimiento', 'embargo', 'lanzamiento'] },
+  { header: 'EXHORTOS:', keywords: ['exhorto', 'tribunal exhortado', 'jurisdicción', 'jurisdiccion'] },
+  { header: 'PIEZAS DE EXHORTO:', keywords: ['exhorto', 'pieza'] },
+  { header: 'RECURSOS EN CORTE (REMISIONES):', keywords: ['apelación', 'apelacion', 'recurso', 'remisión', 'remision', 'corte', 'casación', 'casacion', 'alzada', 'segunda instancia'] },
+]
+
+function filterContextByQuery(fullText: string, query: string): string {
+  const lowerQuery = query.toLowerCase()
+
+  const allRelevant = SECONDARY_SECTIONS.every(
+    s => s.keywords.some(kw => lowerQuery.includes(kw)),
+  )
+  if (allRelevant) return fullText
+
+  const lines = fullText.split('\n')
+  const result: string[] = []
+  let currentSection: string | null = null
+  let includeCurrent = true
+
+  for (const line of lines) {
+    const matchedSection = SECONDARY_SECTIONS.find(s => line.startsWith(s.header))
+    if (matchedSection) {
+      currentSection = matchedSection.header
+      includeCurrent = matchedSection.keywords.some(kw => lowerQuery.includes(kw))
+      if (includeCurrent) result.push(line)
+      continue
+    }
+
+    const isCoreHeader = line.startsWith('===') || line.startsWith('DATOS GENERALES:') ||
+      line.startsWith('LITIGANTES:') || line.startsWith('CUADERNO:') || line.startsWith('NOTA:')
+    if (isCoreHeader) {
+      currentSection = null
+      includeCurrent = true
+    }
+
+    if (includeCurrent) result.push(line)
+  }
+
+  return result.join('\n')
+}
+
+/**
+ * Returns a context chunk filtered by query relevance.
+ * Core sections always included; secondary sections only if query matches.
+ */
+export function getFilteredContextChunk(
+  structuredResult: StructuredContextResult,
+  query: string,
+): AIContextChunk {
+  const filtered = filterContextByQuery(structuredResult.chunk.text, query)
+  if (filtered === structuredResult.chunk.text) return structuredResult.chunk
+  return {
+    ...structuredResult.chunk,
+    text: filtered,
+  }
+}
+
+// ── In-memory cache (TTL-based, invalidated per caseId) ─────
+
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+interface CacheEntry {
+  result: StructuredContextResult | null
+  expiresAt: number
+}
+
+const _cache = new Map<string, CacheEntry>()
+
+export function invalidateCaseContextCache(caseId: string): void {
+  _cache.delete(caseId)
+}
+
 // ── Fetch & Build ────────────────────────────────────────────
 
 export async function fetchCaseStructuredContext(
   caseId: string,
-): Promise<AIContextChunk | null> {
+): Promise<StructuredContextResult | null> {
+  const cached = _cache.get(caseId)
+  if (cached && Date.now() < cached.expiresAt) {
+    console.log(`[case-context] CACHE HIT caseId=${caseId}`)
+    return cached.result
+  }
+
   const db = createAdminClient()
   const q = db as any
 
@@ -305,16 +409,37 @@ export async function fetchCaseStructuredContext(
     remIncompetencias: remIncompetenciasRes.data ?? [],
   }
 
-  if (!data.caso && data.cuadernos.length === 0) return null
+  if (!data.caso && data.cuadernos.length === 0) {
+    _cache.set(caseId, { result: null, expiresAt: Date.now() + CACHE_TTL_MS })
+    return null
+  }
 
-  return {
-    chunkId: 'case-structured-context',
-    text: formatStructuredContext(data),
-    metadata: {
-      documentType: 'structured_context',
-      sectionType: 'case_overview',
+  const text = formatStructuredContext(data)
+  const approxTokens = Math.ceil(text.length / 4)
+  console.log(
+    `[case-context] caseId=${caseId} chars=${text.length} ~tokens=${approxTokens} ` +
+    `folios=${data.folios.length} escritos=${data.escritos.length} notifs=${data.notificaciones.length} ` +
+    `exhortos=${data.exhortos.length} remisiones=${data.remisiones.length}`,
+  )
+
+  const result: StructuredContextResult = {
+    chunk: {
+      chunkId: 'case-structured-context',
+      text,
+      metadata: {
+        documentType: 'structured_context',
+        sectionType: 'case_overview',
+      },
+    },
+    caseMeta: {
+      procedimiento: data.caso?.procedimiento ?? null,
+      rol: data.caso?.rol ?? '',
+      tribunal: data.caso?.tribunal ?? null,
     },
   }
+
+  _cache.set(caseId, { result, expiresAt: Date.now() + CACHE_TTL_MS })
+  return result
 }
 
 // ── Formatters ───────────────────────────────────────────────
@@ -340,7 +465,11 @@ function formatStructuredContext(d: CaseData): string {
   return lines.join('\n')
 }
 
-// ── Section formatters (cada una agrega líneas solo si hay datos) ──
+// ── Compact formatters (sin padding — optimizado para tokens) ──
+
+function kv(parts: (string | null | false | undefined)[]): string {
+  return parts.filter(Boolean).join(' | ')
+}
 
 function fmtDatosGenerales(lines: string[], caso: DbCase | null) {
   if (!caso) return
@@ -366,8 +495,7 @@ function fmtLitigantes(lines: string[], litigantes: DbLitigante[], firstCuaderno
   if (filtered.length === 0) return
   lines.push('LITIGANTES:')
   for (const l of filtered) {
-    const parts = [l.participante, l.nombre_razon_social, l.rut].filter(Boolean)
-    lines.push(`  - ${parts.join(' | ')}`)
+    lines.push(`- ${kv([l.participante, l.nombre_razon_social, l.rut])}`)
   }
   lines.push('')
 }
@@ -382,24 +510,13 @@ function fmtCuadernosFolios(lines: string[], cuadernos: DbCuaderno[], folios: Db
     if (cuaderno.procedimiento) lines.push(`  Procedimiento: ${cuaderno.procedimiento}`)
     if (cuaderno.etapa) lines.push(`  Etapa actual: ${cuaderno.etapa}`)
     lines.push(`  Total folios: ${cuadernoFolios.length}`)
-    lines.push('')
-    lines.push('  N° | Trámite              | Descripción                                      | Fecha       | Foja | Doc')
-    lines.push('  ---|----------------------|--------------------------------------------------|-------------|------|----')
 
     for (const f of cuadernoFolios) {
-      const num = String(f.numero_folio).padStart(2, ' ')
-      const tramite = (f.tramite || '—').substring(0, 20).padEnd(20, ' ')
-      const desc = (f.desc_tramite || '—').substring(0, 48).padEnd(48, ' ')
-      const fecha = (f.fecha_tramite || '—').substring(0, 11).padEnd(11, ' ')
-      const foja = String(f.foja).padStart(4, ' ')
-      const doc = f.tiene_doc_principal ? 'Sí' : 'No'
-      lines.push(`  ${num} | ${tramite} | ${desc} | ${fecha} | ${foja} | ${doc}`)
+      lines.push(`  F${f.numero_folio}: ${kv([f.tramite, f.desc_tramite, f.fecha_tramite, f.foja != null && `foja ${f.foja}`, f.tiene_doc_principal && 'con doc'])}`)
 
       const anexos = folioAnexos.filter(a => a.folio_id === f.id)
       for (const a of anexos) {
-        const ref = a.referencia || '—'
-        const af = a.fecha || ''
-        lines.push(`       ↳ Anexo: ${ref}${af ? ` (${af})` : ''}`)
+        lines.push(`    -> Anexo: ${kv([a.referencia, a.fecha])}`)
       }
     }
     lines.push('')
@@ -409,15 +526,8 @@ function fmtCuadernosFolios(lines: string[], cuadernos: DbCuaderno[], folios: Db
 function fmtEscritos(lines: string[], escritos: DbEscrito[]) {
   if (escritos.length === 0) return
   lines.push('ESCRITOS PRESENTADOS:')
-  lines.push('  Fecha       | Tipo                           | Solicitante                    | Doc | Anexo')
-  lines.push('  ------------|--------------------------------|--------------------------------|-----|------')
   for (const e of escritos) {
-    const fecha = (e.fecha_ingreso || '—').substring(0, 11).padEnd(11, ' ')
-    const tipo = (e.tipo_escrito || '—').substring(0, 30).padEnd(30, ' ')
-    const solic = (e.solicitante || '—').substring(0, 30).padEnd(30, ' ')
-    const doc = e.tiene_doc ? 'Sí' : 'No'
-    const anexo = e.tiene_anexo ? 'Sí' : 'No'
-    lines.push(`  ${fecha} | ${tipo} | ${solic} | ${doc.padEnd(3)} | ${anexo}`)
+    lines.push(`- ${kv([e.fecha_ingreso, e.tipo_escrito, e.solicitante, e.tiene_doc && 'con doc', e.tiene_anexo && 'con anexo'])}`)
   }
   lines.push('')
 }
@@ -425,17 +535,9 @@ function fmtEscritos(lines: string[], escritos: DbEscrito[]) {
 function fmtNotificaciones(lines: string[], notificaciones: DbNotificacion[]) {
   if (notificaciones.length === 0) return
   lines.push('NOTIFICACIONES:')
-  lines.push('  Fecha       | Trámite              | Tipo         | Destinatario                   | Estado')
-  lines.push('  ------------|----------------------|--------------|--------------------------------|--------')
   for (const n of notificaciones) {
-    const fecha = (n.fecha_tramite || '—').substring(0, 11).padEnd(11, ' ')
-    const tramite = (n.tramite || '—').substring(0, 20).padEnd(20, ' ')
-    const tipo = (n.tipo_notif || '—').substring(0, 12).padEnd(12, ' ')
-    const dest = (n.nombre || n.tipo_participante || '—').substring(0, 30).padEnd(30, ' ')
-    const estado = n.estado_notif || '—'
-    let line = `  ${fecha} | ${tramite} | ${tipo} | ${dest} | ${estado}`
-    if (n.obs_fallida) line += ` (${n.obs_fallida})`
-    lines.push(line)
+    const base = kv([n.fecha_tramite, n.tramite, n.tipo_notif, n.nombre || n.tipo_participante, n.estado_notif])
+    lines.push(`- ${base}${n.obs_fallida ? ` (${n.obs_fallida})` : ''}`)
   }
   lines.push('')
 }
@@ -444,9 +546,7 @@ function fmtAnexosCausa(lines: string[], anexos: DbAnexoCausa[]) {
   if (anexos.length === 0) return
   lines.push('ANEXOS DE LA CAUSA:')
   for (const a of anexos) {
-    const ref = a.referencia || '—'
-    const fecha = a.fecha || ''
-    lines.push(`  - ${ref}${fecha ? ` (${fecha})` : ''}`)
+    lines.push(`- ${kv([a.referencia, a.fecha])}`)
   }
   lines.push('')
 }
@@ -455,13 +555,7 @@ function fmtReceptorRetiros(lines: string[], retiros: DbReceptorRetiro[]) {
   if (retiros.length === 0) return
   lines.push('RETIROS DE RECEPTOR:')
   for (const r of retiros) {
-    const parts = [
-      r.fecha_retiro ? `Fecha: ${r.fecha_retiro}` : null,
-      r.cuaderno ? `Cuaderno: ${r.cuaderno}` : null,
-      r.estado ? `Estado: ${r.estado}` : null,
-      r.datos_retiro ? `Datos: ${r.datos_retiro}` : null,
-    ].filter(Boolean)
-    lines.push(`  - ${parts.join(' | ')}`)
+    lines.push(`- ${kv([r.fecha_retiro, r.cuaderno, r.estado, r.datos_retiro])}`)
   }
   lines.push('')
 }
@@ -470,40 +564,28 @@ function fmtExhortos(lines: string[], exhortos: DbExhorto[], docs: DbExhortoDoc[
   if (exhortos.length === 0) return
   lines.push('EXHORTOS:')
   for (const ex of exhortos) {
-    const header = [ex.tipo_exhorto, ex.estado_exhorto].filter(Boolean).join(' — ')
-    lines.push(`  Exhorto: ${header || '—'}`)
-    if (ex.tribunal_destino) lines.push(`    Tribunal destino: ${ex.tribunal_destino}`)
-    if (ex.rol_origen) lines.push(`    ROL origen: ${ex.rol_origen}`)
-    if (ex.rol_destino) lines.push(`    ROL destino: ${ex.rol_destino}`)
-    if (ex.fecha_ordena) lines.push(`    Fecha ordena: ${ex.fecha_ordena}`)
-    if (ex.fecha_ingreso) lines.push(`    Fecha ingreso: ${ex.fecha_ingreso}`)
+    lines.push(`- ${kv([ex.tipo_exhorto, ex.estado_exhorto, ex.tribunal_destino])}`)
+    const detail = kv([
+      ex.rol_origen && `ROL origen: ${ex.rol_origen}`,
+      ex.rol_destino && `ROL destino: ${ex.rol_destino}`,
+      ex.fecha_ordena && `ordena: ${ex.fecha_ordena}`,
+      ex.fecha_ingreso && `ingreso: ${ex.fecha_ingreso}`,
+    ])
+    if (detail) lines.push(`  ${detail}`)
 
     const exDocs = docs.filter(d => d.exhorto_id === ex.id)
-    if (exDocs.length > 0) {
-      lines.push('    Documentos:')
-      for (const d of exDocs) {
-        const parts = [d.tramite, d.referencia, d.fecha].filter(Boolean)
-        lines.push(`      - ${parts.join(' | ')}`)
-      }
+    for (const d of exDocs) {
+      lines.push(`  Doc: ${kv([d.tramite, d.referencia, d.fecha])}`)
     }
-    lines.push('')
   }
 
   if (piezas.length > 0) {
-    lines.push('  PIEZAS DE EXHORTO:')
-    lines.push('    N° | Trámite              | Descripción                              | Fecha       | Foja | Doc')
-    lines.push('    ---|----------------------|------------------------------------------|-------------|------|----')
+    lines.push('PIEZAS DE EXHORTO:')
     for (const p of piezas) {
-      const num = String(p.numero_folio).padStart(2, ' ')
-      const tr = (p.tramite || '—').substring(0, 20).padEnd(20, ' ')
-      const desc = (p.desc_tramite || '—').substring(0, 40).padEnd(40, ' ')
-      const fecha = (p.fecha_tramite || '—').substring(0, 11).padEnd(11, ' ')
-      const foja = p.foja != null ? String(p.foja).padStart(4, ' ') : '   —'
-      const doc = p.tiene_doc ? 'Sí' : 'No'
-      lines.push(`    ${num} | ${tr} | ${desc} | ${fecha} | ${foja} | ${doc}`)
+      lines.push(`  P${p.numero_folio}: ${kv([p.tramite, p.desc_tramite, p.fecha_tramite, p.foja != null && `foja ${p.foja}`, p.tiene_doc && 'con doc'])}`)
     }
-    lines.push('')
   }
+  lines.push('')
 }
 
 function fmtRemisiones(
@@ -519,61 +601,40 @@ function fmtRemisiones(
   lines.push('RECURSOS EN CORTE (REMISIONES):')
 
   for (const r of remisiones) {
-    const header = [r.recurso, r.corte, r.libro].filter(Boolean).join(' | ')
-    lines.push(`  Recurso: ${header || '—'}`)
-    if (r.fecha) lines.push(`    Fecha: ${r.fecha}`)
-    if (r.estado_recurso) lines.push(`    Estado recurso: ${r.estado_recurso}`)
-    if (r.estado_procesal) lines.push(`    Estado procesal: ${r.estado_procesal}`)
-    if (r.ubicacion) lines.push(`    Ubicación: ${r.ubicacion}`)
-    if (r.exp_caratulado) lines.push(`    Caratulado: ${r.exp_caratulado}`)
-    if (r.exp_materia) lines.push(`    Materia: ${r.exp_materia}`)
-    if (r.exp_tribunal) lines.push(`    Tribunal: ${r.exp_tribunal}`)
+    lines.push(`- ${kv([r.recurso, r.corte, r.libro, r.fecha])}`)
+    const detail = kv([
+      r.estado_recurso && `estado recurso: ${r.estado_recurso}`,
+      r.estado_procesal && `estado procesal: ${r.estado_procesal}`,
+      r.ubicacion && `ubicación: ${r.ubicacion}`,
+    ])
+    if (detail) lines.push(`  ${detail}`)
+    if (r.exp_caratulado) lines.push(`  Exp: ${kv([r.exp_caratulado, r.exp_materia, r.exp_tribunal])}`)
 
     const rLitigs = litigs.filter(l => l.remision_id === r.id)
-    if (rLitigs.length > 0) {
-      lines.push('    Litigantes remisión:')
-      for (const l of rLitigs) {
-        const parts = [l.sujeto, l.nombre_razon_social, l.rut].filter(Boolean)
-        lines.push(`      - ${parts.join(' | ')}`)
-      }
+    for (const l of rLitigs) {
+      lines.push(`  Parte: ${kv([l.sujeto, l.nombre_razon_social, l.rut])}`)
     }
 
     const rExh = exhortos.filter(e => e.remision_id === r.id)
-    if (rExh.length > 0) {
-      lines.push('    Exhortos remisión:')
-      for (const e of rExh) lines.push(`      - ${e.exhorto || '—'}`)
-    }
+    for (const e of rExh) { if (e.exhorto) lines.push(`  Exhorto: ${e.exhorto}`) }
 
     const rInc = incomp.filter(i => i.remision_id === r.id)
-    if (rInc.length > 0) {
-      lines.push('    Incompetencias:')
-      for (const i of rInc) lines.push(`      - ${i.incompetencia || '—'}`)
-    }
+    for (const i of rInc) { if (i.incompetencia) lines.push(`  Incompetencia: ${i.incompetencia}`) }
 
     const rMovs = movs
       .filter(m => m.remision_id === r.id)
       .sort((a, b) => a.numero_folio - b.numero_folio)
 
     if (rMovs.length > 0) {
-      lines.push('    Movimientos:')
-      lines.push('    N° | Trámite              | Descripción                              | Fecha       | Estado    | Sala')
-      lines.push('    ---|----------------------|------------------------------------------|-------------|-----------|-----')
+      lines.push('  Movimientos:')
       for (const m of rMovs) {
-        const num = String(m.numero_folio).padStart(2, ' ')
-        const tr = (m.tramite || '—').substring(0, 20).padEnd(20, ' ')
-        const desc = (m.descripcion || '—').substring(0, 40).padEnd(40, ' ')
-        const f = (m.fecha || '—').substring(0, 11).padEnd(11, ' ')
-        const est = (m.estado || '—').substring(0, 9).padEnd(9, ' ')
-        const sala = m.sala || '—'
-        lines.push(`    ${num} | ${tr} | ${desc} | ${f} | ${est} | ${sala}`)
-
+        lines.push(`  M${m.numero_folio}: ${kv([m.tramite, m.descripcion, m.fecha, m.estado, m.sala && `sala ${m.sala}`])}`)
         const mAnexos = movAnexos.filter(a => a.movimiento_id === m.id)
         for (const a of mAnexos) {
-          const parts = [a.tipo_documento, a.codigo, a.cantidad ? `cant: ${a.cantidad}` : null, a.observacion].filter(Boolean)
-          lines.push(`         ↳ Anexo: ${parts.join(' | ')}`)
+          lines.push(`    -> Anexo: ${kv([a.tipo_documento, a.codigo, a.cantidad && `cant: ${a.cantidad}`, a.observacion])}`)
         }
       }
     }
-    lines.push('')
   }
+  lines.push('')
 }

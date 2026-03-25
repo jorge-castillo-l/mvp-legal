@@ -23,8 +23,9 @@ import { createAdminClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/database.types'
 import { getAIResponse, getAIResponseStream, aiStreamToSSE } from '../router'
 import { buildSystemPrompt } from '../prompts'
+import { shouldEnableWebSearch } from '../config'
 import { retrieveChunks, type RetrievalOptions } from './retrieval'
-import { fetchCaseStructuredContext } from './case-context'
+import { fetchCaseStructuredContext, getFilteredContextChunk, type CaseMetadataFromContext } from './case-context'
 import type {
   AIMode,
   AIResponse,
@@ -59,31 +60,8 @@ export interface AskCaseResult {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Case metadata fetcher
-// ─────────────────────────────────────────────────────────────
-
-interface CaseMetadata {
-  procedimiento: string | null
-  rol: string
-  tribunal: string | null
-}
-
-async function getCaseMetadata(caseId: string): Promise<CaseMetadata | null> {
-  const db = createAdminClient()
-  const { data, error } = await db
-    .from('cases')
-    .select('procedimiento, rol, tribunal')
-    .eq('id', caseId)
-    .single()
-
-  if (error || !data) return null
-  return {
-    procedimiento: data.procedimiento,
-    rol: data.rol,
-    tribunal: data.tribunal,
-  }
-}
+// CaseMetadata is now provided by fetchCaseStructuredContext (no extra query)
+type CaseMetadata = CaseMetadataFromContext
 
 // ─────────────────────────────────────────────────────────────
 // Persist messages to chat_messages
@@ -160,16 +138,7 @@ async function updateConversationTimestamp(conversationId: string): Promise<void
 // ─────────────────────────────────────────────────────────────
 
 export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
-  const caseMeta = await getCaseMetadata(options.caseId)
-
-  const systemPrompt = buildSystemPrompt({
-    procedimiento: caseMeta?.procedimiento,
-    mode: options.mode,
-    rol: caseMeta?.rol,
-    tribunal: caseMeta?.tribunal,
-  })
-
-  const [retrieval, structuredContext] = await Promise.all([
+  const [retrieval, structuredResult] = await Promise.all([
     retrieveChunks({
       caseId: options.caseId,
       query: options.query,
@@ -179,11 +148,22 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
     fetchCaseStructuredContext(options.caseId),
   ])
 
-  const context = structuredContext
-    ? [structuredContext, ...retrieval.chunks]
+  const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
+
+  const systemPrompt = buildSystemPrompt({
+    procedimiento: caseMeta?.procedimiento,
+    mode: options.mode,
+    rol: caseMeta?.rol,
+    tribunal: caseMeta?.tribunal,
+  })
+
+  const context = structuredResult
+    ? [getFilteredContextChunk(structuredResult, options.query), ...retrieval.chunks]
     : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
+
+  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
 
   const response = await getAIResponse({
     mode: options.mode,
@@ -192,7 +172,7 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
     systemPrompt,
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
-    enableWebSearch: options.enableWebSearch,
+    enableWebSearch: webSearch,
   })
 
   await Promise.all([
@@ -222,16 +202,7 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
 export async function* askCaseStream(
   options: AskCaseOptions,
 ): AIResponseStream {
-  const caseMeta = await getCaseMetadata(options.caseId)
-
-  const systemPrompt = buildSystemPrompt({
-    procedimiento: caseMeta?.procedimiento,
-    mode: options.mode,
-    rol: caseMeta?.rol,
-    tribunal: caseMeta?.tribunal,
-  })
-
-  const [retrieval, structuredContext] = await Promise.all([
+  const [retrieval, structuredResult] = await Promise.all([
     retrieveChunks({
       caseId: options.caseId,
       query: options.query,
@@ -241,11 +212,22 @@ export async function* askCaseStream(
     fetchCaseStructuredContext(options.caseId),
   ])
 
-  const context = structuredContext
-    ? [structuredContext, ...retrieval.chunks]
+  const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
+
+  const systemPrompt = buildSystemPrompt({
+    procedimiento: caseMeta?.procedimiento,
+    mode: options.mode,
+    rol: caseMeta?.rol,
+    tribunal: caseMeta?.tribunal,
+  })
+
+  const context = structuredResult
+    ? [getFilteredContextChunk(structuredResult, options.query), ...retrieval.chunks]
     : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
+
+  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
 
   const stream = getAIResponseStream({
     mode: options.mode,
@@ -254,7 +236,7 @@ export async function* askCaseStream(
     systemPrompt,
     caseId: options.caseId,
     conversationHistory: options.conversationHistory,
-    enableWebSearch: options.enableWebSearch,
+    enableWebSearch: webSearch,
   })
 
   let fullText = ''
