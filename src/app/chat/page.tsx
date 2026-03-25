@@ -2,13 +2,18 @@
 
 /**
  * ============================================================
- * Chat Page — Tarea 3.08 (v2: conversación unificada)
+ * Chat Page — Tarea 3.08 (v3: multi-conversación por causa)
  * ============================================================
  * Embeddable en el sidepanel via iframe o accesible desde /chat.
  * Acepta ?caseId=xxx como query param.
  *
+ * v3 changes:
+ *   - Multiple conversations per case (thread-based)
+ *   - Three-level navigation: Cases → Conversations → Chat
+ *   - Create / delete conversations from UI
+ *   - Auto-title from first user query (server-side)
+ *
  * v2 changes:
- *   - Single conversation per case (no mode split)
  *   - Compact mode selector next to send button
  *   - Renamed modes: Rápido / Avanzado / Experto
  *   - Model badge on assistant messages
@@ -49,6 +54,16 @@ interface CaseInfo {
   tribunal: string | null
   procedimiento: string | null
   caratula: string | null
+  document_count: number | null
+  last_synced_at: string | null
+}
+
+interface ConversationInfo {
+  id: string
+  title: string | null
+  mode: string
+  created_at: string
+  updated_at: string
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -89,6 +104,32 @@ const PROCEDURE_LABELS: Record<string, string> = {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Freshness & time helpers
+// ─────────────────────────────────────────────────────────────
+
+function getFreshness(lastSyncedAt: string | null): { className: string; textClass: string } {
+  if (!lastSyncedAt) return { className: 'bg-muted text-muted-foreground', textClass: 'text-muted-foreground' }
+  const hours = (Date.now() - new Date(lastSyncedAt).getTime()) / 3_600_000
+  if (hours < 24) return { className: 'bg-green-50 text-green-700 border-green-200', textClass: 'text-green-600' }
+  if (hours < 72) return { className: 'bg-yellow-50 text-yellow-700 border-yellow-200', textClass: 'text-yellow-600' }
+  return { className: 'bg-muted text-muted-foreground', textClass: 'text-muted-foreground' }
+}
+
+function getTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60_000)
+  const hours = Math.floor(diff / 3_600_000)
+  const days = Math.floor(diff / 86_400_000)
+  if (mins < 1) return 'Ahora'
+  if (mins < 60) return `Hace ${mins} min`
+  if (hours < 24) return `Hace ${hours}h`
+  if (days === 1) return 'Ayer'
+  if (days < 7) return `Hace ${days} días`
+  if (days < 30) return `Hace ${Math.floor(days / 7)} sem`
+  return new Date(dateStr).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
 
@@ -101,7 +142,17 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [loadingCases, setLoadingCases] = useState(true)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<CaseInfo | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [conversations, setConversations] = useState<ConversationInfo[]>([])
+  const [selectedConversation, setSelectedConversation] = useState<ConversationInfo | null>(null)
+  const [loadingConversations, setLoadingConversations] = useState(false)
+  const [deleteConvTarget, setDeleteConvTarget] = useState<ConversationInfo | null>(null)
+  const [isDeletingConv, setIsDeletingConv] = useState(false)
+  const [isCreatingConv, setIsCreatingConv] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; conv: ConversationInfo } | null>(null)
+  const [renamingConvId, setRenamingConvId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const authTokenRef = useRef<string | null>(null)
@@ -135,19 +186,40 @@ export default function ChatPage() {
   }, [getAuthToken])
 
   useEffect(() => {
+    let initialLoadDone = false
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'auth_token' && event.data.token) {
         authTokenRef.current = event.data.token
+        if (!initialLoadDone) {
+          initialLoadDone = true
+          loadCases()
+        }
+      }
+      if (event.data?.type === 'case_deleted' && event.data.caseId) {
+        const deletedCaseId = event.data.caseId
+        setCases(prev => prev.filter(c => c.id !== deletedCaseId))
+        setSelectedCase(prev => {
+          if (prev?.id === deletedCaseId) {
+            setSelectedConversation(null)
+            setConversations([])
+            setMessages([])
+            return null
+          }
+          return prev
+        })
+      }
+      if (event.data?.type === 'cases_updated') {
         loadCases()
       }
     }
     window.addEventListener('message', handleMessage)
 
-    loadCases()
+    loadCases().then(() => { initialLoadDone = true })
     const params = new URLSearchParams(window.location.search)
     const caseIdParam = params.get('caseId')
     if (caseIdParam) {
       loadCases().then(loadedCases => {
+        initialLoadDone = true
         const found = loadedCases?.find(c => c.id === caseIdParam)
         if (found) setSelectedCase(found)
       })
@@ -163,10 +235,17 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (selectedCase) {
-      abortRef.current?.abort()
-      loadHistory(selectedCase.id)
+      setSelectedConversation(null)
+      setMessages([])
+      loadConversations(selectedCase.id)
     }
   }, [selectedCase])
+
+  useEffect(() => {
+    if (selectedConversation) {
+      loadHistory(selectedConversation.id)
+    }
+  }, [selectedConversation])
 
   useEffect(() => {
     scrollToBottom()
@@ -182,11 +261,22 @@ export default function ChatPage() {
     }
   }, [modeMenuOpen])
 
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    document.addEventListener('click', close)
+    document.addEventListener('scroll', close, true)
+    return () => {
+      document.removeEventListener('click', close)
+      document.removeEventListener('scroll', close, true)
+    }
+  }, [contextMenu])
+
   async function loadCases(): Promise<CaseInfo[] | undefined> {
     const supabase = getSupabaseForQuery()
     const { data } = await supabase
       .from('cases')
-      .select('id, rol, tribunal, procedimiento, caratula')
+      .select('id, rol, tribunal, procedimiento, caratula, document_count, last_synced_at')
       .order('updated_at', { ascending: false })
       .limit(50)
 
@@ -199,33 +289,50 @@ export default function ChatPage() {
     return undefined
   }
 
-  async function loadHistory(caseId: string) {
-    const supabase = getSupabaseForQuery()
+  async function loadConversations(caseId: string) {
+    setLoadingConversations(true)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: conv } = await (supabase as any)
+    const supabase = getSupabaseForQuery() as any
+    const { data, error } = await supabase
       .from('conversations')
-      .select('id')
+      .select('id, title, mode, created_at, updated_at')
       .eq('case_id', caseId)
       .order('updated_at', { ascending: false })
-      .limit(1)
-      .single()
+      .limit(50)
 
-    if (!conv) {
+    if (error) {
+      console.error('[Chat] loadConversations error:', error.message)
+    }
+    setConversations(data ?? [])
+    setLoadingConversations(false)
+  }
+
+  async function loadHistory(conversationId: string, retryCount = 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = getSupabaseForQuery() as any
+
+    const { data: msgs, error: msgsError } = await supabase
+      .from('chat_messages')
+      .select('id, role, content, sources_cited, web_sources_cited, thinking_content, model_used')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+      .limit(100)
+
+    if (msgsError) {
+      console.error('[Chat] loadHistory error:', msgsError.message)
+      if (msgsError.message?.includes('JWT') || msgsError.code === '401') {
+        window.parent?.postMessage({ type: 'request_fresh_token' }, '*')
+      }
       setMessages([])
       return
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: msgs } = await (supabase as any)
-      .from('chat_messages')
-      .select('id, role, content, sources_cited, web_sources_cited, thinking_content, model_used')
-      .eq('conversation_id', conv.id)
-      .order('created_at', { ascending: true })
-      .limit(100)
+    if (msgs && msgs.length > 0) {
+      const lastMsg = msgs[msgs.length - 1]
+      const pendingResponse = lastMsg && lastMsg.role === 'user'
 
-    if (msgs) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setMessages((msgs as any[]).map((m: any) => ({
+      const loaded: ChatMessage[] = (msgs as any[]).map((m: any) => ({
         id: m.id,
         role: m.role as 'user' | 'assistant',
         content: m.content,
@@ -233,7 +340,29 @@ export default function ChatPage() {
         webSources: m.web_sources_cited as AIWebCitation[] ?? [],
         thinkingContent: m.thinking_content ?? undefined,
         modelUsed: m.model_used ?? null,
-      })))
+      }))
+
+      if (pendingResponse) {
+        loaded.push({
+          id: `pending-${Date.now()}`,
+          role: 'assistant',
+          content: '',
+          isStreaming: true,
+        })
+      }
+
+      setMessages(loaded)
+
+      if (pendingResponse && retryCount < 3) {
+        const delay = (retryCount + 1) * 2000
+        setTimeout(() => {
+          if (selectedConversation?.id === conversationId) {
+            loadHistory(conversationId, retryCount + 1)
+          }
+        }, delay)
+      }
+    } else {
+      setMessages([])
     }
   }
 
@@ -244,7 +373,7 @@ export default function ChatPage() {
   }
 
   const sendMessage = useCallback(async (query: string) => {
-    if (!selectedCase || !query.trim() || isLoading) return
+    if (!selectedCase || !selectedConversation || !query.trim() || isLoading) return
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -285,9 +414,9 @@ export default function ChatPage() {
         },
         body: JSON.stringify({
           caseId: selectedCase.id,
+          conversationId: selectedConversation.id,
           query: query.trim(),
           mode,
-          enableWebSearch: webSearchEnabled,
         }),
         signal: controller.signal,
       })
@@ -352,7 +481,7 @@ export default function ChatPage() {
       abortRef.current = null
       inputRef.current?.focus()
     }
-  }, [selectedCase, mode, isLoading, webSearchEnabled])
+  }, [selectedCase, selectedConversation, mode, isLoading])
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -367,13 +496,158 @@ export default function ChatPage() {
   }
 
   function handleSelectCase(c: CaseInfo) {
-    abortRef.current?.abort()
     setSelectedCase(c)
   }
 
   function handleBackToCases() {
     abortRef.current?.abort()
+    setSelectedConversation(null)
+    setConversations([])
+    setMessages([])
     setSelectedCase(null)
+  }
+
+  function handleSelectConversation(conv: ConversationInfo) {
+    abortRef.current?.abort()
+    setSelectedConversation(conv)
+  }
+
+  function handleBackToConversations() {
+    abortRef.current?.abort()
+    setSelectedConversation(null)
+    setMessages([])
+    if (selectedCase) loadConversations(selectedCase.id)
+  }
+
+  async function handleNewConversation() {
+    if (!selectedCase || isCreatingConv) return
+    setIsCreatingConv(true)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = getSupabaseForQuery() as any
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sin sesión')
+
+      const { data: conv, error } = await supabase
+        .from('conversations')
+        .insert({ user_id: user.id, case_id: selectedCase.id, mode: 'fast_chat' })
+        .select('id, title, mode, created_at, updated_at')
+        .single()
+
+      if (error || !conv) throw error ?? new Error('Error al crear conversación')
+      setConversations(prev => [conv, ...prev])
+      setSelectedConversation(conv)
+    } catch (err) {
+      console.error('[Chat] New conversation error:', err)
+    } finally {
+      setIsCreatingConv(false)
+    }
+  }
+
+  async function handleDeleteConversation() {
+    if (!deleteConvTarget) return
+    setIsDeletingConv(true)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = getSupabaseForQuery() as any
+      const { error } = await supabase
+        .from('conversations')
+        .delete()
+        .eq('id', deleteConvTarget.id)
+
+      if (error) throw error
+
+      const deletedId = deleteConvTarget.id
+      setConversations(prev => prev.filter(c => c.id !== deletedId))
+      if (selectedConversation?.id === deletedId) {
+        setSelectedConversation(null)
+        setMessages([])
+      }
+      setDeleteConvTarget(null)
+    } catch (err) {
+      console.error('[Chat] Delete conversation error:', err)
+    } finally {
+      setIsDeletingConv(false)
+    }
+  }
+
+  function handleConvContextMenu(e: React.MouseEvent, conv: ConversationInfo) {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, conv })
+  }
+
+  function handleStartRename(conv: ConversationInfo) {
+    setRenamingConvId(conv.id)
+    setRenameValue(conv.title || '')
+    setContextMenu(null)
+  }
+
+  async function handleRenameConversation(convId: string) {
+    const trimmed = renameValue.trim()
+    if (!trimmed) {
+      setRenamingConvId(null)
+      return
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = getSupabaseForQuery() as any
+      const { error } = await supabase
+        .from('conversations')
+        .update({ title: trimmed })
+        .eq('id', convId)
+
+      if (error) throw error
+      setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: trimmed } : c))
+    } catch (err) {
+      console.error('[Chat] Rename error:', err)
+    }
+    setRenamingConvId(null)
+  }
+
+  async function handleDeleteCase() {
+    if (!deleteTarget) return
+    setIsDeleting(true)
+    try {
+      let token = getAuthToken()
+      if (!token) {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        token = session?.access_token ?? null
+      }
+      if (!token) throw new Error('Sin sesión activa')
+
+      const res = await fetch('/api/cases', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ case_id: deleteTarget.id }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+
+      const deletedId = deleteTarget.id
+      const deletedRol = deleteTarget.rol
+      setCases(prev => prev.filter(c => c.id !== deletedId))
+      if (selectedCase?.id === deletedId) {
+        abortRef.current?.abort()
+        setSelectedCase(null)
+      }
+      setDeleteTarget(null)
+      setConversations([])
+      setSelectedConversation(null)
+
+      window.parent?.postMessage({ type: 'case_deleted_from_chat', caseId: deletedId, rol: deletedRol }, '*')
+    } catch (err) {
+      console.error('[Chat] Delete error:', err)
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   // ─── Case selector (no case selected) ───
@@ -382,7 +656,7 @@ export default function ChatPage() {
     return (
       <div className="flex flex-col h-screen bg-background">
         <header className="border-b px-4 py-3">
-          <h1 className="text-sm font-semibold">Selecciona una causa</h1>
+          <h1 className="text-sm font-semibold">Mis Causas</h1>
         </header>
         <ScrollArea className="flex-1 p-4">
           {loadingCases ? (
@@ -395,31 +669,209 @@ export default function ChatPage() {
             </p>
           ) : (
             <div className="space-y-2">
-              {cases.map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => handleSelectCase(c)}
-                  className="w-full text-left p-3 rounded-md border hover:bg-accent transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{c.rol}</span>
-                    {c.procedimiento && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        {PROCEDURE_LABELS[c.procedimiento] ?? c.procedimiento}
-                      </Badge>
+              {cases.map(c => {
+                const docCount = c.document_count ?? 0
+                const freshness = getFreshness(c.last_synced_at)
+                return (
+                  <div
+                    key={c.id}
+                    className="group relative w-full text-left p-3 rounded-md border hover:border-blue-400 hover:shadow-sm transition-all cursor-pointer"
+                    onClick={() => handleSelectCase(c)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium">{c.rol}</span>
+                        {c.procedimiento && (
+                          <Badge variant="secondary" className="text-[10px] flex-shrink-0">
+                            {PROCEDURE_LABELS[c.procedimiento] ?? c.procedimiento}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <Badge variant="outline" className={`text-[10px] ${freshness.className}`}>
+                          {docCount} doc{docCount !== 1 ? 's' : ''}
+                        </Badge>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(c) }}
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all text-xs px-1 cursor-pointer"
+                          title="Eliminar causa"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    {c.caratula && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{c.caratula}</p>
                     )}
+                    <div className="flex items-center justify-between mt-1">
+                      {c.tribunal && (
+                        <p className="text-[10px] text-muted-foreground truncate">{c.tribunal}</p>
+                      )}
+                      {c.last_synced_at && (
+                        <p className={`text-[10px] flex-shrink-0 ml-2 ${freshness.textClass}`}>
+                          {getTimeAgo(c.last_synced_at)}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  {c.caratula && (
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{c.caratula}</p>
-                  )}
-                  {c.tribunal && (
-                    <p className="text-[10px] text-muted-foreground truncate">{c.tribunal}</p>
-                  )}
-                </button>
+                )
+              })}
+            </div>
+          )}
+        </ScrollArea>
+
+        {deleteTarget && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isDeleting && setDeleteTarget(null)}>
+            <div className="bg-background rounded-lg p-5 w-full max-w-xs shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold mb-1">Eliminar causa {deleteTarget.rol}?</p>
+              <p className="text-xs text-muted-foreground mb-1">
+                {(deleteTarget.document_count ?? 0) > 0
+                  ? `Se eliminarán ${deleteTarget.document_count} documento${deleteTarget.document_count !== 1 ? 's' : ''} y todo su historial.`
+                  : 'Se eliminará la causa y todo su historial.'}
+              </p>
+              <p className="text-[10px] text-destructive mb-4">Esta acción no se puede deshacer.</p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
+                  Cancelar
+                </Button>
+                <Button variant="destructive" size="sm" className="flex-1" onClick={handleDeleteCase} disabled={isDeleting}>
+                  {isDeleting ? 'Eliminando...' : 'Eliminar'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ─── Conversation list (case selected, no conversation selected) ───
+
+  if (!selectedConversation) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        <header className="border-b px-4 py-2.5 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <button onClick={handleBackToCases} className="text-xs text-muted-foreground hover:text-foreground cursor-pointer">
+              ← Causas
+            </button>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium">{selectedCase.rol}</span>
+              {selectedCase.procedimiento && (
+                <Badge variant="outline" className="text-[10px]">
+                  {PROCEDURE_LABELS[selectedCase.procedimiento] ?? selectedCase.procedimiento}
+                </Badge>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <div className="px-4 pt-3 pb-2">
+          <button
+            onClick={handleNewConversation}
+            disabled={isCreatingConv}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 transition-all text-sm font-medium disabled:opacity-50 cursor-pointer"
+          >
+            {isCreatingConv ? 'Creando...' : '+ Nuevo chat'}
+          </button>
+        </div>
+
+        <ScrollArea className="flex-1 px-4 pb-4">
+          {loadingConversations ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center pt-12 text-center">
+              <p className="text-sm text-muted-foreground mb-1">Sin conversaciones aún</p>
+              <p className="text-xs text-muted-foreground">Crea un nuevo chat para consultar sobre esta causa</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {conversations.map(conv => (
+                <div
+                  key={conv.id}
+                  className="group relative w-full text-left p-3 rounded-md border hover:border-blue-400 hover:shadow-sm transition-all cursor-pointer"
+                  onClick={() => renamingConvId !== conv.id && handleSelectConversation(conv)}
+                  onContextMenu={(e) => handleConvContextMenu(e, conv)}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    {renamingConvId === conv.id ? (
+                      <input
+                        type="text"
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleRenameConversation(conv.id)
+                          if (e.key === 'Escape') setRenamingConvId(null)
+                        }}
+                        onBlur={() => handleRenameConversation(conv.id)}
+                        autoFocus
+                        className="text-sm font-medium w-full bg-transparent border-b border-blue-400 outline-none py-0 flex-1 min-w-0"
+                        onClick={e => e.stopPropagation()}
+                      />
+                    ) : (
+                      <p className="text-sm font-medium truncate flex-1 min-w-0">
+                        {conv.title || 'Nuevo chat'}
+                      </p>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteConvTarget(conv) }}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all text-xs px-1 flex-shrink-0 cursor-pointer"
+                      title="Eliminar chat"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {getTimeAgo(conv.updated_at)}
+                  </p>
+                </div>
               ))}
             </div>
           )}
         </ScrollArea>
+
+        {contextMenu && (
+          <div
+            className="fixed z-50 bg-popover border rounded-lg shadow-lg py-1 min-w-[150px]"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+              onClick={() => handleStartRename(contextMenu.conv)}
+            >
+              Renombrar
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs text-destructive hover:bg-muted transition-colors"
+              onClick={() => { setDeleteConvTarget(contextMenu.conv); setContextMenu(null) }}
+            >
+              Eliminar
+            </button>
+          </div>
+        )}
+
+        {deleteConvTarget && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !isDeletingConv && setDeleteConvTarget(null)}>
+            <div className="bg-background rounded-lg p-5 w-full max-w-xs shadow-xl" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold mb-1">Eliminar conversación?</p>
+              <p className="text-xs text-muted-foreground mb-1">
+                Se eliminarán todos los mensajes de esta conversación.
+              </p>
+              <p className="text-[10px] text-destructive mb-4">Esta acción no se puede deshacer.</p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => setDeleteConvTarget(null)} disabled={isDeletingConv}>
+                  Cancelar
+                </Button>
+                <Button variant="destructive" size="sm" className="flex-1" onClick={handleDeleteConversation} disabled={isDeletingConv}>
+                  {isDeletingConv ? 'Eliminando...' : 'Eliminar'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -431,8 +883,8 @@ export default function ChatPage() {
       {/* Header — compact, just case info */}
       <header className="border-b px-4 py-2.5 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <button onClick={handleBackToCases} className="text-xs text-muted-foreground hover:text-foreground">
-            ← Causas
+          <button onClick={handleBackToConversations} className="text-xs text-muted-foreground hover:text-foreground cursor-pointer">
+            ← Chats
           </button>
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">{selectedCase.rol}</span>
@@ -473,17 +925,6 @@ export default function ChatPage() {
             rows={1}
             className="resize-none text-sm min-h-[38px] max-h-[120px]"
           />
-          <Button
-            type="button"
-            variant={webSearchEnabled ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setWebSearchEnabled(prev => !prev)}
-            className="h-[38px] px-2 text-xs whitespace-nowrap"
-            disabled={isLoading}
-            title={webSearchEnabled ? 'Búsqueda web activada (costo adicional)' : 'Activar búsqueda web de jurisprudencia'}
-          >
-            🌐
-          </Button>
           {/* Mode selector button */}
           <div className="relative">
             {modeMenuOpen && (
@@ -496,7 +937,7 @@ export default function ChatPage() {
                     key={m.value}
                     type="button"
                     onClick={() => { setMode(m.value); setModeMenuOpen(false) }}
-                    className={`w-full text-left px-3 py-2 transition-colors ${
+                    className={`w-full text-left px-3 py-2 transition-colors cursor-pointer ${
                       mode === m.value
                         ? 'bg-accent text-accent-foreground'
                         : 'hover:bg-muted text-foreground'

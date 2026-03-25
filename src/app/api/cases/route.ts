@@ -133,7 +133,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // 2. Obtener storage paths para limpiar archivos
+    // 2. Obtener storage paths ANTES de borrar filas (necesitamos las rutas)
     const { data: docs } = await supabaseAdmin
       .from('documents')
       .select('storage_path')
@@ -142,9 +142,11 @@ export async function DELETE(request: NextRequest) {
     const storagePaths = (docs || []).map(d => d.storage_path).filter(Boolean) as string[]
     const docCount = docs?.length ?? 0
 
-    // 3. Eliminar archivos PDF del Storage ANTES de borrar filas
+    // 3. Eliminar archivos PDF del Storage ANTES de borrar filas.
+    //    Si falla parcialmente, registramos los paths huérfanos pero NO abortamos:
+    //    es preferible que el usuario pueda borrar la causa a que quede bloqueado.
     let storageRemoved = 0
-    const storageErrors: string[] = []
+    const orphanedPaths: string[] = []
 
     if (storagePaths.length > 0) {
       console.log(`[DELETE /api/cases] Storage paths a eliminar (${storagePaths.length}):`, storagePaths.slice(0, 3))
@@ -157,15 +159,14 @@ export async function DELETE(request: NextRequest) {
           .remove(batch)
 
         if (removeError) {
-          console.error(`[DELETE /api/cases] Storage remove error (batch ${i / BATCH_SIZE + 1}):`, removeError)
-          storageErrors.push(removeError.message)
+          console.error(`[DELETE /api/cases] Storage batch error (${i / BATCH_SIZE + 1}):`, removeError)
 
           for (const path of batch) {
             const { error: singleErr } = await supabaseAdmin.storage
               .from('case-files')
               .remove([path])
             if (singleErr) {
-              console.error(`[DELETE /api/cases] Single remove failed: ${path}`, singleErr.message)
+              orphanedPaths.push(path)
             } else {
               storageRemoved++
             }
@@ -174,19 +175,34 @@ export async function DELETE(request: NextRequest) {
           storageRemoved += removed?.length ?? 0
         }
       }
-      console.log(`[DELETE /api/cases] Storage: ${storageRemoved}/${storagePaths.length} archivos eliminados`)
-      if (storageErrors.length > 0) {
-        console.error(`[DELETE /api/cases] Storage errors:`, storageErrors)
+
+      if (orphanedPaths.length > 0) {
+        console.error(
+          `[DELETE /api/cases] ⚠ ${orphanedPaths.length} PDF(s) huérfanos en Storage (sin referencia en DB tras el CASCADE):`,
+          orphanedPaths
+        )
       }
+
+      console.log(`[DELETE /api/cases] Storage: ${storageRemoved}/${storagePaths.length} archivos eliminados`)
     }
 
-    // 4. Eliminar tablas dependientes que no tienen ON DELETE CASCADE desde cases
-    await supabaseAdmin.from('extracted_texts').delete().eq('case_id', caseId)
-    await supabaseAdmin.from('document_hashes').delete().eq('case_id', caseId)
+    // 4. Eliminar la causa — CASCADE limpia TODAS las tablas dependientes:
+    //    documents, extracted_texts, document_chunks, document_embeddings,
+    //    document_hashes (con case_id), processing_queue, conversations,
+    //    chat_messages, y todas las tablas case_* (PJUD estructuradas).
+    const { error: deleteError } = await supabaseAdmin
+      .from('cases')
+      .delete()
+      .eq('id', caseId)
+      .eq('user_id', user.id)
 
-    // 5. Eliminar documents y cases (CASCADE limpia todo lo demás)
-    await supabaseAdmin.from('documents').delete().eq('case_id', caseId)
-    await supabaseAdmin.from('cases').delete().eq('id', caseId).eq('user_id', user.id)
+    if (deleteError) {
+      console.error(`[DELETE /api/cases] Error eliminando causa ${caseId}:`, deleteError)
+      return NextResponse.json(
+        { error: `Error al eliminar causa: ${deleteError.message}` },
+        { status: 500, headers: corsHeaders }
+      )
+    }
 
     console.log(`[DELETE /api/cases] Causa eliminada: ${targetCase.rol} (${caseId}) — ${docCount} docs, ${storageRemoved} PDFs del storage`)
 
@@ -195,9 +211,10 @@ export async function DELETE(request: NextRequest) {
         deleted: {
           case_id: caseId,
           rol: targetCase.rol,
+          tribunal: targetCase.tribunal,
           documents_removed: docCount,
           storage_removed: storageRemoved,
-          storage_errors: storageErrors.length > 0 ? storageErrors : undefined,
+          storage_orphaned: orphanedPaths.length > 0 ? orphanedPaths.length : undefined,
         }
       },
       { status: 200, headers: corsHeaders }

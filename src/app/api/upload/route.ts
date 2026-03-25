@@ -359,12 +359,13 @@ export async function POST(request: NextRequest) {
     // ══════════════════════════════════════════════════════
     // PASO 8: REGISTRAR HASH PARA DEDUPLICACIÓN
     // Solo si el documento se registró — evita hashes huérfanos.
+    // case_id es obligatorio: sin él, CASCADE no puede limpiar al borrar la causa.
     // ══════════════════════════════════════════════════════
-    if (documentId) {
+    if (documentId && caseId) {
       const newHash: DocumentHashInsert = {
         user_id: user.id,
         rol: caseRol || 'sin_rol',
-        case_id: caseId || null,
+        case_id: caseId,
         tribunal: tribunal || null,
         caratula: caratula || null,
         hash: fileHash,

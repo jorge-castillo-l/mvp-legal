@@ -8,12 +8,6 @@
 </head>
 <body>
   <div class="container">
-    <!-- Banner global: visible durante sync (4.18) -->
-    <div id="sync-wait-banner" class="card sync-wait-banner" style="display: none;">
-      <span class="sync-wait-icon">⟳</span>
-      <span>Sincronización en progreso en el servidor. Puede seguir navegando con libertad.</span>
-    </div>
-
     <!-- Barra compacta de Autenticación -->
     <div id="auth-section" class="auth-bar" style="display: none;">
       <div class="auth-bar-summary" id="auth-toggle">
@@ -34,7 +28,6 @@
         <!-- ══════ NAVEGACIÓN POR TABS ══════ -->
         <nav class="tabs" id="main-tabs">
           <button class="tab active" data-tab="sync">Sincronizar</button>
-          <button class="tab" data-tab="cases">Mis Causas</button>
           <button class="tab" data-tab="chat">Chat IA</button>
         </nav>
 
@@ -78,48 +71,6 @@
         </div>
 
         <!-- ══════════════════════════════════════ -->
-        <!-- TAB: MIS CAUSAS                        -->
-        <!-- ══════════════════════════════════════ -->
-        <div id="tab-cases" class="tab-content">
-
-          <!-- Lista de Causas -->
-          <div id="cases-list"></div>
-
-          <!-- Estado Vacío -->
-          <div id="cases-empty" class="empty-state" style="display: none;">
-            <div class="empty-icon">📋</div>
-            <p class="empty-title">Sin causas sincronizadas</p>
-            <p class="empty-subtitle">Navegue a una causa en pjud.cl y presione "Sincronizar" para empezar.</p>
-            <button class="btn-secondary" id="go-to-sync-btn">Ir a Sincronizar</button>
-          </div>
-
-          <!-- Skeleton Loader -->
-          <div id="cases-skeleton" style="display: none;">
-            <div class="case-card skeleton-card">
-              <div class="skeleton-line skeleton-title"></div>
-              <div class="skeleton-line skeleton-subtitle"></div>
-              <div class="skeleton-line skeleton-meta"></div>
-            </div>
-            <div class="case-card skeleton-card">
-              <div class="skeleton-line skeleton-title"></div>
-              <div class="skeleton-line skeleton-subtitle"></div>
-              <div class="skeleton-line skeleton-meta"></div>
-            </div>
-            <div class="case-card skeleton-card">
-              <div class="skeleton-line skeleton-title"></div>
-              <div class="skeleton-line skeleton-subtitle"></div>
-              <div class="skeleton-line skeleton-meta"></div>
-            </div>
-          </div>
-
-          <!-- Error -->
-          <div id="cases-error" class="card" style="display: none;">
-            <p class="error-text" id="cases-error-msg"></p>
-            <button class="btn-secondary" id="cases-retry-btn">Reintentar</button>
-          </div>
-        </div>
-
-        <!-- ══════════════════════════════════════ -->
         <!-- TAB: CHAT IA                           -->
         <!-- ══════════════════════════════════════ -->
         <div id="tab-chat" class="tab-content tab-chat-container">
@@ -142,19 +93,6 @@
         </div>
       </div>
     </main>
-
-    <!-- ══════ MODAL: CONFIRMAR ELIMINACIÓN ══════ -->
-    <div id="delete-modal" class="modal-overlay" style="display: none;">
-      <div class="modal-box">
-        <p class="modal-title" id="delete-modal-title">¿Eliminar causa?</p>
-        <p class="modal-detail" id="delete-modal-detail"></p>
-        <p class="modal-warning">Esta acción no se puede deshacer.</p>
-        <div class="modal-actions">
-          <button id="delete-cancel-btn" class="btn-modal btn-modal-cancel">Cancelar</button>
-          <button id="delete-confirm-btn" class="btn-modal btn-modal-danger">Eliminar</button>
-        </div>
-      </div>
-    </div>
 
   </div>
   <script src="lib/config.js"></script>

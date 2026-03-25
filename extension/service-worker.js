@@ -128,8 +128,8 @@ const causaPackageStore = new Map(); // tabId -> { package, timestamp }
 // ══════════════════════════════════════════════════════════
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Reenviar eventos del scraper al sidepanel (y vice versa)
-  if (message.type === 'scraper_event' || message.type === 'scraper_ready') {
+  // Messages intended for the sidepanel — don't process in SW listener
+  if (message.type === 'scraper_event' || message.type === 'scraper_ready' || message.type === 'sync_update') {
     return;
   }
 
@@ -194,6 +194,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ...info,
     }));
     sendResponse({ pdfs });
+    return true;
+  }
+
+  // Limpieza de causaPackageStore al eliminar una causa
+  if (message.type === 'case_deleted') {
+    const { rol } = message;
+    if (rol) {
+      let cleaned = 0;
+      for (const [tabId, entry] of causaPackageStore) {
+        if (entry.package?.rol === rol) {
+          causaPackageStore.delete(tabId);
+          cleaned++;
+        }
+      }
+      if (cleaned > 0) {
+        console.log(`[ServiceWorker] causaPackageStore limpiado: ${cleaned} entrada(s) para ${rol}`);
+      }
+    }
+    sendResponse({ status: 'ok' });
     return true;
   }
 

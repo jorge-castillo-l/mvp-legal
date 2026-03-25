@@ -66,6 +66,8 @@ export async function POST(request: NextRequest) {
 
     const conversationId = providedConvId ?? await resolveConversation(userId, caseId, mode)
 
+    autoTitleIfNeeded(conversationId, query)
+
     let stream
     if (mode === 'fast_chat') {
       stream = askCaseStream({
@@ -102,6 +104,23 @@ export async function POST(request: NextRequest) {
     console.error('[api/chat] Error:', msg)
     return Response.json({ error: msg }, { status: 500, headers: corsHeaders })
   }
+}
+
+function autoTitleIfNeeded(conversationId: string, query: string) {
+  const db = createAdminClient()
+  db.from('conversations')
+    .select('title')
+    .eq('id', conversationId)
+    .single()
+    .then(({ data }) => {
+      if (data && !data.title) {
+        const title = query.length > 60 ? query.slice(0, 57) + '...' : query
+        return db.from('conversations')
+          .update({ title })
+          .eq('id', conversationId)
+      }
+    })
+    .catch(() => {})
 }
 
 async function resolveConversation(

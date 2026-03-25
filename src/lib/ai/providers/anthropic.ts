@@ -16,7 +16,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import { MODEL_CONFIGS, getTimeout, shouldEnableWebSearch } from '../config'
+import { MODEL_CONFIGS, getTimeout } from '../config'
 import { logAnthropicCacheUsage } from '../cache'
 import {
   AIProviderError,
@@ -193,7 +193,7 @@ function buildTools(
 ): Anthropic.MessageCreateParamsNonStreaming['tools'] | undefined {
   if (!enableWebSearch) return undefined
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return [{ type: 'web_search_20260209', name: 'web_search' } as any]
+  return [{ type: 'web_search_20260209', name: 'web_search', max_uses: 4 } as any]
 }
 
 // ─────────────────────────────────────────────────────────────

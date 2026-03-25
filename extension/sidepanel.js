@@ -16,12 +16,11 @@
  * Estructura:
  *   1. Estado global e inicialización
  *   2. Autenticación
- *   3. Sistema de Tabs
+ *   3. Sistema de Tabs (Sincronizar + Chat IA)
  *   4. Tab Sincronizar — detección y estado
- *   5. Tab Mis Causas — fetch y render
- *   6. Sync v2 — obtener CausaPackage + SSE
- *   7. Eventos del Scraper
- *   8. Utilidades
+ *   5. Sync v2 — obtener CausaPackage + SSE
+ *   6. Eventos del Scraper
+ *   7. Utilidades
  * ============================================================
  */
 
@@ -35,9 +34,9 @@ let isSyncing = false;
 let lastDetectedCausa = null;
 let lastSyncState = null;  // { count, lastSyncedAt, rol, tribunal }
 let activeTab = 'sync';
-let casesLoaded = false;
 let isDetecting = false;
 let syncingCausaInfo = null;
+let syncJustFinished = false;
 
 // ══════════════════════════════════════════════════════════
 // 2. INICIALIZACIÓN
@@ -49,13 +48,38 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuthentication();
   setupTabs();
   setupEventListeners();
-  setupDeleteListeners();
   setupScraperEventListener();
   setupTabChangeDetection();
   await recoverSyncState();
 
   setTimeout(requestCausaDetection, 1000);
   setInterval(checkAuthentication, 30000);
+
+  window.addEventListener('message', async (event) => {
+    if (event.data?.type === 'request_fresh_token') {
+      const session = await supabase.ensureFreshSession();
+      if (session?.access_token) {
+        const iframe = document.getElementById('chat-iframe');
+        iframe?.contentWindow?.postMessage({ type: 'auth_token', token: session.access_token }, '*');
+      }
+    }
+    if (event.data?.type === 'case_deleted_from_chat') {
+      const { caseId, rol } = event.data;
+      cleanupDeletedCaseLocalData(caseId, rol, currentUser?.id).catch(e =>
+        console.warn('[Delete] Limpieza local parcial:', e.message)
+      );
+      if (lastDetectedCausa && rol === lastDetectedCausa.rol) {
+        lastSyncState = null;
+        applySyncStateUI(lastDetectedCausa, { lastSyncedAt: null });
+        const compactEl = document.getElementById('sync-compact');
+        if (compactEl) {
+          compactEl.style.display = 'none';
+          document.getElementById('sync-compact-result').innerHTML = '';
+          document.getElementById('sync-compact-details').innerHTML = '';
+        }
+      }
+    }
+  });
 });
 
 // ══════════════════════════════════════════════════════════
@@ -74,6 +98,11 @@ async function checkAuthentication() {
       currentSession = session;
       currentUser = session.user;
       showAuthenticatedUI();
+
+      if (chatIframeLoaded && session.access_token) {
+        const iframe = document.getElementById('chat-iframe');
+        iframe?.contentWindow?.postMessage({ type: 'auth_token', token: session.access_token }, '*');
+      }
     } else {
       currentSession = null;
       currentUser = null;
@@ -128,6 +157,11 @@ function closeAuthDropdown() {
   if (chevron) chevron.classList.remove('open');
 }
 
+document.addEventListener('click', (e) => {
+  const authBar = document.getElementById('auth-section');
+  if (authBar && !authBar.contains(e.target)) closeAuthDropdown();
+});
+
 // ══════════════════════════════════════════════════════════
 // 4. SISTEMA DE TABS
 // ══════════════════════════════════════════════════════════
@@ -136,16 +170,11 @@ function setupTabs() {
   document.querySelectorAll('.tab[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-
-  document.getElementById('go-to-sync-btn')?.addEventListener('click', () => switchTab('sync'));
-  document.getElementById('cases-retry-btn')?.addEventListener('click', () => {
-    casesLoaded = false;
-    loadCases();
-  });
 }
 
 function switchTab(tabId) {
   activeTab = tabId;
+  closeAuthDropdown();
 
   document.querySelectorAll('.tab[data-tab]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tabId);
@@ -153,10 +182,6 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(panel => {
     panel.classList.toggle('active', panel.id === `tab-${tabId}`);
   });
-
-  if (tabId === 'cases' && currentUser) {
-    loadCases();
-  }
 
   if (tabId === 'chat') {
     loadChatIframe();
@@ -196,7 +221,6 @@ function setupEventListeners() {
     await supabase.signOut();
     currentUser = null;
     currentSession = null;
-    casesLoaded = false;
     showUnauthenticatedUI();
   });
 
@@ -267,9 +291,11 @@ function restoreLastDetectedCausaUI() {
 
 function setupTabChangeDetection() {
   chrome.tabs.onActivated.addListener(async (activeInfo) => {
+    syncJustFinished = false;
     try {
       const tab = await chrome.tabs.get(activeInfo.tabId);
       if (isPjudUrl(tab.url)) {
+        if (isSyncing) return;
         showDetectingState();
         setTimeout(requestCausaDetection, 800);
       }
@@ -279,16 +305,18 @@ function setupTabChangeDetection() {
   });
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'loading') {
+      syncJustFinished = false;
       chrome.tabs.query({ active: true, currentWindow: true }).then(([active]) => {
         const url = changeInfo.url || active?.url;
-        if (active?.id === tabId && isPjudUrl(url)) {
+        if (active?.id === tabId && isPjudUrl(url) && !isSyncing) {
           showDetectingState();
         }
       });
     }
     if (changeInfo.status === 'complete') {
+      syncJustFinished = false;
       chrome.tabs.query({ active: true, currentWindow: true }).then(([active]) => {
-        if (active?.id === tabId && isPjudUrl(active.url)) {
+        if (active?.id === tabId && isPjudUrl(active.url) && !isSyncing) {
           setTimeout(requestCausaDetection, 1000);
         }
       });
@@ -419,8 +447,8 @@ function applySyncStateUI(causa, syncState) {
 async function displayDetectedCausa(causa) {
   isDetecting = false;
 
-  // During sync, freeze UI to keep showing the syncing causa
   if (isSyncing) return;
+  if (syncJustFinished) return;
 
   const isSame = typeof CAUSA_IDENTITY !== 'undefined' && CAUSA_IDENTITY.isSameCausa
     ? CAUSA_IDENTITY.isSameCausa(causa, lastDetectedCausa)
@@ -559,20 +587,12 @@ function enterSyncingUI() {
 
   const syncBtn = document.getElementById('sync-btn');
   const compactEl = document.getElementById('sync-compact');
-  const waitBanner = document.getElementById('sync-wait-banner');
 
   if (syncBtn) {
     syncBtn.disabled = true;
     syncBtn.innerHTML = '<span class="btn-icon spinner">⟳</span> Sincronizando…';
   }
   if (compactEl) compactEl.style.display = 'block';
-  if (waitBanner && syncingCausaInfo) {
-    const parts = [`<strong>${escapeHtml(syncingCausaInfo.rol)}</strong>`];
-    if (syncingCausaInfo.tribunal) parts.push(escapeHtml(syncingCausaInfo.tribunal));
-    if (syncingCausaInfo.caratula) parts.push(escapeHtml(syncingCausaInfo.caratula));
-    waitBanner.innerHTML = `<span class="sync-wait-icon">⟳</span><span>Sincronizando: ${parts.join(' · ')}</span>`;
-    waitBanner.style.display = 'flex';
-  }
 
   document.getElementById('sync-compact-result').innerHTML = '';
   document.getElementById('sync-compact-details').innerHTML = '';
@@ -583,6 +603,7 @@ function enterSyncingUI() {
 function leaveSyncingUI(success) {
   isSyncing = false;
   syncingCausaInfo = null;
+  syncJustFinished = true;
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.disabled = false;
   finishSyncUI(success);
@@ -616,7 +637,8 @@ function handleSyncCompleteFromSW(syncResult) {
     }
   })();
 
-  if (casesLoaded) { casesLoaded = false; loadCases(); }
+  const chatIframe = document.getElementById('chat-iframe');
+  chatIframe?.contentWindow?.postMessage({ type: 'cases_updated' }, '*');
   chrome.runtime.sendMessage({ type: 'clear_sync_state' }).catch(() => {});
 }
 
@@ -644,6 +666,14 @@ async function recoverSyncState() {
 
       isSyncing = true;
       syncingCausaInfo = { rol: job.rol, tribunal: job.tribunal, caratula: job.caratula };
+
+      const causaRol = document.getElementById('causa-rol');
+      const causaTribunal = document.getElementById('causa-tribunal');
+      const causaCaratula = document.getElementById('causa-caratula');
+      if (causaRol) causaRol.textContent = `ROL: ${job.rol}`;
+      if (causaTribunal) causaTribunal.textContent = job.tribunal ? `Tribunal: ${job.tribunal}` : '';
+      if (causaCaratula) causaCaratula.textContent = job.caratula ? `Carátula: ${job.caratula}` : '';
+
       enterSyncingUI();
       if (job.progress) {
         updateProgress(job.progress.percent, job.progress.message);
@@ -702,9 +732,6 @@ async function getCausaPackage() {
 
 function finishSyncUI(success) {
   const syncBtn = document.getElementById('sync-btn');
-  const waitBanner = document.getElementById('sync-wait-banner');
-
-  if (waitBanner) waitBanner.style.display = 'none';
 
   if (syncBtn) {
     if (success) {
@@ -816,216 +843,63 @@ function renderCompactResult(results, errorMsg, type) {
 }
 
 // ══════════════════════════════════════════════════════════
-// 8. TAB MIS CAUSAS — Fetch + Render
+// 8. LOCAL CLEANUP — usado cuando el Chat IA elimina una causa
 // ══════════════════════════════════════════════════════════
 
-async function loadCases() {
-  const listEl = document.getElementById('cases-list');
-  const emptyEl = document.getElementById('cases-empty');
-  const skeletonEl = document.getElementById('cases-skeleton');
-  const errorEl = document.getElementById('cases-error');
-
-  listEl.innerHTML = '';
-  emptyEl.style.display = 'none';
-  errorEl.style.display = 'none';
-  skeletonEl.style.display = 'block';
-
+/**
+ * Limpia todos los datos locales (chrome.storage + service worker) asociados
+ * a una causa eliminada para evitar datos huérfanos que afecten re-syncs.
+ */
+async function cleanupDeletedCaseLocalData(caseId, rol, userId) {
+  // 1. sync_badges: badge "Nuevo" keyed por case_id
   try {
-    const session = await supabase.getSession();
-    if (!session?.access_token) throw new Error('Sin sesión activa');
-
-    const response = await fetch(CONFIG.API.CASES, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-
-    const { cases } = await response.json();
-    skeletonEl.style.display = 'none';
-    casesLoaded = true;
-
-    if (!cases || cases.length === 0) {
-      emptyEl.style.display = 'flex';
-      return;
-    }
-
-    // 4.19: Enriquecer con badges de sync reciente (chrome.storage.local)
     const badges = await getSyncBadges();
-    const enriched = cases.map(c => ({
-      ...c,
-      new_since_sync: badges[c.id]?.newCount || 0,
-    }));
-
-    listEl.innerHTML = enriched.map(renderCaseCard).join('');
-  } catch (error) {
-    console.error('[Sidepanel] Error cargando causas:', error);
-    skeletonEl.style.display = 'none';
-    errorEl.style.display = 'block';
-    document.getElementById('cases-error-msg').textContent = error.message;
-  }
-}
-
-function renderCaseCard(c) {
-  const docCount = c.document_count || 0;
-  const timeAgo = c.last_synced_at ? getTimeAgo(c.last_synced_at) : 'Sin sincronizar';
-  const tribunalDisplay = c.tribunal || 'Tribunal no disponible';
-  const newCount = c.new_since_sync || 0;
-
-  let freshness = 'stale';
-  if (c.last_synced_at) {
-    const hoursSince = (Date.now() - new Date(c.last_synced_at).getTime()) / (1000 * 60 * 60);
-    if (hoursSince < 24) freshness = 'fresh';
-    else if (hoursSince < 72) freshness = 'recent';
-  }
-
-  return `
-    <div class="case-card" data-case-id="${escapeHtml(c.id)}">
-      <div class="case-header">
-        <span class="case-rol">${escapeHtml(c.rol)}</span>
-        <div class="case-badges">
-          ${newCount > 0 ? `<span class="badge-new" title="${newCount} documento(s) nuevo(s) desde última sync">Nuevo</span>` : ''}
-          <span class="case-badge badge-${freshness}">${docCount} doc${docCount !== 1 ? 's' : ''}</span>
-          <button class="case-delete-btn" title="Eliminar causa"
-            data-del-id="${escapeHtml(c.id)}"
-            data-del-rol="${escapeHtml(c.rol)}"
-            data-del-docs="${docCount}">✕</button>
-        </div>
-      </div>
-      <p class="case-tribunal">${escapeHtml(tribunalDisplay)}</p>
-      <div class="case-footer">
-        <span class="case-time">${timeAgo}</span>
-        ${newCount > 0 ? `<span class="new-docs-hint">${newCount} doc${newCount !== 1 ? 's' : ''} nuevo${newCount !== 1 ? 's' : ''}</span>` : ''}
-      </div>
-    </div>
-  `;
-}
-
-// ══════════════════════════════════════════════════════════
-// 9. DELETE CAUSA — Modal + API call
-// ══════════════════════════════════════════════════════════
-
-let pendingDelete = null; // { id, rol, docs }
-
-function setupDeleteListeners() {
-  document.getElementById('cases-list')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.case-delete-btn');
-    if (!btn) return;
-    e.stopPropagation();
-
-    if (isSyncing) {
-      showNotification('No se puede eliminar mientras se sincroniza', 'warning');
-      return;
+    if (badges[caseId]) {
+      delete badges[caseId];
+      await new Promise(resolve => chrome.storage.local.set({ sync_badges: badges }, resolve));
+      console.log('[Delete cleanup] sync_badge eliminado:', caseId);
     }
+  } catch (e) {
+    console.warn('[Delete cleanup] sync_badges:', e.message);
+  }
 
-    const id = btn.dataset.delId;
-    const rol = btn.dataset.delRol;
-    const docs = parseInt(btn.dataset.delDocs, 10) || 0;
-
-    pendingDelete = { id, rol, docs };
-
-    const modal = document.getElementById('delete-modal');
-    document.getElementById('delete-modal-title').textContent = `¿Eliminar causa ${rol}?`;
-    const detail = docs > 0
-      ? `Se eliminarán permanentemente ${docs} documento${docs !== 1 ? 's' : ''} sincronizado${docs !== 1 ? 's' : ''} y todo su historial.`
-      : 'Se eliminará la causa y todo su historial.';
-    document.getElementById('delete-modal-detail').textContent = detail;
-    document.getElementById('delete-confirm-btn').disabled = false;
-    document.getElementById('delete-confirm-btn').textContent = 'Eliminar';
-    modal.style.display = 'flex';
-  });
-
-  document.getElementById('delete-cancel-btn')?.addEventListener('click', closeDeleteModal);
-
-  document.getElementById('delete-modal')?.addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closeDeleteModal();
-  });
-
-  document.getElementById('delete-confirm-btn')?.addEventListener('click', confirmDelete);
-}
-
-function closeDeleteModal() {
-  document.getElementById('delete-modal').style.display = 'none';
-  pendingDelete = null;
-}
-
-async function confirmDelete() {
-  if (!pendingDelete) return;
-
-  const confirmBtn = document.getElementById('delete-confirm-btn');
-  const cancelBtn = document.getElementById('delete-cancel-btn');
-  confirmBtn.disabled = true;
-  confirmBtn.textContent = 'Eliminando…';
-  cancelBtn.style.display = 'none';
-
+  // 2. synced_causas_registry: registro de causas sincronizadas keyed por rol
   try {
-    const session = await supabase.getSession();
-    if (!session?.access_token) throw new Error('Sin sesión activa');
-
-    const response = await fetch(CONFIG.API.CASES, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ case_id: pendingDelete.id }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-
-    const card = document.querySelector(`.case-card[data-case-id="${pendingDelete.id}"]`);
-    if (card) {
-      card.style.transition = 'opacity 0.25s, transform 0.25s';
-      card.style.opacity = '0';
-      card.style.transform = 'translateX(20px)';
-      setTimeout(() => {
-        card.remove();
-        const listEl = document.getElementById('cases-list');
-        if (listEl && !listEl.children.length) {
-          document.getElementById('cases-empty').style.display = 'flex';
-        }
-      }, 250);
-    }
-
-    const deletedRol = pendingDelete.rol;
-    closeDeleteModal();
-    showNotification(`Causa ${deletedRol} eliminada`, 'success');
-
-    if (lastDetectedCausa && deletedRol === lastDetectedCausa.rol) {
-      lastSyncState = null;
-      applySyncStateUI(lastDetectedCausa, { lastSyncedAt: null });
-      const compactEl = document.getElementById('sync-compact');
-      if (compactEl) {
-        compactEl.style.display = 'none';
-        const resultEl = document.getElementById('sync-compact-result');
-        const detailsEl = document.getElementById('sync-compact-details');
-        if (resultEl) resultEl.innerHTML = '';
-        if (detailsEl) detailsEl.innerHTML = '';
+    const result = await new Promise(resolve =>
+      chrome.storage.local.get(['synced_causas_registry'], r => resolve(r.synced_causas_registry || []))
+    );
+    if (Array.isArray(result)) {
+      const filtered = result.filter(entry => entry.rol !== rol);
+      if (filtered.length !== result.length) {
+        await new Promise(resolve => chrome.storage.local.set({ synced_causas_registry: filtered }, resolve));
+        console.log('[Delete cleanup] synced_causas_registry: eliminada entrada para', rol);
       }
     }
+  } catch (e) {
+    console.warn('[Delete cleanup] synced_causas_registry:', e.message);
+  }
 
-  } catch (error) {
-    console.error('[Delete] Error:', error);
-    confirmBtn.textContent = 'Eliminar';
-    confirmBtn.disabled = false;
-    cancelBtn.style.display = '';
-    showNotification(`Error: ${error.message}`, 'error');
+  // 3. pdf_hashes cache: hashes de PDFs cacheados por userId+rol
+  if (userId && rol) {
+    try {
+      const cacheKey = `pdf_hashes_${userId}_${rol}`;
+      await new Promise(resolve => chrome.storage.local.remove([cacheKey], resolve));
+      console.log('[Delete cleanup] pdf_hashes cache eliminado:', cacheKey);
+    } catch (e) {
+      console.warn('[Delete cleanup] pdf_hashes:', e.message);
+    }
+  }
+
+  // 4. Notificar al service worker para limpiar causaPackageStore
+  try {
+    chrome.runtime.sendMessage({ type: 'case_deleted', caseId, rol });
+  } catch (e) {
+    console.warn('[Delete cleanup] SW notification:', e.message);
   }
 }
 
 // ══════════════════════════════════════════════════════════
-// 4.19: SYNC BADGES — chrome.storage.local
-// Persiste la info de documentos nuevos por sync para
-// mostrar badge "Nuevo" en Mis Causas sin consultas extra a DB.
+// 9. SYNC BADGES — chrome.storage.local
 // ══════════════════════════════════════════════════════════
 
 /**
@@ -1076,7 +950,7 @@ async function getSyncBadges() {
 }
 
 // ══════════════════════════════════════════════════════════
-// 9. EVENTOS DEL SCRAPER
+// 10. EVENTOS DEL SCRAPER
 // ══════════════════════════════════════════════════════════
 
 function setupScraperEventListener() {
@@ -1147,7 +1021,7 @@ function handleStatusUpdate(data) {
 }
 
 // ══════════════════════════════════════════════════════════
-// 10. ARCHIVOS GRANDES — Batch Summary
+// 11. ARCHIVOS GRANDES — Batch Summary
 // ══════════════════════════════════════════════════════════
 
 function displayBatchSummary(summary) {
@@ -1189,7 +1063,7 @@ function handleUploadError(data) {
 }
 
 // ══════════════════════════════════════════════════════════
-// 11. UTILIDADES
+// 12. UTILIDADES
 // ══════════════════════════════════════════════════════════
 
 function updateProgress(percent, message, type = 'info') {

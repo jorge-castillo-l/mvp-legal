@@ -15,7 +15,7 @@
  */
 
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
-import { MODEL_CONFIGS, getTimeout, shouldEnableWebSearch } from '../config'
+import { MODEL_CONFIGS, getTimeout } from '../config'
 import { getOrCreateGeminiCache } from '../cache'
 import {
   AIProviderError,
