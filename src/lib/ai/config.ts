@@ -120,6 +120,14 @@ export const WEB_SEARCH_TRIGGER_KEYWORDS = [
   'recurso de protección',
   'recurso de nulidad',
   'unificación de jurisprudencia',
+  'busca en internet',
+  'buscar en internet',
+  'busca en la web',
+  'buscar en la web',
+  'googlea',
+  'investiga en internet',
+  'busca online',
+  'buscar online',
 ] as const
 
 /**
