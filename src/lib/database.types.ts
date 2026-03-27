@@ -28,6 +28,8 @@ export type DocumentEmbeddingInsert = TablesInsert<'document_embeddings'>
 export type DocumentEmbeddingRow = Tables<'document_embeddings'>
 export type ProcessingQueueInsert = TablesInsert<'processing_queue'>
 export type ProcessingQueueRow = Tables<'processing_queue'>
+export type OcrUsageInsert = TablesInsert<'ocr_usage'>
+export type OcrUsageRow = Tables<'ocr_usage'>
 
 export type {
   ConversationInsert,
@@ -37,50 +39,70 @@ export type {
 } from '@/types/database'
 
 /**
- * Plan Limits Constants
- * 
- * ACTUALIZACIÓN Feb 2026 — Rediseño "Prueba Profesional" + Fair Use:
- * 
- * FREE ("Prueba Profesional" - 7 días):
- *   - 1 causa, 20 chats (lifetime), 3 deep thinking (lifetime)
- *   - 0 escritos (sin acceso a editor/micro-escritos)
- *   - 7 días de retención, luego The Reaper borra datos
- *   - Ghost card: se conserva metadata de causa (ROL, tribunal, carátula)
- *   - Device fingerprint impide re-crear cuenta free
- * 
- * PRO ($50.00/mes):
- *   - 500 causas, chat con Fair Use (soft cap 3,000/mes)
- *   - 100 deep thinking por mes
- *   - 200 escritos/mes (Editor 3.03 + Micro-Escritos 10.06 comparten cuota)
- *   - Fair Use: al superar 3,000 chats/mes se aplica throttle
- *     de 30s entre queries (no se bloquea, se ralentiza)
- *   - Retención permanente de datos
- * 
- * Nota: Cuando se implemente 6.04 (4 planes), los límites de escritos serán:
- *   FREE: 0 | INDIVIDUAL: 50/mes | ESTUDIO: 200/mes | ENTERPRISE: 500/mes
+ * Plan Limits Constants — Tareas 6.04 + 6.01
+ *
+ * 4 planes con 3 capas de IA (fast_chat / full_analysis / deep_thinking).
+ * Margen ~70% por plan para usuario típico (40% de límites).
+ * Precios en CLP (Flow.cl) — equivalente USD como referencia.
+ *
+ * FREE (Prueba Profesional — 7 días):
+ *   1 causa | 20 fast_chat | 5 full_analysis | 3 deep_thinking (lifetime)
+ *
+ * BÁSICO ($16.990 CLP/mes ≈ $20 USD):
+ *   10 causas | 200 fast_chat | 15 full_analysis | 5 deep_thinking (mensual)
+ *
+ * PRO ($49.990 CLP/mes ≈ $60 USD):
+ *   30 causas | 600 fast_chat (soft cap) | 60 full_analysis | 15 deep_thinking
+ *
+ * ULTRA ($89.990 CLP/mes ≈ $99 USD):
+ *   100 causas | 1000 fast_chat (soft cap) | 150 full_analysis | 30 deep_thinking
  */
 export const PLAN_LIMITS = {
   free: {
     cases: 1,
-    chats: 20,
+    fast_chat: 20,
+    full_analysis: 5,
     deep_thinking: 3,
-    editor: 0,
     retention_days: 7,
+    price_clp: 0,
     price_usd: 0,
   },
-  pro: {
-    cases: 500,
-    chats: Infinity,
-    deep_thinking: 100,
-    editor: 200,
+  basico: {
+    cases: 10,
+    fast_chat: 200,
+    full_analysis: 15,
+    deep_thinking: 5,
     retention_days: Infinity,
-    price_usd: 50,
+    price_clp: 16_990,
+    price_usd: 20,
+  },
+  pro: {
+    cases: 30,
+    fast_chat: 600,
+    full_analysis: 60,
+    deep_thinking: 15,
+    retention_days: Infinity,
+    price_clp: 49_990,
+    price_usd: 60,
     fair_use: {
-      chat_soft_cap_monthly: 3_000,
+      fast_chat_soft_cap_monthly: 600,
+      throttle_ms: 30_000,
+    },
+  },
+  ultra: {
+    cases: 100,
+    fast_chat: 1_000,
+    full_analysis: 150,
+    deep_thinking: 30,
+    retention_days: Infinity,
+    price_clp: 89_990,
+    price_usd: 99,
+    fair_use: {
+      fast_chat_soft_cap_monthly: 1_000,
       throttle_ms: 30_000,
     },
   },
 } as const
 
-export type PlanType = 'free' | 'pro'
-export type ActionType = 'chat' | 'deep_thinking' | 'case' | 'editor'
+export type PlanType = 'free' | 'basico' | 'pro' | 'ultra'
+export type ActionType = 'fast_chat' | 'full_analysis' | 'deep_thinking' | 'case'

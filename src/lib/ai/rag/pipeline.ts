@@ -22,7 +22,8 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/database.types'
 import { getAIResponse, getAIResponseStream, aiStreamToSSE } from '../router'
-import { buildSystemPrompt } from '../prompts'
+import { buildSystemPrompt, isDeadlineAnalysisQuery, getDeadlineAnalysisPrompt } from '../prompts'
+import { isSyncUpdatesQuery, fetchLastSyncChanges, getSyncUpdatesPrompt } from '../prompts/sync-updates-analysis'
 import { shouldEnableWebSearch, isExplicitWebSearchRequest } from '../config'
 import { retrieveChunks, type RetrievalOptions } from './retrieval'
 import { fetchCaseStructuredContext, getFilteredContextChunk, type CaseMetadataFromContext } from './case-context'
@@ -152,6 +153,18 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
 
   const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
   const explicitWeb = isExplicitWebSearchRequest(options.query)
+  const deadlineMode = isDeadlineAnalysisQuery(options.query)
+  const syncUpdatesMode = !deadlineMode && isSyncUpdatesQuery(options.query)
+
+  let specializedPrompt: string | undefined
+  if (deadlineMode) {
+    specializedPrompt = getDeadlineAnalysisPrompt()
+  } else if (syncUpdatesMode) {
+    const syncChanges = await fetchLastSyncChanges(options.caseId)
+    if (syncChanges && syncChanges.length > 0) {
+      specializedPrompt = getSyncUpdatesPrompt(syncChanges)
+    }
+  }
 
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
@@ -159,10 +172,15 @@ export async function askCase(options: AskCaseOptions): Promise<AskCaseResult> {
     rol: caseMeta?.rol,
     tribunal: caseMeta?.tribunal,
     isExplicitWebSearch: webSearch && explicitWeb,
+    specializedPrompt,
   })
 
-  const context = structuredResult
-    ? [getFilteredContextChunk(structuredResult, options.query), ...retrieval.chunks]
+  const fullContext = deadlineMode || syncUpdatesMode
+  const structuredChunk = structuredResult
+    ? (fullContext ? structuredResult.chunk : getFilteredContextChunk(structuredResult, options.query))
+    : null
+  const context = structuredChunk
+    ? [structuredChunk, ...retrieval.chunks]
     : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
@@ -219,6 +237,18 @@ export async function* askCaseStream(
 
   const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
   const explicitWeb = isExplicitWebSearchRequest(options.query)
+  const deadlineMode = isDeadlineAnalysisQuery(options.query)
+  const syncUpdatesMode = !deadlineMode && isSyncUpdatesQuery(options.query)
+
+  let specializedPrompt: string | undefined
+  if (deadlineMode) {
+    specializedPrompt = getDeadlineAnalysisPrompt()
+  } else if (syncUpdatesMode) {
+    const syncChanges = await fetchLastSyncChanges(options.caseId)
+    if (syncChanges && syncChanges.length > 0) {
+      specializedPrompt = getSyncUpdatesPrompt(syncChanges)
+    }
+  }
 
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
@@ -226,10 +256,15 @@ export async function* askCaseStream(
     rol: caseMeta?.rol,
     tribunal: caseMeta?.tribunal,
     isExplicitWebSearch: webSearch && explicitWeb,
+    specializedPrompt,
   })
 
-  const context = structuredResult
-    ? [getFilteredContextChunk(structuredResult, options.query), ...retrieval.chunks]
+  const fullContext = deadlineMode || syncUpdatesMode
+  const structuredChunk = structuredResult
+    ? (fullContext ? structuredResult.chunk : getFilteredContextChunk(structuredResult, options.query))
+    : null
+  const context = structuredChunk
+    ? [structuredChunk, ...retrieval.chunks]
     : retrieval.chunks
 
   await persistUserMessage(options.conversationId, options.userId, options.query)

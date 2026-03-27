@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createClientWithToken, createAdminClient } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit'
 
 const SIGNED_URL_EXPIRY_SECONDS = 3600 // 1 hour
 
@@ -28,6 +29,15 @@ export async function GET(
   const { id: documentId } = await params
 
   try {
+    // Rate limit (60 req/min — signed URLs son baratas)
+    const rl = checkRateLimit(request, { maxRequests: 60, windowMs: 60_000 }, 'doc-url')
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes. Intenta en unos segundos.', code: 'RATE_LIMITED' },
+        { status: 429, headers: { ...corsHeaders, ...rateLimitHeaders(rl) } },
+      )
+    }
+
     const authHeader = request.headers.get('Authorization')
     let userId: string
 

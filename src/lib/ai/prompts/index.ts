@@ -34,3 +34,22 @@ export {
 } from './base'
 
 export { getProviderInstructions } from './provider-instructions'
+
+export {
+  isDeadlineAnalysisQuery,
+  getDeadlineAnalysisPrompt,
+  CHILE_HOLIDAYS,
+} from './deadline-analysis'
+
+export {
+  getQuickActions,
+  COMMON_ACTIONS,
+  PROCEDURE_ACTIONS,
+} from './quick-actions'
+export type { QuickAction } from './quick-actions'
+
+export {
+  isSyncUpdatesQuery,
+  fetchLastSyncChanges,
+  getSyncUpdatesPrompt,
+} from './sync-updates-analysis'

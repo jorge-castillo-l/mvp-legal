@@ -16,6 +16,8 @@ import { NextRequest } from 'next/server'
 import { GoogleGenAI } from '@google/genai'
 import { createClient, createAdminClient, createClientWithToken } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit'
+import { checkPlanLimits, incrementPlanCounter, modeToActionType, planLimitErrorBody } from '@/lib/plan-guard'
 import { askCaseStream } from '@/lib/ai/rag/pipeline'
 import { getEnhancedAnalysisStream } from '@/lib/ai/rag/enhanced-pipeline'
 import { aiStreamToResilientSSE } from '@/lib/ai/router'
@@ -30,6 +32,16 @@ export async function POST(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request)
 
   try {
+    // ── Rate limit anti-bot (20 req/min por IP) ──
+    const rl = checkRateLimit(request, { maxRequests: 20, windowMs: 60_000 }, 'chat')
+    if (!rl.allowed) {
+      return Response.json(
+        { error: 'Demasiadas solicitudes. Intenta en unos segundos.', code: 'RATE_LIMITED' },
+        { status: 429, headers: { ...corsHeaders, ...rateLimitHeaders(rl) } },
+      )
+    }
+
+    // ── Auth ──
     const authHeader = request.headers.get('Authorization')
     let userId: string
 
@@ -66,6 +78,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // ── Plan limits (check ANTES de procesar) ──
+    const actionType = modeToActionType(mode)
+    const planCheck = await checkPlanLimits(userId, actionType)
+
+    if (!planCheck.allowed) {
+      return Response.json(planLimitErrorBody(planCheck), {
+        status: 429,
+        headers: corsHeaders,
+      })
+    }
+
+    // ── Fair use throttle (PRO/ULTRA fast_chat soft cap) ──
+    if (planCheck.fair_use_throttle && planCheck.throttle_ms) {
+      await new Promise((resolve) => setTimeout(resolve, planCheck.throttle_ms))
+    }
+
+    // ── Increment counter (optimista: antes del stream para evitar race conditions) ──
+    const incResult = await incrementPlanCounter(userId, actionType)
+    if (!incResult.success) {
+      return Response.json(
+        { error: incResult.error ?? 'Error al registrar uso', code: 'PLAN_LIMIT_EXCEEDED' },
+        { status: 429, headers: corsHeaders },
+      )
+    }
+
     const conversationId = providedConvId ?? await resolveConversation(userId, caseId, mode)
 
     autoTitleIfNeeded(conversationId, query)
@@ -99,6 +136,7 @@ export async function POST(request: NextRequest) {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         ...corsHeaders,
+        ...rateLimitHeaders(rl),
       },
     })
   } catch (error) {
@@ -138,8 +176,16 @@ function autoTitleIfNeeded(conversationId: string, query: string) {
     })
 }
 
+function truncateAtWordBoundary(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  const truncated = text.slice(0, maxLen)
+  const lastSpace = truncated.lastIndexOf(' ')
+  if (lastSpace <= 0) return truncated + '...'
+  return truncated.slice(0, lastSpace) + '...'
+}
+
 async function generateTitle(query: string): Promise<string> {
-  const fallback = query.length > 60 ? query.slice(0, 57) + '...' : query
+  const fallback = truncateAtWordBoundary(query, 60)
   const apiKey = process.env.GOOGLE_API_KEY
   if (!apiKey) {
     console.warn('[autoTitle] GOOGLE_API_KEY not set, using fallback')
@@ -155,19 +201,33 @@ async function generateTitle(query: string): Promise<string> {
           {
             role: 'user',
             parts: [{
-              text: `Genera un título corto y descriptivo (máximo 8 palabras) para una conversación de chat legal cuya primera consulta es:\n\n"${query}"\n\nResponde SOLO con el título, sin comillas, sin puntos finales, sin explicaciones. Nunca trunces palabras.`,
+              text: [
+                'Genera un título breve para esta consulta legal.',
+                'Reglas estrictas:',
+                '- Máximo 8 palabras completas',
+                '- NUNCA cortes ni trunces una palabra a la mitad',
+                '- NUNCA omitas letras del inicio o final',
+                '- Sin comillas, sin puntos finales, sin explicaciones',
+                '- Responde ÚNICAMENTE con el título',
+                '',
+                `Consulta: "${query}"`,
+              ].join('\n'),
             }],
           },
         ],
-        config: { temperature: 0.4, maxOutputTokens: 150 },
+        config: { temperature: 0.3, maxOutputTokens: 60 },
       }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 5_000),
       ),
     ])
 
-    const title = (response.text ?? '').trim().replace(/^["'"""'']+|["'"""'']+$/g, '').replace(/\.$/, '')
-    if (!title || title.length > 80) return fallback
+    let title = (response.text ?? '').trim()
+    title = title.replace(/^["'"""''`]+|["'"""''`]+$/g, '')
+    title = title.replace(/[.…]+$/, '')
+    title = title.split('\n')[0].trim()
+
+    if (!title || title.length < 3 || title.length > 80) return fallback
     return title
   } catch (err) {
     console.warn('[autoTitle] AI generation failed, using fallback:', err instanceof Error ? err.message : err)

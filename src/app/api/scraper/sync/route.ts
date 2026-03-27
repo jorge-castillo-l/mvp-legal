@@ -29,6 +29,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
 import { createAdminClient, createClient } from '@/lib/supabase/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit'
+import { checkPlanLimits, incrementPlanCounter } from '@/lib/plan-guard'
 import { PjudClient } from '@/lib/pjud/client'
 import {
   parseCuadernoFromHtml,
@@ -39,6 +41,7 @@ import {
   parseReceptorRetiros,
 } from '@/lib/pjud/parser'
 import { buildSnapshotFromDb, generateDiff } from '@/lib/pjud/sync-diff'
+import { normalizeProcedimiento } from '@/lib/pjud/normalize-procedimiento'
 import { invalidateCaseContextCache } from '@/lib/ai/rag/case-context'
 import type {
   CausaPackage,
@@ -63,6 +66,13 @@ import type {
   DocumentHashInsert,
   ExtractedTextInsert,
 } from '@/types/database'
+
+class PlanLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PlanLimitError'
+  }
+}
 
 // ════════════════════════════════════════════════════════
 // SSE HELPERS
@@ -94,6 +104,15 @@ type SupabaseAdmin = ReturnType<typeof createAdminClient>
 
 export async function POST(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request, { methods: 'POST, OPTIONS' })
+
+  // ── Rate limit (sync es costoso: 5 req/min por IP) ──
+  const rl = checkRateLimit(request, { maxRequests: 5, windowMs: 60_000 }, 'sync')
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Demasiadas solicitudes de sincronización. Intenta en unos segundos.', code: 'RATE_LIMITED' },
+      { status: 429, headers: { ...corsHeaders, ...rateLimitHeaders(rl) } },
+    )
+  }
 
   // ── PASO 1: AUTENTICACIÓN ──
   const authHeader = request.headers.get('Authorization')
@@ -191,8 +210,19 @@ export async function POST(request: NextRequest) {
           // ── SYNC NORMAL ──
           emit('progress', { message: 'Registrando causa…', current: 0, total: 0 })
 
-          // PASO 3: Upsert causa
-          const upsertedId = await upsertCase(db, user.id, pkg)
+          // PASO 3: Upsert causa (verifica plan limits si es causa nueva)
+          let upsertedId: string | null
+          try {
+            upsertedId = await upsertCase(db, user.id, pkg)
+          } catch (e) {
+            if (e instanceof PlanLimitError) {
+              emit('error', { message: e.message, code: 'PLAN_LIMIT_EXCEEDED', upgrade_required: true })
+            } else {
+              emit('error', { message: 'Error al registrar la causa' })
+            }
+            controller.close()
+            return
+          }
           if (!upsertedId) {
             emit('error', { message: 'Error al registrar la causa' })
             controller.close()
@@ -235,6 +265,18 @@ export async function POST(request: NextRequest) {
               console.log(`[sync] Cuaderno "${ref.nombre}": ${cuaderno.folios.length} folios`)
             } catch (err) {
               console.error(`[sync] Error cuaderno "${ref.nombre}":`, err)
+            }
+          }
+
+          // Fallback: si el cuaderno visible no clasificó, buscar
+          // específicamente el cuaderno llamado "Principal". Si no
+          // existe o tampoco clasifica, queda null (prompt genérico).
+          if (!normalizeProcedimiento(pkg.cuaderno_visible.procedimiento) && parsedOtrosCuadernos.length > 0) {
+            const principal = parsedOtrosCuadernos.find(c => /principal/i.test(c.nombre))
+            const fallback = principal ? normalizeProcedimiento(principal.procedimiento) : null
+            if (fallback) {
+              await db.from('cases').update({ procedimiento: fallback }).eq('id', caseId)
+              console.log(`[sync] Procedimiento desde cuaderno "${principal!.nombre}": ${fallback}`)
             }
           }
 
@@ -475,6 +517,11 @@ export async function POST(request: NextRequest) {
           try {
             changes = generateDiff(prevSnapshot!, newSnapshot)
             console.log(`[sync] Diff: ${changes.length} cambio(s) detectado(s)`)
+            if (changes.length > 0) {
+              await db.from('cases')
+                .update({ last_sync_changes: changes } as any)
+                .eq('id', caseId)
+            }
           } catch (err) {
             console.error('[sync] Error generating diff:', err)
           }
@@ -553,6 +600,7 @@ export async function OPTIONS(request: NextRequest) {
 
 async function upsertCase(db: SupabaseAdmin, userId: string, pkg: CausaPackage): Promise<string | null> {
   const tribunalNorm = pkg.tribunal || ''
+  const procedimiento = normalizeProcedimiento(pkg.cuaderno_visible.procedimiento)
 
   const { data: candidates } = await db
     .from('cases')
@@ -562,6 +610,7 @@ async function upsertCase(db: SupabaseAdmin, userId: string, pkg: CausaPackage):
 
   const existingCase = candidates?.find(c => (c.tribunal || '') === tribunalNorm)
 
+  // Re-sync: causa ya existe → solo actualizar metadata
   if (existingCase) {
     const update: Record<string, string | null> = { last_synced_at: new Date().toISOString() }
     if (pkg.tribunal) update.tribunal = pkg.tribunal
@@ -572,9 +621,17 @@ async function upsertCase(db: SupabaseAdmin, userId: string, pkg: CausaPackage):
     if (pkg.fecha_ingreso) update.fecha_ingreso = pkg.fecha_ingreso
     if (pkg.estado_procesal) update.estado_procesal = pkg.estado_procesal
     if (pkg.libro_tipo) update.libro_tipo = pkg.libro_tipo
+    if (procedimiento) update.procedimiento = procedimiento
 
     await db.from('cases').update(update).eq('id', existingCase.id)
     return existingCase.id
+  }
+
+  // Primera sync: verificar que el plan permite crear otra causa
+  const planCheck = await checkPlanLimits(userId, 'case')
+  if (!planCheck.allowed) {
+    console.warn(`[sync] Plan limit reached for user ${userId}: ${planCheck.error}`)
+    throw new PlanLimitError(planCheck.error ?? 'Límite de causas alcanzado')
   }
 
   const newCase: CaseInsert = {
@@ -588,6 +645,7 @@ async function upsertCase(db: SupabaseAdmin, userId: string, pkg: CausaPackage):
     fecha_ingreso: pkg.fecha_ingreso,
     estado_procesal: pkg.estado_procesal,
     libro_tipo: pkg.libro_tipo,
+    procedimiento,
     last_synced_at: new Date().toISOString(),
   }
 
@@ -603,6 +661,7 @@ async function upsertCase(db: SupabaseAdmin, userId: string, pkg: CausaPackage):
     return null
   }
 
+  await incrementPlanCounter(userId, 'case')
   return created.id
 }
 

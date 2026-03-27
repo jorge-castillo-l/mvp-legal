@@ -1,9 +1,9 @@
 /**
  * ============================================================
- * Quick Actions — Tarea 3.08
+ * Quick Actions — Tareas 3.08 + 3.13
  * ============================================================
  * Acciones rápidas predefinidas por procedimiento.
- * 5 comunes + 3 específicas = 8 botones máximo visible.
+ * 5 comunes (incluye Plazos Fatales 3.13) + 3 específicas.
  * ============================================================
  */
 
@@ -11,14 +11,25 @@ export interface QuickAction {
   id: string
   label: string
   query: string
+  /** Marks this action as triggering specialized prompt injection (e.g. deadline analysis) */
+  specialAction?: 'deadline_analysis'
+  /** Minimum recommended AI mode for this action — UI will auto-upgrade when clicked */
+  recommendedMode?: 'full_analysis' | 'deep_thinking'
 }
 
 const COMMON_ACTIONS: QuickAction[] = [
   { id: 'resumen', label: 'Resumen estado actual', query: '¿Cuál es el estado actual de esta causa? Dame un resumen completo.' },
   { id: 'cronologia', label: 'Cronología', query: 'Dame una cronología ordenada de las actuaciones de esta causa, con fechas y tipo de documento.' },
-  { id: 'plazos', label: 'Próximos plazos', query: '¿Cuáles son los próximos plazos vigentes en esta causa? Indica el artículo del CPC y la fecha estimada de vencimiento.' },
-  { id: 'recursos', label: 'Recursos que proceden', query: '¿Qué recursos procesales proceden en el estado actual de esta causa? Indica plazos y requisitos.' },
+  {
+    id: 'plazos-fatales',
+    label: 'Plazos fatales',
+    query: 'Analiza los plazos fatales vigentes en esta causa. Busca las notificaciones recientes, identifica qué resoluciones fueron notificadas y cómo (personal, Art. 44, estado diario), calcula los días hábiles restantes según el Art. 66 CPC excluyendo feriados, y responde con una tabla: Plazo | Origen | Notificado | Vence | Días restantes | Art. CPC | Estado. Destaca con ⚠️ los plazos que venzan en 3 días o menos. Indica también si hay riesgo de abandono del procedimiento.',
+    specialAction: 'deadline_analysis',
+    recommendedMode: 'full_analysis',
+  },
+  { id: 'recursos', label: 'Recursos que proceden', query: '¿Qué recursos procesales proceden en el estado actual de esta causa? Indica plazos y requisitos.', recommendedMode: 'full_analysis' },
   { id: 'pendientes', label: 'Documentos pendientes', query: '¿Hay documentos clave pendientes o trámites sin completar en esta causa?' },
+  { id: 'sync-updates', label: 'Cambios de sincronización', query: 'Explícame los cambios detectados en la última sincronización de esta causa. Agrupa por relevancia procesal y destaca si algún cambio implica plazos o acciones urgentes.' },
 ]
 
 const PROCEDURE_ACTIONS: Record<string, QuickAction[]> = {

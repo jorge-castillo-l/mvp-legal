@@ -28,7 +28,8 @@
 import { createAdminClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/database.types'
 import { getAIResponse, getAIResponseStream } from '../router'
-import { buildSystemPrompt } from '../prompts'
+import { buildSystemPrompt, isDeadlineAnalysisQuery, getDeadlineAnalysisPrompt } from '../prompts'
+import { isSyncUpdatesQuery, fetchLastSyncChanges, getSyncUpdatesPrompt } from '../prompts/sync-updates-analysis'
 import { shouldEnableWebSearch, isExplicitWebSearchRequest } from '../config'
 import { retrieveChunks } from './retrieval'
 import { fetchKeyDocuments } from './key-documents'
@@ -165,11 +166,28 @@ export async function getEnhancedAnalysis(
   ])
 
   const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
-  const context = structuredResult ? [getFilteredContextChunk(structuredResult, options.query), ...merged] : merged
   const retrievalDurationMs = Date.now() - retrievalStart
 
   const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
   const explicitWeb = isExplicitWebSearchRequest(options.query)
+  const deadlineMode = isDeadlineAnalysisQuery(options.query)
+  const syncUpdatesMode = !deadlineMode && isSyncUpdatesQuery(options.query)
+
+  let specializedPrompt: string | undefined
+  if (deadlineMode) {
+    specializedPrompt = getDeadlineAnalysisPrompt()
+  } else if (syncUpdatesMode) {
+    const syncChanges = await fetchLastSyncChanges(options.caseId)
+    if (syncChanges && syncChanges.length > 0) {
+      specializedPrompt = getSyncUpdatesPrompt(syncChanges)
+    }
+  }
+
+  const fullContext = deadlineMode || syncUpdatesMode
+  const structuredChunk = structuredResult
+    ? (fullContext ? structuredResult.chunk : getFilteredContextChunk(structuredResult, options.query))
+    : null
+  const context = structuredChunk ? [structuredChunk, ...merged] : merged
 
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
@@ -177,6 +195,7 @@ export async function getEnhancedAnalysis(
     rol: caseMeta?.rol,
     tribunal: caseMeta?.tribunal,
     isExplicitWebSearch: webSearch && explicitWeb,
+    specializedPrompt,
   })
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
@@ -228,10 +247,27 @@ export async function* getEnhancedAnalysisStream(
   ])
 
   const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
-  const context = structuredResult ? [getFilteredContextChunk(structuredResult, options.query), ...merged] : merged
 
   const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
   const explicitWeb = isExplicitWebSearchRequest(options.query)
+  const deadlineMode = isDeadlineAnalysisQuery(options.query)
+  const syncUpdatesMode = !deadlineMode && isSyncUpdatesQuery(options.query)
+
+  let specializedPrompt: string | undefined
+  if (deadlineMode) {
+    specializedPrompt = getDeadlineAnalysisPrompt()
+  } else if (syncUpdatesMode) {
+    const syncChanges = await fetchLastSyncChanges(options.caseId)
+    if (syncChanges && syncChanges.length > 0) {
+      specializedPrompt = getSyncUpdatesPrompt(syncChanges)
+    }
+  }
+
+  const fullContext = deadlineMode || syncUpdatesMode
+  const structuredChunk = structuredResult
+    ? (fullContext ? structuredResult.chunk : getFilteredContextChunk(structuredResult, options.query))
+    : null
+  const context = structuredChunk ? [structuredChunk, ...merged] : merged
 
   const systemPrompt = buildSystemPrompt({
     procedimiento: caseMeta?.procedimiento,
@@ -239,6 +275,7 @@ export async function* getEnhancedAnalysisStream(
     rol: caseMeta?.rol,
     tribunal: caseMeta?.tribunal,
     isExplicitWebSearch: webSearch && explicitWeb,
+    specializedPrompt,
   })
 
   await persistUserMessage(options.conversationId, options.userId, options.query)

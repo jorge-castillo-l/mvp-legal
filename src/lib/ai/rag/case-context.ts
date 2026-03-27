@@ -235,10 +235,10 @@ interface SectionFilter {
 }
 
 const SECONDARY_SECTIONS: SectionFilter[] = [
-  { header: 'ESCRITOS PRESENTADOS:', keywords: ['escrito', 'presentación', 'presentacion', 'solicitud', 'demanda', 'contestación', 'contestacion', 'réplica', 'replica', 'dúplica', 'duplica', 'ingreso'] },
+  { header: 'ESCRITOS PRESENTADOS:', keywords: ['escrito', 'presentación', 'presentacion', 'solicitud', 'demanda', 'contestación', 'contestacion', 'réplica', 'replica', 'dúplica', 'duplica', 'ingreso', 'plazo'] },
   { header: 'NOTIFICACIONES:', keywords: ['notific', 'notif', 'cédula', 'cedula', 'estado diario', 'personal', 'plazo', 'vencimiento', 'rebeldía', 'rebeldia'] },
   { header: 'ANEXOS DE LA CAUSA:', keywords: ['anexo', 'adjunto', 'documento adjunt'] },
-  { header: 'RETIROS DE RECEPTOR:', keywords: ['receptor', 'retiro', 'ministro de fe', 'requerimiento', 'embargo', 'lanzamiento'] },
+  { header: 'RETIROS DE RECEPTOR:', keywords: ['receptor', 'retiro', 'ministro de fe', 'requerimiento', 'embargo', 'lanzamiento', 'plazo'] },
   { header: 'EXHORTOS:', keywords: ['exhorto', 'tribunal exhortado', 'jurisdicción', 'jurisdiccion'] },
   { header: 'PIEZAS DE EXHORTO:', keywords: ['exhorto', 'pieza'] },
   { header: 'RECURSOS EN CORTE (REMISIONES):', keywords: ['apelación', 'apelacion', 'recurso', 'remisión', 'remision', 'corte', 'casación', 'casacion', 'alzada', 'segunda instancia'] },

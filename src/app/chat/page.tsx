@@ -21,7 +21,7 @@
  * ============================================================
  */
 
-import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, type FormEvent } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { createClient } from '@/lib/supabase/client'
@@ -32,6 +32,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AIMode, AIStreamEvent, AIExpedienteCitation, AIWebCitation } from '@/lib/ai/types'
+import { getQuickActions, type QuickAction } from '@/lib/ai/prompts/quick-actions'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -95,13 +96,6 @@ const MODE_TO_MODEL: Record<AIMode, string> = {
   deep_thinking: 'claude-opus-4-6',
 }
 
-const PROCEDURE_LABELS: Record<string, string> = {
-  ordinario: 'Ordinario',
-  ejecutivo: 'Ejecutivo',
-  sumario: 'Sumario',
-  monitorio: 'Monitorio',
-  voluntario: 'Voluntario',
-}
 
 // ─────────────────────────────────────────────────────────────
 // Freshness & time helpers
@@ -159,6 +153,10 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null)
 
   const currentMode = MODES.find(m => m.value === mode)!
+  const quickActions = useMemo(
+    () => getQuickActions(selectedCase?.procedimiento),
+    [selectedCase?.procedimiento],
+  )
 
   const getAuthToken = useCallback((): string | null => {
     if (authTokenRef.current) return authTokenRef.current
@@ -392,9 +390,10 @@ export default function ChatPage() {
     }
   }, [getSupabaseForQuery])
 
-  const sendMessage = useCallback(async (query: string) => {
+  const sendMessage = useCallback(async (query: string, modeOverride?: AIMode) => {
     if (!selectedCase || !selectedConversation || !query.trim() || isLoading) return
 
+    const effectiveMode = modeOverride ?? mode
     const shouldRefreshTitle = !selectedConversation.title
 
     const userMsg: ChatMessage = {
@@ -410,7 +409,7 @@ export default function ChatPage() {
       citations: [],
       webSources: [],
       isStreaming: true,
-      modelUsed: MODE_TO_MODEL[mode],
+      modelUsed: MODE_TO_MODEL[effectiveMode],
     }
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
@@ -438,7 +437,7 @@ export default function ChatPage() {
           caseId: selectedCase.id,
           conversationId: selectedConversation.id,
           query: query.trim(),
-          mode,
+          mode: effectiveMode,
         }),
         signal: controller.signal,
       })
@@ -707,11 +706,6 @@ export default function ChatPage() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="text-sm font-medium">{c.rol}</span>
-                        {c.procedimiento && (
-                          <Badge variant="secondary" className="text-[10px] flex-shrink-0">
-                            {PROCEDURE_LABELS[c.procedimiento] ?? c.procedimiento}
-                          </Badge>
-                        )}
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <Badge variant="outline" className={`text-[10px] ${freshness.className}`}>
@@ -786,11 +780,6 @@ export default function ChatPage() {
             )}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-medium">{selectedCase.rol}</span>
-              {selectedCase.procedimiento && (
-                <Badge variant="outline" className="text-[10px]">
-                  {PROCEDURE_LABELS[selectedCase.procedimiento] ?? selectedCase.procedimiento}
-                </Badge>
-              )}
             </div>
           </div>
         </header>
@@ -920,11 +909,6 @@ export default function ChatPage() {
           )}
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium">{selectedCase.rol}</span>
-            {selectedCase.procedimiento && (
-              <Badge variant="outline" className="text-[10px]">
-                {PROCEDURE_LABELS[selectedCase.procedimiento] ?? selectedCase.procedimiento}
-              </Badge>
-            )}
           </div>
         </div>
       </header>
@@ -932,8 +916,52 @@ export default function ChatPage() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" ref={scrollRef}>
         {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex flex-col items-center justify-center h-full gap-4 px-2">
             <p className="text-sm text-muted-foreground">¿Qué quieres saber sobre esta causa?</p>
+            <div className="w-full max-w-md flex flex-wrap gap-1.5 justify-center">
+              {quickActions.map(action => {
+                const upgradeMode = action.recommendedMode
+                  ? MODES.find(m => m.value === action.recommendedMode)
+                  : null
+                const willUpgrade = upgradeMode && action.recommendedMode !== mode
+                const tooltipText = willUpgrade
+                  ? `Cambiará a modo ${upgradeMode.label} para mejor análisis`
+                  : `Se ejecutará en modo ${currentMode.label}`
+
+                return (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={() => {
+                      if (willUpgrade && action.recommendedMode) {
+                        setMode(action.recommendedMode)
+                        sendMessage(action.query, action.recommendedMode)
+                      } else {
+                        sendMessage(action.query)
+                      }
+                    }}
+                    disabled={isLoading}
+                    title={tooltipText}
+                    className={`text-[11px] px-2.5 py-1.5 rounded-full border transition-all cursor-pointer disabled:opacity-50 ${
+                      action.id === 'plazos-fatales'
+                        ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-400 font-medium'
+                        : 'border-border text-muted-foreground hover:text-foreground hover:border-blue-300 hover:bg-blue-50'
+                    }`}
+                  >
+                    {action.id === 'plazos-fatales' && <span className="mr-0.5">⏱</span>}
+                    {action.label}
+                    {willUpgrade && (
+                      <span className="ml-1 opacity-60" title={`Requiere modo ${upgradeMode.label}`}>
+                        {upgradeMode.icon}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[10px] text-muted-foreground/60">
+              Modo actual: {currentMode.icon} {currentMode.label} · <button type="button" onClick={() => setModeMenuOpen(true)} className="underline hover:text-foreground transition-colors cursor-pointer">cambiar</button>
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -987,11 +1015,13 @@ export default function ChatPage() {
               variant="outline"
               size="sm"
               onClick={e => { e.stopPropagation(); setModeMenuOpen(prev => !prev) }}
-              className="h-[38px] px-2 text-xs whitespace-nowrap"
+              className="h-[38px] px-2.5 text-xs whitespace-nowrap gap-1"
               disabled={isLoading}
               title="Cambiar nivel de análisis"
             >
-              <span style={{ filter: 'grayscale(1) brightness(0)' }}>{currentMode.icon}</span><span className="ml-1 inline">▾</span>
+              <span style={{ filter: 'grayscale(1) brightness(0)' }}>{currentMode.icon}</span>
+              <span className="hidden sm:inline text-[11px]">{currentMode.label}</span>
+              <span className="inline">▾</span>
             </Button>
           </div>
           <Button type="submit" size="sm" disabled={isLoading || !input.trim()} className="h-[38px]">

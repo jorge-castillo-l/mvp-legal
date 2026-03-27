@@ -80,7 +80,14 @@ ABANDONO DEL PROCEDIMIENTO (Arts. 152-157 CPC):
 - 6 meses sin gestión útil → abandono del procedimiento (Art. 152).
 - Solo puede ser alegado por el DEMANDADO (Art. 153).
 - En juicio ejecutivo post-sentencia: 3 AÑOS sin gestión útil (Art. 153 inc. 2).
-- Requiere "gestión útil para dar curso progresivo a los autos", no cualquier actuación.`
+- Requiere "gestión útil para dar curso progresivo a los autos", no cualquier actuación.
+
+CUADERNOS INCIDENTALES — REGLAS PROPIAS:
+Una causa puede tener múltiples cuadernos, cada uno con su propio "Procedimiento" (visible en los datos estructurados). El procedimiento principal rige el cuaderno principal. Sin embargo, los cuadernos incidentales tienen reglas propias que PREVALECEN sobre las del procedimiento principal:
+- INCIDENTES: Arts. 82-91 CPC. Plazo para responder: 3 días hábiles. Prueba: 8 días (incidental).
+- MEDIDAS PREJUDICIALES: Arts. 273-289 CPC. Preparatorias, probatorias o precautorias.
+- MEDIDAS PRECAUTORIAS: Arts. 290-302 CPC. Requieren peligro en la demora y apariencia de buen derecho.
+Si el usuario pregunta sobre plazos o trámites de un cuaderno incidental, aplica las reglas de ese cuaderno, NO las del procedimiento principal.`
 
 export const CITATION_FORMAT = `
 FORMATO DE CITAS EN LA RESPUESTA:

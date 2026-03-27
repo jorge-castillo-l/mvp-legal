@@ -51,6 +51,8 @@ export interface BuildSystemPromptOptions {
   rol?: string | null
   tribunal?: string | null
   isExplicitWebSearch?: boolean
+  /** Extra prompt injected after procedure block (e.g. deadline analysis 3.13) */
+  specializedPrompt?: string
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -109,6 +111,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
     DEADLINE_RULES,
     CITATION_FORMAT,
     getProcedurePrompt(options.procedimiento),
+    options.specializedPrompt ?? '',
     getProviderInstructions(options.mode),
   ]
 

@@ -33,6 +33,8 @@
 import { createAdminClient, createClient, createClientWithToken } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit'
+import { checkPlanLimits, incrementPlanCounter, planLimitErrorBody } from '@/lib/plan-guard'
 import { createHash } from 'crypto'
 import type { CaseInsert, DocumentInsert, DocumentHashInsert, ExtractedTextInsert } from '@/types/database'
 
@@ -44,6 +46,17 @@ export async function POST(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request, { methods: 'POST, OPTIONS' })
 
   try {
+    // ══════════════════════════════════════════════════════
+    // PASO 0: RATE LIMIT ANTI-BOT (20 req/min por IP)
+    // ══════════════════════════════════════════════════════
+    const rl = checkRateLimit(request, { maxRequests: 20, windowMs: 60_000 }, 'upload')
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes. Intenta en unos segundos.', code: 'RATE_LIMITED' },
+        { status: 429, headers: { ...corsHeaders, ...rateLimitHeaders(rl) } },
+      )
+    }
+
     // ══════════════════════════════════════════════════════
     // PASO 1: AUTENTICACIÓN
     // ══════════════════════════════════════════════════════
@@ -64,6 +77,17 @@ export async function POST(request: NextRequest) {
         { error: 'Sesión inválida o expirada' },
         { status: 401, headers: corsHeaders }
       )
+    }
+
+    // ══════════════════════════════════════════════════════
+    // PASO 1.5: PLAN LIMITS (verificar ANTES de procesar archivo)
+    // ══════════════════════════════════════════════════════
+    const planCheck = await checkPlanLimits(user.id, 'case')
+    if (!planCheck.allowed) {
+      return NextResponse.json(planLimitErrorBody(planCheck), {
+        status: 429,
+        headers: corsHeaders,
+      })
     }
 
     // Cliente con token para que RLS (auth.uid()) funcione en inserts/updates
@@ -345,15 +369,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Actualizar document_count en la causa (no crítico si falla)
-      try {
-        await supabase.rpc('increment_counter', {
-          user_id: user.id,
-          counter_type: 'case',
-        })
-      } catch {
-        // Ignorar — puede fallar si la función no existe
-      }
+      // Incrementar contador de causas (ya verificado en PASO 1.5)
+      await incrementPlanCounter(user.id, 'case')
     }
 
     // ══════════════════════════════════════════════════════

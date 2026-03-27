@@ -18,6 +18,7 @@ export const maxDuration = 120
 import { createClient, createClientWithToken, createAdminClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit'
 
 const ALLOWED_METHODS = 'GET, DELETE, OPTIONS'
 
@@ -25,6 +26,15 @@ export async function GET(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request, { methods: ALLOWED_METHODS })
 
   try {
+    // === Rate limit (30 req/min — lecturas) ===
+    const rl = checkRateLimit(request, { maxRequests: 30, windowMs: 60_000 }, 'cases')
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes. Intenta en unos segundos.', code: 'RATE_LIMITED' },
+        { status: 429, headers: { ...corsHeaders, ...rateLimitHeaders(rl) } },
+      )
+    }
+
     // === Auth === (Bearer para extensión, cookies para Dashboard)
     const authHeader = request.headers.get('Authorization')
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
@@ -94,6 +104,15 @@ export async function DELETE(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request, { methods: ALLOWED_METHODS })
 
   try {
+    // === Rate limit (10 req/min — deletes son costosos) ===
+    const rl = checkRateLimit(request, { maxRequests: 10, windowMs: 60_000 }, 'cases-delete')
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes. Intenta en unos segundos.', code: 'RATE_LIMITED' },
+        { status: 429, headers: { ...corsHeaders, ...rateLimitHeaders(rl) } },
+      )
+    }
+
     const authHeader = request.headers.get('Authorization')
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
     const supabaseAuth = await createClient()
