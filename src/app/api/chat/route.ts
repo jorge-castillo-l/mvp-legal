@@ -145,34 +145,35 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function autoTitleIfNeeded(conversationId: string, query: string) {
-  const db = createAdminClient()
-  db.from('conversations')
-    .select('title')
-    .eq('id', conversationId)
-    .single()
-    .then(async ({ data, error }) => {
-      if (error) {
-        console.error('[autoTitle] Select error:', error.message)
-        return
-      }
-      if (!data || data.title) return
+async function autoTitleIfNeeded(conversationId: string, query: string) {
+  try {
+    const db = createAdminClient()
+    const { data, error } = await db
+      .from('conversations')
+      .select('title')
+      .eq('id', conversationId)
+      .single()
 
-      const title = await generateTitle(query)
-      console.log(`[autoTitle] Generated: "${title}" for conv ${conversationId.slice(0, 8)}`)
+    if (error) {
+      console.error('[autoTitle] Select error:', error.message)
+      return
+    }
+    if (!data || data.title) return
 
-      const { error: updateError } = await db
-        .from('conversations')
-        .update({ title })
-        .eq('id', conversationId)
+    const title = await generateTitle(query)
+    console.log(`[autoTitle] Generated: "${title}" for conv ${conversationId.slice(0, 8)}`)
 
-      if (updateError) {
-        console.error('[autoTitle] Update error:', updateError.message)
-      }
-    })
-    .catch((err) => {
-      console.error('[autoTitle] Unexpected error:', err instanceof Error ? err.message : err)
-    })
+    const { error: updateError } = await db
+      .from('conversations')
+      .update({ title })
+      .eq('id', conversationId)
+
+    if (updateError) {
+      console.error('[autoTitle] Update error:', updateError.message)
+    }
+  } catch (err) {
+    console.error('[autoTitle] Unexpected error:', err instanceof Error ? err.message : err)
+  }
 }
 
 function truncateAtWordBoundary(text: string, maxLen: number): string {
