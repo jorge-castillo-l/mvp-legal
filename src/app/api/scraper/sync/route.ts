@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
 
           if (!caseRow?.pending_sync_tasks || !Array.isArray(caseRow.pending_sync_tasks) || caseRow.pending_sync_tasks.length === 0) {
             emit('complete', {
-              success: true, case_id: caseId, rol: pkg.rol,
+              success: true, case_id: caseId, rol: pkg.rol, tribunal: null,
               documents_new: [], documents_existing: 0, documents_failed: 0,
               total_downloaded: 0, errors: [], duration_ms: Date.now() - startTime,
               has_pending: false, pending_count: 0, changes: [], is_first_sync: false,
