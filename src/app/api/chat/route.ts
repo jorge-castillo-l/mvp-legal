@@ -9,7 +9,6 @@
  * ============================================================
  */
 
-export const runtime = 'nodejs'
 export const maxDuration = 120
 
 import { NextRequest } from 'next/server'
