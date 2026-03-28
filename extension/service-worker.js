@@ -27,7 +27,7 @@ chrome.sidePanel
   .catch((error) => console.error('[ServiceWorker] Error sidePanel:', error));
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[ServiceWorker] Legal Bot Extension instalada v1.1');
+  console.log('[ServiceWorker] Caussa Extension instalada v1.1');
 });
 
 // ══════════════════════════════════════════════════════════

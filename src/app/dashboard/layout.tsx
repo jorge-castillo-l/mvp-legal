@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, History, CreditCard, Settings, Menu, LogOut, User } from "lucide-react"
+import { FolderOpen, History, CreditCard, Settings, Menu, LogOut, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,9 +25,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 const navigation = [
   {
-    name: "Inicio",
+    name: "Causas",
     href: "/dashboard",
-    icon: Home,
+    icon: FolderOpen,
   },
   {
     name: "Historial",
@@ -55,9 +55,9 @@ function Sidebar({ className }: { className?: string }) {
       <div className="flex h-16 items-center border-b border-slate-800 px-6">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-700">
-            <span className="text-lg font-bold text-white">ZS</span>
+            <span className="text-lg font-bold text-white">C</span>
           </div>
-          <span className="text-lg font-semibold text-white">ZSE Legal</span>
+          <span className="text-lg font-semibold text-white">Caussa</span>
         </Link>
       </div>
 
@@ -86,7 +86,7 @@ function Sidebar({ className }: { className?: string }) {
       {/* Footer */}
       <div className="border-t border-slate-800 p-4">
         <p className="text-xs text-slate-500 text-center">
-          Panel de Control v1.0
+          Caussa v1.0
         </p>
       </div>
     </div>

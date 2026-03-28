@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Legal Bot",
+  "name": "Caussa",
   "version": "1.1",
-  "description": "Asistente Legal IA para el Poder Judicial - Scraper Resiliente",
+  "description": "Sincroniza tus causas civiles desde PJUD y consulta tu expediente con IA.",
   "permissions": [
     "sidePanel",
     "activeTab",
@@ -21,7 +21,7 @@
     "service_worker": "service-worker.js"
   },
   "action": {
-    "default_title": "Legal Bot"
+    "default_title": "Caussa"
   },
   "side_panel": {
     "default_path": "sidepanel.html"

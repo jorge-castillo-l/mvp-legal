@@ -16,9 +16,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
+import { cacheLife } from 'next/cache'
 
-// Configuración del scraper - EN PRODUCCIÓN: mover a Supabase/DB
-// Por ahora, se mantiene aquí para facilitar actualizaciones rápidas
 const SCRAPER_CONFIG = {
   version: '1.0.0',
   updatedAt: new Date().toISOString(),
@@ -123,17 +122,24 @@ const SCRAPER_CONFIG = {
   },
 }
 
+async function getScraperConfig() {
+  'use cache'
+  cacheLife({ stale: 300, revalidate: 600, expire: 3600 })
+  return SCRAPER_CONFIG
+}
+
 export async function GET(request: NextRequest) {
   const corsHeaders = getCorsHeaders(request, {
     methods: 'GET, OPTIONS',
     credentials: false,
   })
 
-  return NextResponse.json(SCRAPER_CONFIG, {
+  const config = await getScraperConfig()
+
+  return NextResponse.json(config, {
     status: 200,
     headers: {
       ...corsHeaders,
-      // Cache en el navegador por 30 minutos, revalidar después
       'Cache-Control': 'public, max-age=1800, stale-while-revalidate=3600',
     },
   })

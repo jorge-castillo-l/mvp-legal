@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * SIDEPANEL - "La Cara" del Legal Bot
+ * SIDEPANEL - Caussa Extension
  * ============================================================
  * v1.3 — Tarea 4.18: Sync UI v2
  *
@@ -37,13 +37,14 @@ let activeTab = 'sync';
 let isDetecting = false;
 let syncingCausaInfo = null;
 let syncJustFinished = false;
+let privacyConsentGranted = false; // cached consent status for current session
 
 // ══════════════════════════════════════════════════════════
 // 2. INICIALIZACIÓN
 // ══════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('[Sidepanel] Legal Bot v1.3 iniciado');
+  console.log('[Sidepanel] Caussa v1.3 iniciado');
 
   await checkAuthentication();
   setupTabs();
@@ -225,6 +226,7 @@ function setupEventListeners() {
     await supabase.signOut();
     currentUser = null;
     currentSession = null;
+    privacyConsentGranted = false;
     showUnauthenticatedUI();
   });
 
@@ -551,6 +553,9 @@ function hideCausaPackagePreview() {
 async function handleSync() {
   if (isSyncing || !lastDetectedCausa) return;
   if (!currentUser) { showNotification('Debe iniciar sesión primero', 'error'); return; }
+
+  const consentOk = await ensurePrivacyConsent();
+  if (!consentOk) return;
 
   isSyncing = true;
   syncingCausaInfo = {
@@ -1067,7 +1072,110 @@ function handleUploadError(data) {
 }
 
 // ══════════════════════════════════════════════════════════
-// 12. UTILIDADES
+// 12. PRIVACY CONSENT (6.03)
+// ══════════════════════════════════════════════════════════
+
+const CONSENT_VERSION = 'v1';
+
+async function checkPrivacyConsent() {
+  if (privacyConsentGranted) return true;
+  if (!currentUser?.id) return false;
+
+  try {
+    const endpoint = `/rest/v1/profiles?id=eq.${currentUser.id}&select=privacy_consent_at,privacy_consent_version`;
+    const response = await supabase.fetch(endpoint);
+    if (!response.ok) return false;
+
+    const rows = await response.json();
+    if (rows.length > 0 && rows[0].privacy_consent_at) {
+      privacyConsentGranted = true;
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.error('[Consent] Error checking consent:', e.message);
+    return false;
+  }
+}
+
+async function savePrivacyConsent() {
+  if (!currentUser?.id) return false;
+  try {
+    const response = await supabase.fetch(`/rest/v1/profiles?id=eq.${currentUser.id}`, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        privacy_consent_at: new Date().toISOString(),
+        privacy_consent_version: CONSENT_VERSION,
+      }),
+    });
+    if (response.ok) {
+      privacyConsentGranted = true;
+      console.log('[Consent] Privacy consent saved');
+      return true;
+    }
+    console.error('[Consent] Failed to save:', response.status);
+    return false;
+  } catch (e) {
+    console.error('[Consent] Error saving consent:', e.message);
+    return false;
+  }
+}
+
+function showConsentModal() {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('privacy-consent-overlay');
+    const check1 = document.getElementById('consent-check-1');
+    const check2 = document.getElementById('consent-check-2');
+    const acceptBtn = document.getElementById('consent-accept-btn');
+    const cancelBtn = document.getElementById('consent-cancel-btn');
+
+    check1.checked = false;
+    check2.checked = false;
+    acceptBtn.disabled = true;
+    overlay.style.display = 'flex';
+
+    function updateAcceptState() {
+      acceptBtn.disabled = !(check1.checked && check2.checked);
+    }
+
+    function cleanup() {
+      overlay.style.display = 'none';
+      check1.removeEventListener('change', updateAcceptState);
+      check2.removeEventListener('change', updateAcceptState);
+      acceptBtn.removeEventListener('click', onAccept);
+      cancelBtn.removeEventListener('click', onCancel);
+    }
+
+    async function onAccept() {
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = 'Guardando...';
+      const saved = await savePrivacyConsent();
+      acceptBtn.textContent = 'Aceptar y continuar';
+      cleanup();
+      resolve(saved);
+    }
+
+    function onCancel() {
+      cleanup();
+      resolve(false);
+    }
+
+    check1.addEventListener('change', updateAcceptState);
+    check2.addEventListener('change', updateAcceptState);
+    acceptBtn.addEventListener('click', onAccept);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
+
+async function ensurePrivacyConsent() {
+  const hasConsent = await checkPrivacyConsent();
+  if (hasConsent) return true;
+  return await showConsentModal();
+}
+
+// ══════════════════════════════════════════════════════════
+// 13. UTILIDADES
 // ══════════════════════════════════════════════════════════
 
 function updateProgress(percent, message, type = 'info') {

@@ -109,6 +109,14 @@ function getFreshness(lastSyncedAt: string | null): { className: string; textCla
   return { className: 'bg-muted text-muted-foreground', textClass: 'text-muted-foreground' }
 }
 
+function getSyncDotColor(lastSyncedAt: string | null): string {
+  if (!lastSyncedAt) return 'bg-gray-300'
+  const hours = (Date.now() - new Date(lastSyncedAt).getTime()) / 3_600_000
+  if (hours < 24) return 'bg-green-500'
+  if (hours < 72) return 'bg-yellow-500'
+  return 'bg-gray-300'
+}
+
 function getTimeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60_000)
@@ -705,6 +713,7 @@ export default function ChatPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
+                        <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${getSyncDotColor(c.last_synced_at)}`} />
                         <span className="text-sm font-medium">{c.rol}</span>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">

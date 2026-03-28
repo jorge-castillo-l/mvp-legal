@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * CONTENT SCRIPT - "Los Ojos" del Legal Bot
+ * CONTENT SCRIPT - Caussa Extension
  * ============================================================
  * Se inyecta automáticamente en pjud.cl (y todos sus iframes).
  *

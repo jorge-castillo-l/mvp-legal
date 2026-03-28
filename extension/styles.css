@@ -726,3 +726,106 @@ h2 {
   height: 100%;
   border: none;
 }
+
+/* ══════ PRIVACY CONSENT MODAL (6.03) ══════ */
+
+.consent-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.consent-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 380px;
+  overflow: hidden;
+}
+
+.consent-header {
+  padding: 20px 20px 12px;
+}
+
+.consent-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--primary-color);
+  margin: 0 0 6px 0;
+}
+
+.consent-header p {
+  font-size: 13px;
+  color: var(--secondary-color);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.consent-body {
+  padding: 0 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.consent-checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.consent-checkbox-label:hover {
+  border-color: var(--accent-color);
+  background-color: #f8fafc;
+}
+
+.consent-checkbox-label span {
+  font-size: 12px;
+  color: var(--secondary-color);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.consent-checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+.consent-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px 20px;
+}
+
+.consent-footer .btn-secondary {
+  flex: 1;
+  margin-top: 0;
+  text-align: center;
+}
+
+.consent-footer .btn-primary {
+  flex: 1.5;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+
+.consent-footer .btn-primary:disabled {
+  background-color: #cbd5e1;
+  cursor: not-allowed;
+}

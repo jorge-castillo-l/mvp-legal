@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Legal Bot Sidepanel</title>
+  <title>Caussa</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -94,6 +94,29 @@
       </div>
     </main>
 
+    <!-- ══════ PRIVACY CONSENT MODAL (6.03) ══════ -->
+    <div id="privacy-consent-overlay" class="consent-overlay" style="display: none;">
+      <div class="consent-modal">
+        <div class="consent-header">
+          <h3>Antes de sincronizar</h3>
+          <p>Para procesar documentos de tu causa necesitamos tu autorización.</p>
+        </div>
+        <div class="consent-body">
+          <label class="consent-checkbox-label" for="consent-check-1">
+            <input type="checkbox" id="consent-check-1" class="consent-checkbox" />
+            <span>Autorizo el procesamiento de documentos judiciales civiles <strong>no reservados</strong> de mis causas disponibles en PJUD.</span>
+          </label>
+          <label class="consent-checkbox-label" for="consent-check-2">
+            <input type="checkbox" id="consent-check-2" class="consent-checkbox" />
+            <span>Entiendo que el sistema utiliza <strong>inteligencia artificial</strong> para el análisis y que sus respuestas son de carácter <strong>asistencial</strong>, no constituyendo asesoría legal.</span>
+          </label>
+        </div>
+        <div class="consent-footer">
+          <button id="consent-cancel-btn" class="btn-secondary">Cancelar</button>
+          <button id="consent-accept-btn" class="btn-primary" disabled>Aceptar y continuar</button>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="lib/config.js"></script>
   <script src="lib/supabase.js"></script>
