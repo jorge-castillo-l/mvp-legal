@@ -4,6 +4,8 @@
  * Generados manualmente a partir de la migración 20260315120000.
  */
 
+import type { Json } from '@/types/supabase'
+
 // ════════════════════════════════════════════════════════
 // Tablas existentes (aliases para el sync pipeline)
 // ════════════════════════════════════════════════════════
@@ -39,7 +41,7 @@ export interface DocumentInsert {
   source?: string
   source_url?: string | null
   captured_at?: string | null
-  metadata?: Record<string, unknown>
+  metadata?: Json
   cuaderno_id?: string | null
   folio_id?: string | null
   folio_anexo_id?: string | null
@@ -310,8 +312,8 @@ export interface ChatMessageInsert {
   user_id: string
   role: 'user' | 'assistant'
   content: string
-  sources_cited?: Record<string, unknown>[]
-  web_sources_cited?: Record<string, unknown>[]
+  sources_cited?: Json[]
+  web_sources_cited?: Json[]
   thinking_content?: string | null
   tokens_input?: number
   tokens_output?: number
@@ -328,8 +330,8 @@ export interface ChatMessageRow {
   user_id: string
   role: 'user' | 'assistant'
   content: string
-  sources_cited: Record<string, unknown>[] | null
-  web_sources_cited: Record<string, unknown>[] | null
+  sources_cited: Json[] | null
+  web_sources_cited: Json[] | null
   thinking_content: string | null
   tokens_input: number
   tokens_output: number
