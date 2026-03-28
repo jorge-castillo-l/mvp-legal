@@ -65,6 +65,7 @@ import type {
   DocumentHashInsert,
   ExtractedTextInsert,
 } from '@/types/database'
+import type { Json } from '@/types/supabase'
 
 class PlanLimitError extends Error {
   constructor(message: string) {
@@ -202,7 +203,7 @@ export async function POST(request: NextRequest) {
             return
           }
 
-          downloadTasks.push(...(caseRow.pending_sync_tasks as PdfDownloadTask[]))
+          downloadTasks.push(...(caseRow.pending_sync_tasks as unknown as PdfDownloadTask[]))
           emit('progress', { message: 'Retomando descarga de documentos…', current: 0, total: downloadTasks.length })
 
         } else {
@@ -253,7 +254,8 @@ export async function POST(request: NextRequest) {
             emit('progress', { message: `Obteniendo cuaderno "${ref.nombre}"…`, current: 0, total: 0 })
 
             try {
-              const html = await pjud.fetchCuadernoHtml(ref.jwt, pkg.csrf_token, pkg.cookies)
+              if (!ref.jwt) continue
+              const html = await pjud.fetchCuadernoHtml(ref.jwt, pkg.csrf_token!, pkg.cookies)
               if (!html) continue
 
               const { cuaderno } = parseCuadernoFromHtml(html, ref.nombre)
@@ -416,7 +418,7 @@ export async function POST(request: NextRequest) {
 
           if (Date.now() - startTime > SYNC_TIMEOUT_MS) {
             const pendingTasks = [...downloadTasks.slice(i)]
-            await db.from('cases').update({ pending_sync_tasks: pendingTasks }).eq('id', caseId)
+            await db.from('cases').update({ pending_sync_tasks: pendingTasks as unknown as Json }).eq('id', caseId)
             timedOut = true
             console.log(`[sync] Timeout — ${pendingTasks.length} tasks saved for resume`)
             emit('progress', { message: `Continuará automáticamente (${pendingTasks.length} pendientes)…`, current: i, total: totalTasks })

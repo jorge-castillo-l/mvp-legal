@@ -50,10 +50,10 @@ async function pdfToImages(buffer: Buffer): Promise<Buffer[]> {
     )
     const ctx = canvas.getContext('2d')
 
-    await page.render({
+    await (page.render({
       canvasContext: ctx as unknown as CanvasRenderingContext2D,
       viewport,
-    }).promise
+    } as Parameters<typeof page.render>[0])).promise
 
     const pngBuffer = canvas.toBuffer('image/png')
     images.push(pngBuffer)

@@ -29,7 +29,7 @@ import { detectSections } from '@/lib/pipeline/chunking/section-detector'
 import { chunkText } from '@/lib/pipeline/chunking/token-chunker'
 import { enrichChunkMetadata, type DocumentParentMetadata, type CaseMetadata } from '@/lib/pipeline/chunking/metadata-enricher'
 import { generateEmbeddingsForDocument } from '@/lib/embeddings'
-import type { ExtractedTextInsert, DocumentChunkInsert } from '@/types/database'
+import type { ExtractedTextInsert, DocumentChunkInsert } from '@/lib/database.types'
 
 const BUCKET_NAME = 'case-files'
 const RETRY_DELAYS_MS = [10_000, 60_000, 300_000] as const // 10s, 1min, 5min
@@ -429,19 +429,19 @@ export async function processDocument(documentId: string): Promise<ProcessingRes
       .eq('id', entry.id)
 
     // Marcar extracted_texts como failed si existe
-    await admin
-      .from('extracted_texts')
-      .upsert(
-        {
-          document_id: documentId,
-          case_id: entry.case_id,
-          user_id: entry.user_id,
-          status: 'failed',
-        } as ExtractedTextInsert,
-        { onConflict: 'document_id' }
-      )
-      .then(() => undefined)
-      .catch(() => undefined)
+    try {
+      await admin
+        .from('extracted_texts')
+        .upsert(
+          {
+            document_id: documentId,
+            case_id: entry.case_id,
+            user_id: entry.user_id,
+            status: 'failed',
+          } as ExtractedTextInsert,
+          { onConflict: 'document_id' }
+        )
+    } catch { /* best-effort — don't fail the parent operation */ }
 
     return {
       success: false,

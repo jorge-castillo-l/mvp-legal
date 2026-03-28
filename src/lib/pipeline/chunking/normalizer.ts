@@ -152,7 +152,7 @@ const RE_HEADER_NOMENCLATURA =
  * Bloque de boilerplate que aparece en certificados.
  */
 const RE_DISCLAIMER_HORARIO =
-  /A contar del \d{2} de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre) de \d{4},\s*la hora visualizada corresponde al horario de invierno establecido en Chile Continental\..*?(?:Para m[áa]s informaci[óo]n consulte\s*)?https?:\/\/www\.horaoficial\.cl/gis
+  /A contar del \d{2} de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre) de \d{4},\s*la hora visualizada corresponde al horario de invierno establecido en Chile Continental\.[\s\S]*?(?:Para m[áa]s informaci[óo]n consulte\s*)?https?:\/\/www\.horaoficial\.cl/gi
 
 /**
  * Firma electrónica e-signer (servicio privado).

@@ -133,7 +133,7 @@ export function aiStreamToSSE(stream: AIResponseStream): ReadableStream<Uint8Arr
 export function aiStreamToResilientSSE(stream: AIResponseStream): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   const queue: AIStreamEvent[] = []
-  let notifyReader: (() => void) | null = null
+  const state: { notifyReader: (() => void) | null } = { notifyReader: null }
   let generatorDone = false
   let canceled = false
 
@@ -141,15 +141,15 @@ export function aiStreamToResilientSSE(stream: AIResponseStream): ReadableStream
     try {
       for await (const event of stream) {
         queue.push(event)
-        notifyReader?.()
+        state.notifyReader?.()
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       queue.push({ type: 'error', error: msg } as AIStreamEvent)
-      notifyReader?.()
+      state.notifyReader?.()
     } finally {
       generatorDone = true
-      notifyReader?.()
+      state.notifyReader?.()
     }
   })()
 
@@ -162,8 +162,8 @@ export function aiStreamToResilientSSE(stream: AIResponseStream): ReadableStream
       if (canceled) return
 
       while (queue.length === 0 && !generatorDone && !canceled) {
-        await new Promise<void>(resolve => { notifyReader = resolve })
-        notifyReader = null
+        await new Promise<void>(resolve => { state.notifyReader = resolve })
+        state.notifyReader = null
       }
 
       if (canceled) return
@@ -184,7 +184,7 @@ export function aiStreamToResilientSSE(stream: AIResponseStream): ReadableStream
     },
     cancel() {
       canceled = true
-      notifyReader?.()
+      state.notifyReader?.()
     },
   })
 }
