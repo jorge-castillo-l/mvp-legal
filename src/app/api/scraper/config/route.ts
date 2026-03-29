@@ -16,7 +16,6 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
-import { cacheLife } from 'next/cache'
 
 const SCRAPER_CONFIG = {
   version: '1.0.0',
@@ -122,9 +121,7 @@ const SCRAPER_CONFIG = {
   },
 }
 
-async function getScraperConfig() {
-  'use cache'
-  cacheLife({ stale: 300, revalidate: 600, expire: 3600 })
+function getScraperConfig() {
   return SCRAPER_CONFIG
 }
 
