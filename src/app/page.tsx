@@ -115,7 +115,7 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 border-b border-slate-100 bg-white/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-3">
-            <Image src="/caussa-logo.png" alt="Caussa" width={180} height={48} priority className="h-10 w-auto" />
+            <Image src="/caussa-logo.png" alt="Caussa" width={720} height={192} priority className="h-40 w-auto" />
           </Link>
           <div className="flex items-center gap-4">
             <Link href="#pricing" className="hidden text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors sm:block">
@@ -290,7 +290,7 @@ export default function LandingPage() {
       <footer className="border-t border-slate-200 bg-white py-12">
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 sm:flex-row sm:justify-between">
           <div className="flex items-center gap-3">
-            <Image src="/caussa-logo.png" alt="Caussa" width={140} height={36} className="h-8 w-auto" />
+            <Image src="/caussa-logo.png" alt="Caussa" width={560} height={144} className="h-32 w-auto" />
           </div>
           <div className="flex gap-6 text-sm text-slate-500">
             <Link href="/terminos" className="hover:text-slate-900 transition-colors">Términos</Link>
