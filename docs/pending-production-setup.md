@@ -32,7 +32,7 @@
 
 | Secret | Valor |
 |--------|-------|
-| `APP_URL` | URL de produccion (ej: `https://mvp-legal.vercel.app`) |
+| `APP_URL` | `https://caussa.cl` |
 | `PIPELINE_SECRET_KEY` | `psk_mvp_legal_7f3a9c2e4b1d8e5f6a0b3c7d9e2f4a1b` |
 
 > La `PIPELINE_SECRET_KEY` debe ser la misma que esta en `.env.local` (linea 6).
