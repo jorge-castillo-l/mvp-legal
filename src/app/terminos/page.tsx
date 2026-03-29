@@ -13,7 +13,7 @@ export default function TerminosPage() {
       <nav className="sticky top-0 z-50 border-b border-slate-100 bg-white/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
           <Link href="/">
-            <Image src="/caussa-logo.png" alt="Caussa" width={720} height={192} className="h-40 w-auto" />
+            <Image src="/caussa-logo.png" alt="Caussa" width={360} height={96} className="h-14 w-auto" />
           </Link>
           <Link href="/login" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition-colors">
             Iniciar sesión
