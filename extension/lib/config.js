@@ -19,7 +19,7 @@ const CONFIG = (() => {
   // ════════════════════════════════════════════════════════
   // CAMBIAR ESTA LÍNEA PARA PRODUCCIÓN
   // ════════════════════════════════════════════════════════
-  const ENV = 'development'; // 'development' | 'production'
+  const ENV = 'production'; // 'development' | 'production'
 
   // ════════════════════════════════════════════════════════
   // URLs por entorno
