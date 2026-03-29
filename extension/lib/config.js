@@ -30,7 +30,7 @@ const CONFIG = (() => {
     },
     production: {
       // Completar antes de desplegar:
-      DASHBOARD_URL: 'https://tu-dominio-de-produccion.com',
+      DASHBOARD_URL: 'https://caussa.cl',
     },
   };
 
