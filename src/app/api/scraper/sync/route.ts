@@ -244,8 +244,8 @@ export async function POST(request: NextRequest) {
           // PASO 4: Insertar cuaderno visible
           emit('progress', { message: `Procesando cuaderno "${pkg.cuaderno_visible.nombre}"…`, current: 0, total: 0 })
           console.log(`[sync] Cuaderno visible "${pkg.cuaderno_visible.nombre}": ${pkg.cuaderno_visible.folios.length} folios, ${pkg.cuaderno_visible.litigantes.length} litigantes`)
-          const cuadernoVisibleId = await insertCuaderno(db, user.id, caseId, pkg.cuaderno_visible, 0)
-          buildFolioTasks(downloadTasks, pkg.cuaderno_visible, pkg.rol, cuadernoVisibleId)
+          const cuadernoVisible = await insertCuaderno(db, user.id, caseId, pkg.cuaderno_visible, 0)
+          buildFolioTasks(downloadTasks, pkg.cuaderno_visible, pkg.rol, cuadernoVisible)
 
           // PASO 5: Fetch + insertar cuadernos adicionales
           const parsedOtrosCuadernos: CuadernoData[] = []
@@ -259,8 +259,8 @@ export async function POST(request: NextRequest) {
               if (!html) continue
 
               const { cuaderno } = parseCuadernoFromHtml(html, ref.nombre)
-              const cuadernoId = await insertCuaderno(db, user.id, caseId, cuaderno, i + 1)
-              buildFolioTasks(downloadTasks, cuaderno, pkg.rol, cuadernoId)
+              const cuadernoResult = await insertCuaderno(db, user.id, caseId, cuaderno, i + 1)
+              buildFolioTasks(downloadTasks, cuaderno, pkg.rol, cuadernoResult)
               parsedOtrosCuadernos.push(cuaderno)
 
               console.log(`[sync] Cuaderno "${ref.nombre}": ${cuaderno.folios.length} folios`)
@@ -694,10 +694,16 @@ async function cleanStructuredData(db: SupabaseAdmin, caseId: string): Promise<v
 // INSERT CUADERNO (completo con folios + tabs)
 // ════════════════════════════════════════════════════════
 
+interface CuadernoInsertResult {
+  cuadernoId: string
+  folioIds: Map<number, string>
+  piezaIds: Map<number, string>
+}
+
 async function insertCuaderno(
   db: SupabaseAdmin, userId: string, caseId: string,
   cuaderno: CuadernoData, posicion: number
-): Promise<string> {
+): Promise<CuadernoInsertResult> {
   const { data: row } = await db.from('case_cuadernos').insert({
     case_id: caseId, user_id: userId,
     nombre: cuaderno.nombre,
@@ -707,6 +713,8 @@ async function insertCuaderno(
   }).select('id').single()
 
   const cuadernoId = row!.id
+  const folioIds = new Map<number, string>()
+  const piezaIds = new Map<number, string>()
 
   // Folios — dedup by numero_folio and batch insert with error handling
   if (cuaderno.folios.length > 0) {
@@ -727,18 +735,22 @@ async function insertCuaderno(
       tiene_anexo_solicitud: !!f.tiene_anexo_solicitud,
     }))
 
-    const { error: folioErr } = await db.from('case_folios').insert(folioRows)
+    const { data: insertedFolios, error: folioErr } = await db.from('case_folios').insert(folioRows).select('id, numero_folio')
     if (folioErr) {
       console.error(`[sync] ERROR inserting ${folioRows.length} folios for "${cuaderno.nombre}":`, folioErr.message)
       console.error(`[sync] Sample folio data:`, JSON.stringify(folioRows[0]))
-      // Fallback: insert one by one to save what we can
       let inserted = 0
-      for (const row of folioRows) {
-        const { error: singleErr } = await db.from('case_folios').insert(row)
-        if (!singleErr) inserted++
-        else console.error(`[sync] Folio ${row.numero_folio} failed:`, singleErr.message)
+      for (const r of folioRows) {
+        const { data: single, error: singleErr } = await db.from('case_folios').insert(r).select('id, numero_folio').single()
+        if (!singleErr && single) {
+          inserted++
+          folioIds.set(single.numero_folio, single.id)
+        }
+        else console.error(`[sync] Folio ${r.numero_folio} failed:`, singleErr?.message)
       }
       console.log(`[sync] Fallback: ${inserted}/${folioRows.length} folios inserted for "${cuaderno.nombre}"`)
+    } else if (insertedFolios) {
+      for (const f of insertedFolios) folioIds.set(f.numero_folio, f.id)
     }
   }
 
@@ -787,11 +799,14 @@ async function insertCuaderno(
       foja: typeof p.foja === 'number' && !isNaN(p.foja) ? p.foja : 0,
       tiene_doc: !!p.tiene_doc, tiene_anexo: !!p.tiene_anexo,
     }))
-    const { error: piezaErr } = await db.from('case_piezas_exhorto').insert(piezaRows)
+    const { data: insertedPiezas, error: piezaErr } = await db.from('case_piezas_exhorto').insert(piezaRows).select('id, numero_folio')
     if (piezaErr) console.error(`[sync] ERROR piezas exhorto "${cuaderno.nombre}":`, piezaErr.message)
+    else if (insertedPiezas) {
+      for (const p of insertedPiezas) piezaIds.set(p.numero_folio, p.id)
+    }
   }
 
-  return cuadernoId
+  return { cuadernoId, folioIds, piezaIds }
 }
 
 // ════════════════════════════════════════════════════════
@@ -870,13 +885,19 @@ async function insertRemision(
 
   // Docs directos de la remisión
   if (detail.direct_jwts.ebook) {
-    downloadTasks.push(jwtRefToTask(detail.direct_jwts.ebook, `${pkg.rol}_ape_${cleanLibro}_ebook.pdf`, 'remision_directo', detail.metadata.fecha, null))
+    const t = jwtRefToTask(detail.direct_jwts.ebook, `${pkg.rol}_ape_${cleanLibro}_ebook.pdf`, 'remision_directo', detail.metadata.fecha, null)
+    t.remision_id = remisionId
+    downloadTasks.push(t)
   }
   if (detail.direct_jwts.certificado_envio) {
-    downloadTasks.push(jwtRefToTask(detail.direct_jwts.certificado_envio, `${pkg.rol}_ape_${cleanLibro}_certificado.pdf`, 'remision_directo', detail.metadata.fecha, null))
+    const t = jwtRefToTask(detail.direct_jwts.certificado_envio, `${pkg.rol}_ape_${cleanLibro}_certificado.pdf`, 'remision_directo', detail.metadata.fecha, null)
+    t.remision_id = remisionId
+    downloadTasks.push(t)
   }
   if (detail.direct_jwts.texto) {
-    downloadTasks.push(jwtRefToTask(detail.direct_jwts.texto, `${pkg.rol}_ape_${cleanLibro}_texto.pdf`, 'remision_directo', detail.metadata.fecha, null))
+    const t = jwtRefToTask(detail.direct_jwts.texto, `${pkg.rol}_ape_${cleanLibro}_texto.pdf`, 'remision_directo', detail.metadata.fecha, null)
+    t.remision_id = remisionId
+    downloadTasks.push(t)
   }
 
   // Movimientos
@@ -888,10 +909,15 @@ async function insertRemision(
       tiene_doc: !!f.jwt_doc, tiene_certificado_escrito: !!f.jwt_certificado_escrito,
       tiene_anexo_escrito: !!f.jwt_anexo_escrito,
     }))
-    await db.from('case_remision_movimientos').insert(movRows)
+    const { data: insertedMovs } = await db.from('case_remision_movimientos').insert(movRows).select('id, numero_folio')
+    const movIdMap = new Map<number, string>()
+    if (insertedMovs) {
+      for (const m of insertedMovs) movIdMap.set(m.numero_folio, m.id)
+    }
 
     for (const f of detail.folios) {
       const ct = (f.tramite || 'doc').replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '').trim().substring(0, 30).replace(/\s+/g, '_')
+      const movId = movIdMap.get(f.numero)
 
       if (f.jwt_doc) {
         downloadTasks.push({
@@ -899,6 +925,7 @@ async function insertRemision(
           filename: `${pkg.rol}_ape_${cleanLibro}_f${f.numero}_${ct}.pdf`,
           origen: 'remision_movimiento', tramite_pjud: f.tramite,
           folio: f.numero, cuaderno: `Apelación ${libroLabel}`, fecha: f.fecha, source_url: f.jwt_doc.action,
+          remision_id: remisionId, remision_mov_id: movId,
         })
       }
       if (f.jwt_certificado_escrito) {
@@ -907,6 +934,7 @@ async function insertRemision(
           filename: `${pkg.rol}_ape_${cleanLibro}_f${f.numero}_cert.pdf`,
           origen: 'remision_movimiento', tramite_pjud: 'Certificado Escrito',
           folio: f.numero, cuaderno: `Apelación ${libroLabel}`, fecha: f.fecha, source_url: f.jwt_certificado_escrito.action,
+          remision_id: remisionId, remision_mov_id: movId,
         })
       }
 
@@ -922,7 +950,7 @@ async function insertRemision(
                 codigo: a.codigo, tipo_documento: a.tipo_documento,
                 cantidad: a.cantidad, observacion: a.observacion,
               }))
-              await db.from('case_remision_mov_anexos').insert(anexoRows)
+              const { data: insertedMovAnexos } = await db.from('case_remision_mov_anexos').insert(anexoRows).select('id')
 
               for (let ai = 0; ai < anexos.length; ai++) {
                 const a = anexos[ai]
@@ -931,6 +959,8 @@ async function insertRemision(
                   filename: `${pkg.rol}_ape_${cleanLibro}_f${f.numero}_anexo_${ai + 1}.pdf`,
                   origen: 'remision_mov_anexo', tramite_pjud: a.tipo_documento,
                   folio: f.numero, cuaderno: `Apelación ${libroLabel}`, fecha: null, source_url: a.jwt.action,
+                  remision_id: remisionId, remision_mov_id: movId,
+                  remision_mov_anexo_id: insertedMovAnexos?.[ai]?.id,
                 })
               }
             }
@@ -1016,7 +1046,7 @@ async function fetchAllFolioAnexos(
           case_id: caseId, folio_id: folioRow.id, user_id: userId,
           fecha: a.fecha, referencia: a.referencia,
         }))
-        await db.from('case_folio_anexos').insert(anexoRows)
+        const { data: insertedAnexos } = await db.from('case_folio_anexos').insert(anexoRows).select('id')
 
         const cleanCuaderno = folio.cuadernoNombre.replace(/[^a-zA-Z0-9]/g, '_')
         for (let i = 0; i < anexos.length; i++) {
@@ -1028,6 +1058,8 @@ async function fetchAllFolioAnexos(
             origen: 'anexo_solicitud', tramite_pjud: null,
             folio: folio.numero, cuaderno: folio.cuadernoNombre, fecha: a.fecha, source_url: a.jwt.action,
             referencia: a.referencia,
+            cuaderno_id: expectedCuadernoId, folio_id: folioRow.id,
+            folio_anexo_id: insertedAnexos?.[i]?.id,
           })
         }
       }
@@ -1041,24 +1073,29 @@ async function fetchAllFolioAnexos(
 // BUILD DOWNLOAD TASKS
 // ════════════════════════════════════════════════════════
 
-function buildFolioTasks(tasks: PdfDownloadTask[], cuaderno: CuadernoData, rol: string, cuadernoId: string): void {
+function buildFolioTasks(tasks: PdfDownloadTask[], cuaderno: CuadernoData, rol: string, result: CuadernoInsertResult): void {
+  const { cuadernoId, folioIds, piezaIds } = result
+
   for (const f of cuaderno.folios) {
     const ct = (f.tramite || 'doc').replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ\s]/g, '').trim().substring(0, 30).replace(/\s+/g, '_')
+    const fId = folioIds.get(f.numero)
 
     if (f.jwt_doc_principal) {
       tasks.push({
         jwt: f.jwt_doc_principal.jwt, endpoint: f.jwt_doc_principal.action, param: f.jwt_doc_principal.param,
         filename: `${rol}_${cuaderno.nombre.replace(/[^a-zA-Z0-9]/g, '_')}_f${f.numero}_${ct}.pdf`,
-        origen: 'folio', tramite_pjud: f.tramite,
+        origen: 'folio', tramite_pjud: f.tramite, desc_tramite: f.desc_tramite,
         folio: f.numero, cuaderno: cuaderno.nombre, fecha: f.fecha_tramite, source_url: f.jwt_doc_principal.action,
+        cuaderno_id: cuadernoId, folio_id: fId,
       })
     }
     if (f.jwt_certificado_escrito) {
       tasks.push({
         jwt: f.jwt_certificado_escrito.jwt, endpoint: f.jwt_certificado_escrito.action, param: f.jwt_certificado_escrito.param,
         filename: `${rol}_${cuaderno.nombre.replace(/[^a-zA-Z0-9]/g, '_')}_f${f.numero}_cert.pdf`,
-        origen: 'folio_certificado', tramite_pjud: 'Certificado Escrito',
+        origen: 'folio_certificado', tramite_pjud: 'Certificado Escrito', desc_tramite: f.desc_tramite,
         folio: f.numero, cuaderno: cuaderno.nombre, fecha: f.fecha_tramite, source_url: f.jwt_certificado_escrito.action,
+        cuaderno_id: cuadernoId, folio_id: fId,
       })
     }
   }
@@ -1069,8 +1106,9 @@ function buildFolioTasks(tasks: PdfDownloadTask[], cuaderno: CuadernoData, rol: 
       tasks.push({
         jwt: p.jwt_doc.jwt, endpoint: p.jwt_doc.action, param: p.jwt_doc.param,
         filename: `${rol}_pieza_f${p.numero_folio}_${(p.tramite || 'doc').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30)}.pdf`,
-        origen: 'pieza_exhorto', tramite_pjud: p.tramite,
+        origen: 'pieza_exhorto', tramite_pjud: p.tramite, desc_tramite: p.desc_tramite,
         folio: p.numero_folio, cuaderno: cuaderno.nombre, fecha: p.fecha_tramite, source_url: p.jwt_doc.action,
+        cuaderno_id: cuadernoId, pieza_exhorto_id: piezaIds.get(p.numero_folio),
       })
     }
   }
@@ -1098,6 +1136,7 @@ function buildAnexoCausaTasks(tasks: PdfDownloadTask[], anexos: AnexoFile[], ids
       origen: 'anexo_causa', tramite_pjud: null,
       folio: null, cuaderno: null, fecha: a.fecha, source_url: a.jwt.action,
       referencia: a.referencia,
+      anexo_causa_id: ids[i],
     })
   }
 }
@@ -1113,6 +1152,7 @@ function buildExhortoDocTasks(tasks: PdfDownloadTask[], docs: ExhortoDetalleDoc[
       origen: 'exhorto', tramite_pjud: d.tramite,
       folio: null, cuaderno: null, fecha: d.fecha, source_url: d.jwt.action,
       referencia: d.referencia,
+      exhorto_doc_id: ids[i],
     })
   }
 }
@@ -1213,6 +1253,25 @@ async function processOneDocument(
     captured_at: now.toISOString(),
     origen: task.origen,
     tramite_pjud: task.tramite_pjud,
+    // FK linkage to structured case tables
+    cuaderno_id: task.cuaderno_id ?? null,
+    folio_id: task.folio_id ?? null,
+    folio_anexo_id: task.folio_anexo_id ?? null,
+    anexo_causa_id: task.anexo_causa_id ?? null,
+    exhorto_doc_id: task.exhorto_doc_id ?? null,
+    remision_id: task.remision_id ?? null,
+    remision_mov_id: task.remision_mov_id ?? null,
+    remision_mov_anexo_id: task.remision_mov_anexo_id ?? null,
+    pieza_exhorto_id: task.pieza_exhorto_id ?? null,
+    escrito_id: task.escrito_id ?? null,
+    metadata: {
+      referencia: task.referencia ?? null,
+      tramite_pjud: task.tramite_pjud ?? null,
+      desc_tramite: task.desc_tramite ?? null,
+      folio_numero: task.folio ?? null,
+      cuaderno_nombre: task.cuaderno ?? null,
+      fecha: task.fecha ?? null,
+    } as Json,
   }
 
   const { data: createdDoc, error: docError } = await db

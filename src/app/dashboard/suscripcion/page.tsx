@@ -39,9 +39,9 @@ interface ProfileData {
 
 const PLAN_DISPLAY: Record<PlanType, { name: string; price: string; priceCLP: string; color: string; icon: typeof Crown }> = {
   free: { name: "Prueba Profesional", price: "Gratis", priceCLP: "$0", color: "bg-slate-100 text-slate-700", icon: Zap },
-  basico: { name: "Básico", price: "$20 USD/mes", priceCLP: "$16.990/mes", color: "bg-blue-100 text-blue-700", icon: Zap },
-  pro: { name: "Pro", price: "$60 USD/mes", priceCLP: "$49.990/mes", color: "bg-violet-100 text-violet-700", icon: Brain },
-  ultra: { name: "Ultra", price: "$99 USD/mes", priceCLP: "$89.990/mes", color: "bg-amber-100 text-amber-700", icon: Crown },
+  basico: { name: "Básico", price: "$24 USD/mes", priceCLP: "$19.990/mes", color: "bg-blue-100 text-blue-700", icon: Zap },
+  pro: { name: "Pro", price: "$80 USD/mes", priceCLP: "$69.990/mes", color: "bg-violet-100 text-violet-700", icon: Brain },
+  ultra: { name: "Ultra", price: "$170 USD/mes", priceCLP: "$149.990/mes", color: "bg-amber-100 text-amber-700", icon: Crown },
 }
 
 const PAID_PLANS: { type: PlanType; highlights: string[] }[] = [

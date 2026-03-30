@@ -73,8 +73,8 @@ export {
 export { buildSystemPrompt } from './prompts'
 export type { Procedimiento, BuildSystemPromptOptions } from './prompts'
 
-export { askCase, askCaseStream, retrieveChunks } from './rag'
-export type { AskCaseOptions, AskCaseResult, RetrievalOptions, RetrievalResult } from './rag'
+export { retrieveChunks } from './rag'
+export type { RetrievalOptions, RetrievalResult } from './rag'
 
 export { getEnhancedAnalysis, getEnhancedAnalysisStream } from './rag'
 export type { EnhancedAnalysisOptions, EnhancedAnalysisResult } from './rag'

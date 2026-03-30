@@ -155,6 +155,7 @@ export default function ChatPage() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; conv: ConversationInfo } | null>(null)
   const [renamingConvId, setRenamingConvId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [pendingDocsCount, setPendingDocsCount] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const authTokenRef = useRef<string | null>(null)
@@ -245,6 +246,28 @@ export default function ChatPage() {
       setMessages([])
       loadConversations(selectedCase.id)
     }
+  }, [selectedCase])
+
+  // Poll processing_queue to track pending document extraction for the selected case
+  useEffect(() => {
+    if (!selectedCase) { setPendingDocsCount(0); return }
+
+    let cancelled = false
+    const checkPending = async () => {
+      try {
+        const supabase = getSupabaseForQuery()
+        const { count } = await supabase
+          .from('processing_queue')
+          .select('*', { count: 'exact', head: true })
+          .eq('case_id', selectedCase.id)
+          .in('status', ['queued', 'processing'])
+        if (!cancelled) setPendingDocsCount(count ?? 0)
+      } catch { /* ignore */ }
+    }
+
+    checkPending()
+    const interval = setInterval(checkPending, 12_000)
+    return () => { cancelled = true; clearInterval(interval) }
   }, [selectedCase])
 
   useEffect(() => {
@@ -933,15 +956,22 @@ export default function ChatPage() {
                   ? MODES.find(m => m.value === action.recommendedMode)
                   : null
                 const willUpgrade = upgradeMode && action.recommendedMode !== mode
-                const tooltipText = willUpgrade
-                  ? `Cambiará a modo ${upgradeMode.label} para mejor análisis`
-                  : `Se ejecutará en modo ${currentMode.label}`
+                const isSyncAction = action.id === 'sync-updates'
+                const syncBlocked = isSyncAction && pendingDocsCount > 0
+                const isDisabled = isLoading || syncBlocked
+
+                const tooltipText = syncBlocked
+                  ? `Procesando ${pendingDocsCount} documento${pendingDocsCount !== 1 ? 's' : ''}… disponible cuando termine`
+                  : willUpgrade
+                    ? `Cambiará a modo ${upgradeMode!.label} para mejor análisis`
+                    : `Se ejecutará en modo ${currentMode.label}`
 
                 return (
                   <button
                     key={action.id}
                     type="button"
                     onClick={() => {
+                      if (isDisabled) return
                       if (willUpgrade && action.recommendedMode) {
                         setMode(action.recommendedMode)
                         sendMessage(action.query, action.recommendedMode)
@@ -949,19 +979,23 @@ export default function ChatPage() {
                         sendMessage(action.query)
                       }
                     }}
-                    disabled={isLoading}
+                    disabled={isDisabled}
                     title={tooltipText}
                     className={`text-[11px] px-2.5 py-1.5 rounded-full border transition-all cursor-pointer disabled:opacity-50 ${
-                      action.id === 'plazos-fatales'
-                        ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-400 font-medium'
-                        : 'border-border text-muted-foreground hover:text-foreground hover:border-blue-300 hover:bg-blue-50'
+                      syncBlocked
+                        ? 'border-orange-200 bg-orange-50/50 text-orange-400 cursor-not-allowed'
+                        : action.id === 'plazos-fatales'
+                          ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-400 font-medium'
+                          : 'border-border text-muted-foreground hover:text-foreground hover:border-blue-300 hover:bg-blue-50'
                     }`}
                   >
                     {action.id === 'plazos-fatales' && <span className="mr-0.5">⏱</span>}
-                    {action.label}
-                    {willUpgrade && (
-                      <span className="ml-1 opacity-60" title={`Requiere modo ${upgradeMode.label}`}>
-                        {upgradeMode.icon}
+                    {syncBlocked
+                      ? `⏳ Procesando ${pendingDocsCount} doc${pendingDocsCount !== 1 ? 's' : ''}…`
+                      : action.label}
+                    {!syncBlocked && willUpgrade && (
+                      <span className="ml-1 opacity-60" title={`Requiere modo ${upgradeMode!.label}`}>
+                        {upgradeMode!.icon}
                       </span>
                     )}
                   </button>

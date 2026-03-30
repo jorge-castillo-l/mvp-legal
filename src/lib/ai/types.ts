@@ -67,6 +67,7 @@ export interface AIContextChunk {
     cuaderno?: string
     fechaTramite?: string
     descTramite?: string
+    referencia?: string
     foja?: number
     pageNumber?: number
     procedimiento?: string

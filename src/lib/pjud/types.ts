@@ -401,8 +401,20 @@ export interface PdfDownloadTask {
   fecha: string | null
   source_url: string
   referencia?: string
+  desc_tramite?: string | null
   retry_count?: number
   skip_reason?: 'unsupported_format' | 'max_retries'
+  // FK linkage to structured case tables
+  cuaderno_id?: string
+  folio_id?: string
+  folio_anexo_id?: string
+  anexo_causa_id?: string
+  exhorto_doc_id?: string
+  remision_id?: string
+  remision_mov_id?: string
+  remision_mov_anexo_id?: string
+  pieza_exhorto_id?: string
+  escrito_id?: string
 }
 
 // ════════════════════════════════════════════════════════

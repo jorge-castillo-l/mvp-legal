@@ -101,12 +101,27 @@ function buildCaseContext(options: BuildSystemPromptOptions): string {
  *
  * The resulting string is passed directly to AIRequestOptions.systemPrompt.
  */
+const DOCUMENT_INTEGRITY_RULES = `
+REGLAS SOBRE DOCUMENTOS E INVENTARIO:
+Tu contexto incluye un INVENTARIO DE DOCUMENTOS que clasifica cada documento de la causa como:
+  - [INCLUIDO]: su texto completo está en tu contexto. Puedes analizar y citar su contenido.
+  - [NO INCLUIDO por presupuesto de contexto]: el texto fue extraído pero no cabe en este contexto. NO inventes ni supongas su contenido.
+  - [SIN TEXTO EXTRAÍDO]: el PDF existe pero aún no ha sido procesado. NO disponible.
+
+REGLAS CRÍTICAS:
+- Solo puedes afirmar sobre el contenido de documentos [INCLUIDO].
+- Si te preguntan por un documento [NO INCLUIDO] o [SIN TEXTO EXTRAÍDO], responde: "Ese documento existe en el expediente pero no tengo acceso a su contenido en este momento."
+- En los datos estructurados, las entradas con ✓ tienen contenido extraído en el sistema. Las que no tienen ✓ no lo tienen.
+- NUNCA inventes, parafrasees ni supongas el contenido de un documento al que no tienes acceso.
+- Es SIEMPRE preferible decir "no cuento con el contenido de ese documento" a inventar algo plausible.`
+
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const sections = [
     BASE_ROLE,
     options.isExplicitWebSearch ? MANDATORY_WEB_SEARCH_INSTRUCTION : '',
     buildCaseContext(options),
     BASE_RULES,
+    DOCUMENT_INTEGRITY_RULES,
     TERMINOLOGY,
     DEADLINE_RULES,
     CITATION_FORMAT,

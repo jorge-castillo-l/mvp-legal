@@ -1,20 +1,16 @@
 /**
  * ============================================================
- * RAG Module — Public API (Tareas 3.02 + 3.06)
+ * RAG Module — Public API
  * ============================================================
- * Capa 1 (fast_chat):
- *   import { askCase, askCaseStream } from '@/lib/ai/rag'
+ * Pipeline unificado para todos los modos (fast_chat, full_analysis,
+ * deep_thinking). Todos usan el enhanced pipeline con key docs,
+ * inventario de documentos y selección query-aware.
  *
- * Capas 2-3 (full_analysis / deep_thinking):
  *   import { getEnhancedAnalysis, getEnhancedAnalysisStream } from '@/lib/ai/rag'
  * ============================================================
  */
 
-// Capa 1 — Fast Chat (Gemini)
-export { askCase, askCaseStream } from './pipeline'
-export type { AskCaseOptions, AskCaseResult } from './pipeline'
-
-// Capas 2-3 — Enhanced Analysis (Claude Sonnet / Opus)
+// Unified pipeline (all modes)
 export { getEnhancedAnalysis, getEnhancedAnalysisStream } from './enhanced-pipeline'
 export type { EnhancedAnalysisOptions, EnhancedAnalysisResult } from './enhanced-pipeline'
 

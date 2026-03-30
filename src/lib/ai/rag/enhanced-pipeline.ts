@@ -1,32 +1,26 @@
 /**
  * ============================================================
- * Enhanced Analysis Pipeline — Tarea 3.06
+ * Unified Analysis Pipeline — Zero Hallucination Architecture
  * ============================================================
- * Pipeline para Capas 2-3 (Claude Sonnet / Claude Opus).
+ * Pipeline único para TODOS los modos (fast_chat, full_analysis,
+ * deep_thinking). Cada modo recibe el mismo contexto completo:
+ *   - Datos estructurados de la causa
+ *   - Documentos clave (query-aware, sin caps fijos por tipo)
+ *   - Inventario explícito de documentos (incluidos/no incluidos/pendientes)
+ *   - RAG chunks (15, búsqueda híbrida)
  *
- * Diferencias vs pipeline base (3.02):
- *   - topK ampliado (15 chunks vs 5)
- *   - Documentos clave completos según procedimiento
- *   - Contexto combinado: key docs + RAG chunks (deduplicados)
- *   - Persistencia idéntica (chat_messages)
+ * La diferencia entre modos es únicamente el modelo que responde:
+ *   fast_chat      → Gemini 3 Flash  (rápido, sin citas precisas)
+ *   full_analysis  → Claude Sonnet   (citas, análisis detallado)
+ *   deep_thinking  → Claude Opus     (extended thinking, razonamiento profundo)
  *
- * El router (3.01) ya maneja:
- *   - Citations API para Claude (document blocks)
- *   - Web Search Tool (jurisprudencia)
- *   - Extended Thinking (deep_thinking)
- *   - Prompt caching (3.05)
- *
- * Uso:
- *   const result = await getEnhancedAnalysis({
- *     caseId, conversationId, userId,
- *     query: '¿Procede recurso de casación?',
- *     mode: 'full_analysis',
- *   })
+ * El router (3.01) maneja la selección del provider automáticamente.
  * ============================================================
  */
 
 import { createAdminClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/database.types'
+import { MODEL_IDS } from '../config'
 import { getAIResponse, getAIResponseStream } from '../router'
 import { buildSystemPrompt, isDeadlineAnalysisQuery, getDeadlineAnalysisPrompt } from '../prompts'
 import { isSyncUpdatesQuery, fetchLastSyncChanges, getSyncUpdatesPrompt } from '../prompts/sync-updates-analysis'
@@ -48,6 +42,13 @@ import type {
 
 const ENHANCED_TOP_K = 15
 
+// Model persistence mapping
+const MODE_MODEL_MAP: Record<AIMode, { model: string; provider: 'google' | 'anthropic' }> = {
+  fast_chat: { model: MODEL_IDS.GEMINI_FLASH, provider: 'google' },
+  full_analysis: { model: MODEL_IDS.CLAUDE_SONNET, provider: 'anthropic' },
+  deep_thinking: { model: MODEL_IDS.CLAUDE_OPUS, provider: 'anthropic' },
+}
+
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ export interface EnhancedAnalysisOptions {
   conversationId: string
   userId: string
   query: string
-  mode: 'full_analysis' | 'deep_thinking'
+  mode: AIMode
   conversationHistory?: AIMessage[]
   enableWebSearch?: boolean
 }
@@ -72,11 +73,10 @@ export interface EnhancedAnalysisResult {
   }
 }
 
-// CaseMetadata is now provided by fetchCaseStructuredContext (no extra query)
 type CaseMetadata = CaseMetadataFromContext
 
 // ─────────────────────────────────────────────────────────────
-// Persistence (reuses same chat_messages table as 3.02)
+// Persistence
 // ─────────────────────────────────────────────────────────────
 
 async function persistUserMessage(
@@ -132,6 +132,7 @@ async function updateConversationTimestamp(conversationId: string): Promise<void
 function mergeContext(
   keyDocs: AIContextChunk[],
   ragChunks: AIContextChunk[],
+  inventoryChunk: AIContextChunk | null,
 ): AIContextChunk[] {
   const keyDocIds = new Set(keyDocs.map(d => d.metadata.documentId))
 
@@ -141,20 +142,37 @@ function mergeContext(
     return true
   })
 
-  return [...keyDocs, ...uniqueRagChunks]
+  const parts: AIContextChunk[] = []
+  if (inventoryChunk) parts.push(inventoryChunk)
+  parts.push(...keyDocs, ...uniqueRagChunks)
+  return parts
 }
 
 // ─────────────────────────────────────────────────────────────
-// getEnhancedAnalysis — Non-streaming
+// Shared retrieval logic
 // ─────────────────────────────────────────────────────────────
 
-export async function getEnhancedAnalysis(
-  options: EnhancedAnalysisOptions,
-): Promise<EnhancedAnalysisResult> {
-  const retrievalStart = Date.now()
-
+async function retrieveFullContext(options: EnhancedAnalysisOptions) {
   const structuredResult = await fetchCaseStructuredContext(options.caseId)
   const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
+
+  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
+  const explicitWeb = isExplicitWebSearchRequest(options.query)
+  const deadlineMode = isDeadlineAnalysisQuery(options.query)
+  const syncUpdatesMode = !deadlineMode && isSyncUpdatesQuery(options.query)
+
+  // Detect sync changes BEFORE key doc selection so we can prioritize changed docs
+  let syncChanges: import('@/lib/pjud/types').SyncChange[] | undefined
+  let specializedPrompt: string | undefined
+  if (deadlineMode) {
+    specializedPrompt = getDeadlineAnalysisPrompt()
+  } else if (syncUpdatesMode) {
+    const changes = await fetchLastSyncChanges(options.caseId)
+    if (changes && changes.length > 0) {
+      syncChanges = changes
+      specializedPrompt = getSyncUpdatesPrompt(changes)
+    }
+  }
 
   const [retrieval, keyDocsResult] = await Promise.all([
     retrieveChunks({
@@ -162,26 +180,16 @@ export async function getEnhancedAnalysis(
       query: options.query,
       topK: ENHANCED_TOP_K,
     }),
-    fetchKeyDocuments(options.caseId, caseMeta?.procedimiento ?? null),
+    fetchKeyDocuments(options.caseId, caseMeta?.procedimiento ?? null, options.query, syncChanges, deadlineMode),
   ])
 
-  const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
-  const retrievalDurationMs = Date.now() - retrievalStart
-
-  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
-  const explicitWeb = isExplicitWebSearchRequest(options.query)
-  const deadlineMode = isDeadlineAnalysisQuery(options.query)
-  const syncUpdatesMode = !deadlineMode && isSyncUpdatesQuery(options.query)
-
-  let specializedPrompt: string | undefined
-  if (deadlineMode) {
-    specializedPrompt = getDeadlineAnalysisPrompt()
-  } else if (syncUpdatesMode) {
-    const syncChanges = await fetchLastSyncChanges(options.caseId)
-    if (syncChanges && syncChanges.length > 0) {
-      specializedPrompt = getSyncUpdatesPrompt(syncChanges)
-    }
+  const inventoryChunk: AIContextChunk = {
+    chunkId: 'doc-inventory',
+    text: keyDocsResult.inventory,
+    metadata: { documentType: 'inventory', sectionType: 'doc_inventory' },
   }
+
+  const merged = mergeContext(keyDocsResult.documents, retrieval.chunks, inventoryChunk)
 
   const fullContext = deadlineMode || syncUpdatesMode
   const structuredChunk = structuredResult
@@ -197,6 +205,21 @@ export async function getEnhancedAnalysis(
     isExplicitWebSearch: webSearch && explicitWeb,
     specializedPrompt,
   })
+
+  return { context, systemPrompt, webSearch, explicitWeb, retrieval, keyDocsResult }
+}
+
+// ─────────────────────────────────────────────────────────────
+// getEnhancedAnalysis — Non-streaming
+// ─────────────────────────────────────────────────────────────
+
+export async function getEnhancedAnalysis(
+  options: EnhancedAnalysisOptions,
+): Promise<EnhancedAnalysisResult> {
+  const retrievalStart = Date.now()
+  const { context, systemPrompt, webSearch, explicitWeb, retrieval, keyDocsResult } =
+    await retrieveFullContext(options)
+  const retrievalDurationMs = Date.now() - retrievalStart
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
 
@@ -234,49 +257,8 @@ export async function getEnhancedAnalysis(
 export async function* getEnhancedAnalysisStream(
   options: EnhancedAnalysisOptions,
 ): AIResponseStream {
-  const structuredResult = await fetchCaseStructuredContext(options.caseId)
-  const caseMeta: CaseMetadata | null = structuredResult?.caseMeta ?? null
-
-  const [retrieval, keyDocsResult] = await Promise.all([
-    retrieveChunks({
-      caseId: options.caseId,
-      query: options.query,
-      topK: ENHANCED_TOP_K,
-    }),
-    fetchKeyDocuments(options.caseId, caseMeta?.procedimiento ?? null),
-  ])
-
-  const merged = mergeContext(keyDocsResult.documents, retrieval.chunks)
-
-  const webSearch = options.enableWebSearch || shouldEnableWebSearch(options.query)
-  const explicitWeb = isExplicitWebSearchRequest(options.query)
-  const deadlineMode = isDeadlineAnalysisQuery(options.query)
-  const syncUpdatesMode = !deadlineMode && isSyncUpdatesQuery(options.query)
-
-  let specializedPrompt: string | undefined
-  if (deadlineMode) {
-    specializedPrompt = getDeadlineAnalysisPrompt()
-  } else if (syncUpdatesMode) {
-    const syncChanges = await fetchLastSyncChanges(options.caseId)
-    if (syncChanges && syncChanges.length > 0) {
-      specializedPrompt = getSyncUpdatesPrompt(syncChanges)
-    }
-  }
-
-  const fullContext = deadlineMode || syncUpdatesMode
-  const structuredChunk = structuredResult
-    ? (fullContext ? structuredResult.chunk : getFilteredContextChunk(structuredResult, options.query))
-    : null
-  const context = structuredChunk ? [structuredChunk, ...merged] : merged
-
-  const systemPrompt = buildSystemPrompt({
-    procedimiento: caseMeta?.procedimiento,
-    mode: options.mode,
-    rol: caseMeta?.rol,
-    tribunal: caseMeta?.tribunal,
-    isExplicitWebSearch: webSearch && explicitWeb,
-    specializedPrompt,
-  })
+  const { context, systemPrompt, webSearch, explicitWeb } =
+    await retrieveFullContext(options)
 
   await persistUserMessage(options.conversationId, options.userId, options.query)
 
@@ -320,9 +302,7 @@ export async function* getEnhancedAnalysisStream(
     }
   }
 
-  const modeConfig = options.mode === 'deep_thinking'
-    ? { model: 'claude-opus-4-6', provider: 'anthropic' as const }
-    : { model: 'claude-sonnet-4-6', provider: 'anthropic' as const }
+  const modeConfig = MODE_MODEL_MAP[options.mode]
 
   const responseForPersistence: AIResponse = {
     text: fullText,

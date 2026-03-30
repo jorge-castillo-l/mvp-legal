@@ -4,9 +4,11 @@
  * ============================================================
  * Configuración centralizada por capa (modo).
  *
- * Capa 1 (fast_chat):     Gemini 3 Flash  — $0.50/$3.00 /MTok
- * Capa 2 (full_analysis): Claude Sonnet   — $3/$15 /MTok
- * Capa 3 (deep_thinking): Claude Opus     — $5/$25 /MTok
+ * Capa 1 (fast_chat):     Gemini 3 Flash  — $0.50/$3.00 /MTok (cache read: $0.03)
+ * Capa 2 (full_analysis): Claude Sonnet 4.6 — $3/$15 /MTok (cache read: $0.30)
+ * Capa 3 (deep_thinking): Claude Opus 4.6  — $5/$25 /MTok (cache read: $0.50)
+ *
+ * Context windows: 1M tokens (todos los modelos, marzo 2026).
  *
  * Cada config define: modelo, tokens, temperatura, features.
  * El router (router.ts) usa esto para instanciar el provider
@@ -52,7 +54,7 @@ export const MODEL_CONFIGS: Record<AIMode, ModelConfig> = {
     provider: 'anthropic',
     modelId: MODEL_IDS.CLAUDE_SONNET,
     displayName: 'Análisis Completo',
-    maxInputTokens: 200_000,
+    maxInputTokens: 1_000_000,
     maxOutputTokens: 8_192,
     temperature: 0.4,
     costPerMInputTokens: 3.00,
@@ -69,7 +71,7 @@ export const MODEL_CONFIGS: Record<AIMode, ModelConfig> = {
     provider: 'anthropic',
     modelId: MODEL_IDS.CLAUDE_OPUS,
     displayName: 'Pensamiento Profundo',
-    maxInputTokens: 200_000,
+    maxInputTokens: 1_000_000,
     maxOutputTokens: 16_384,
     temperature: 1,  // Required by Anthropic when extended thinking is enabled
     costPerMInputTokens: 5.00,

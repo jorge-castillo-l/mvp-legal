@@ -92,12 +92,14 @@ interface DbNotificacion {
 }
 
 interface DbFolioAnexo {
+  id: string
   folio_id: string
   referencia: string | null
   fecha: string | null
 }
 
 interface DbAnexoCausa {
+  id: string
   referencia: string | null
   fecha: string | null
 }
@@ -121,6 +123,7 @@ interface DbExhorto {
 }
 
 interface DbExhortoDoc {
+  id: string
   exhorto_id: string
   tramite: string | null
   referencia: string | null
@@ -128,6 +131,7 @@ interface DbExhortoDoc {
 }
 
 interface DbPiezaExhorto {
+  id: string
   cuaderno_id: string
   cuaderno_pieza: string | null
   numero_folio: number
@@ -164,6 +168,7 @@ interface DbRemisionMov {
 }
 
 interface DbRemisionMovAnexo {
+  id: string
   movimiento_id: string
   tipo_documento: string | null
   codigo: string | null
@@ -189,6 +194,24 @@ interface DbRemisionIncompetencia {
   incompetencia: string | null
 }
 
+// ── Document content availability (FK-based lookup) ─────────
+
+interface DocContentAvailability {
+  folioIds: Set<string>
+  folioAnexoIds: Set<string>
+  anexoCausaIds: Set<string>
+  exhortoDocIds: Set<string>
+  remisionMovIds: Set<string>
+  remisionMovAnexoIds: Set<string>
+  piezaExhortoIds: Set<string>
+}
+
+const EMPTY_AVAILABILITY: DocContentAvailability = {
+  folioIds: new Set(), folioAnexoIds: new Set(), anexoCausaIds: new Set(),
+  exhortoDocIds: new Set(), remisionMovIds: new Set(), remisionMovAnexoIds: new Set(),
+  piezaExhortoIds: new Set(),
+}
+
 // ── All fetched data in a single bag ─────────────────────────
 
 interface CaseData {
@@ -210,6 +233,7 @@ interface CaseData {
   remLitigantes: DbRemisionLitigante[]
   remExhortos: DbRemisionExhorto[]
   remIncompetencias: DbRemisionIncompetencia[]
+  docAvailability: DocContentAvailability
 }
 
 // ── Public types ─────────────────────────────────────────────
@@ -331,6 +355,7 @@ export async function fetchCaseStructuredContext(
     exhortosRes, exhortoDocsRes, piezasExhortoRes,
     remisionesRes, remMovsRes, remMovAnexosRes,
     remLitigantesRes, remExhortosRes, remIncompetenciasRes,
+    docAvailRes,
   ] = await Promise.all([
     q.from('cases')
       .select('rol, caratula, tribunal, materia, procedimiento, fecha_ingreso, estado, estado_procesal, etapa, ubicacion, libro_tipo, causa_origen_rol, causa_origen_tribunal')
@@ -351,10 +376,10 @@ export async function fetchCaseStructuredContext(
       .select('cuaderno_id, tramite, fecha_tramite, tipo_notif, tipo_participante, nombre, estado_notif, obs_fallida')
       .eq('case_id', caseId).order('fecha_tramite', { ascending: true }) as Promise<{ data: DbNotificacion[] | null }>,
     q.from('case_folio_anexos')
-      .select('folio_id, referencia, fecha')
+      .select('id, folio_id, referencia, fecha')
       .eq('case_id', caseId) as Promise<{ data: DbFolioAnexo[] | null }>,
     q.from('case_anexos_causa')
-      .select('referencia, fecha')
+      .select('id, referencia, fecha')
       .eq('case_id', caseId) as Promise<{ data: DbAnexoCausa[] | null }>,
     q.from('case_receptor_retiros')
       .select('cuaderno, datos_retiro, estado, fecha_retiro')
@@ -363,10 +388,10 @@ export async function fetchCaseStructuredContext(
       .select('id, tipo_exhorto, estado_exhorto, fecha_ordena, fecha_ingreso, rol_origen, rol_destino, tribunal_destino')
       .eq('case_id', caseId) as Promise<{ data: DbExhorto[] | null }>,
     q.from('case_exhorto_docs')
-      .select('exhorto_id, tramite, referencia, fecha')
+      .select('id, exhorto_id, tramite, referencia, fecha')
       .eq('case_id', caseId) as Promise<{ data: DbExhortoDoc[] | null }>,
     q.from('case_piezas_exhorto')
-      .select('cuaderno_id, cuaderno_pieza, numero_folio, tramite, desc_tramite, fecha_tramite, foja, tiene_doc')
+      .select('id, cuaderno_id, cuaderno_pieza, numero_folio, tramite, desc_tramite, fecha_tramite, foja, tiene_doc')
       .eq('case_id', caseId) as Promise<{ data: DbPiezaExhorto[] | null }>,
     q.from('case_remisiones')
       .select('id, corte, recurso, libro, fecha, estado_recurso, estado_procesal, ubicacion, exp_caratulado, exp_materia, exp_tribunal')
@@ -375,7 +400,7 @@ export async function fetchCaseStructuredContext(
       .select('id, remision_id, numero_folio, tramite, descripcion, fecha, estado, sala')
       .eq('case_id', caseId).order('numero_folio', { ascending: true }) as Promise<{ data: DbRemisionMov[] | null }>,
     q.from('case_remision_mov_anexos')
-      .select('movimiento_id, tipo_documento, codigo, cantidad, observacion')
+      .select('id, movimiento_id, tipo_documento, codigo, cantidad, observacion')
       .eq('case_id', caseId) as Promise<{ data: DbRemisionMovAnexo[] | null }>,
     q.from('case_remision_litigantes')
       .select('remision_id, sujeto, nombre_razon_social, rut, persona')
@@ -386,7 +411,13 @@ export async function fetchCaseStructuredContext(
     q.from('case_remision_incompetencias')
       .select('remision_id, incompetencia')
       .eq('case_id', caseId) as Promise<{ data: DbRemisionIncompetencia[] | null }>,
+    q.from('documents')
+      .select('folio_id, folio_anexo_id, anexo_causa_id, exhorto_doc_id, remision_mov_id, remision_mov_anexo_id, pieza_exhorto_id, extracted_texts!inner(status)')
+      .eq('case_id', caseId)
+      .eq('extracted_texts.status', 'completed') as Promise<{ data: { folio_id: string | null; folio_anexo_id: string | null; anexo_causa_id: string | null; exhorto_doc_id: string | null; remision_mov_id: string | null; remision_mov_anexo_id: string | null; pieza_exhorto_id: string | null }[] | null }>,
   ])
+
+  const docAvailability = buildDocAvailability(docAvailRes.data)
 
   const data: CaseData = {
     caso: caseRes.data,
@@ -407,6 +438,7 @@ export async function fetchCaseStructuredContext(
     remLitigantes: remLitigantesRes.data ?? [],
     remExhortos: remExhortosRes.data ?? [],
     remIncompetencias: remIncompetenciasRes.data ?? [],
+    docAvailability,
   }
 
   if (!data.caso && data.cuadernos.length === 0) {
@@ -442,9 +474,32 @@ export async function fetchCaseStructuredContext(
   return result
 }
 
+// ── Document availability builder ────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildDocAvailability(docs: any[] | null): DocContentAvailability {
+  if (!docs || docs.length === 0) return EMPTY_AVAILABILITY
+  const a: DocContentAvailability = {
+    folioIds: new Set(), folioAnexoIds: new Set(), anexoCausaIds: new Set(),
+    exhortoDocIds: new Set(), remisionMovIds: new Set(), remisionMovAnexoIds: new Set(),
+    piezaExhortoIds: new Set(),
+  }
+  for (const d of docs) {
+    if (d.folio_id) a.folioIds.add(d.folio_id)
+    if (d.folio_anexo_id) a.folioAnexoIds.add(d.folio_anexo_id)
+    if (d.anexo_causa_id) a.anexoCausaIds.add(d.anexo_causa_id)
+    if (d.exhorto_doc_id) a.exhortoDocIds.add(d.exhorto_doc_id)
+    if (d.remision_mov_id) a.remisionMovIds.add(d.remision_mov_id)
+    if (d.remision_mov_anexo_id) a.remisionMovAnexoIds.add(d.remision_mov_anexo_id)
+    if (d.pieza_exhorto_id) a.piezaExhortoIds.add(d.pieza_exhorto_id)
+  }
+  return a
+}
+
 // ── Formatters ───────────────────────────────────────────────
 
 function formatStructuredContext(d: CaseData): string {
+  const av = d.docAvailability
   const lines: string[] = [
     '=== DATOS COMPLETOS DE LA CAUSA (fuente de verdad del expediente) ===',
     '',
@@ -452,16 +507,16 @@ function formatStructuredContext(d: CaseData): string {
 
   fmtDatosGenerales(lines, d.caso)
   fmtLitigantes(lines, d.litigantes, d.cuadernos[0]?.id)
-  fmtCuadernosFolios(lines, d.cuadernos, d.folios, d.folioAnexos)
+  fmtCuadernosFolios(lines, d.cuadernos, d.folios, d.folioAnexos, av)
   fmtEscritos(lines, d.escritos)
   fmtNotificaciones(lines, d.notificaciones)
-  fmtAnexosCausa(lines, d.anexosCausa)
+  fmtAnexosCausa(lines, d.anexosCausa, av)
   fmtReceptorRetiros(lines, d.receptorRetiros)
-  fmtExhortos(lines, d.exhortos, d.exhortoDocs, d.piezasExhorto)
-  fmtRemisiones(lines, d.remisiones, d.remMovs, d.remMovAnexos, d.remLitigantes, d.remExhortos, d.remIncompetencias)
+  fmtExhortos(lines, d.exhortos, d.exhortoDocs, d.piezasExhorto, av)
+  fmtRemisiones(lines, d.remisiones, d.remMovs, d.remMovAnexos, d.remLitigantes, d.remExhortos, d.remIncompetencias, av)
 
   lines.push('=== FIN DATOS DE LA CAUSA ===')
-  lines.push('NOTA: Esta información es la fuente de verdad del expediente. El ebook de PJUD puede omitir Actuaciones de Receptor en su tabla de contenidos.')
+  lines.push('NOTA: Esta información es la fuente de verdad del expediente. ✓ = documento PDF con contenido extraído disponible para análisis detallado.')
   return lines.join('\n')
 }
 
@@ -500,7 +555,7 @@ function fmtLitigantes(lines: string[], litigantes: DbLitigante[], firstCuaderno
   lines.push('')
 }
 
-function fmtCuadernosFolios(lines: string[], cuadernos: DbCuaderno[], folios: DbFolio[], folioAnexos: DbFolioAnexo[]) {
+function fmtCuadernosFolios(lines: string[], cuadernos: DbCuaderno[], folios: DbFolio[], folioAnexos: DbFolioAnexo[], av: DocContentAvailability) {
   for (const cuaderno of cuadernos) {
     const cuadernoFolios = folios
       .filter(f => f.cuaderno_id === cuaderno.id)
@@ -512,11 +567,14 @@ function fmtCuadernosFolios(lines: string[], cuadernos: DbCuaderno[], folios: Db
     lines.push(`  Total folios: ${cuadernoFolios.length}`)
 
     for (const f of cuadernoFolios) {
-      lines.push(`  F${f.numero_folio}: ${kv([f.tramite, f.desc_tramite, f.fecha_tramite, f.foja != null && `foja ${f.foja}`, f.tiene_doc_principal && 'con doc'])}`)
+      const hasContent = av.folioIds.has(f.id)
+      const docMark = f.tiene_doc_principal ? (hasContent ? '✓' : 'con doc') : ''
+      lines.push(`  F${f.numero_folio}: ${kv([f.tramite, f.desc_tramite, f.fecha_tramite, f.foja != null && `foja ${f.foja}`, docMark])}`)
 
       const anexos = folioAnexos.filter(a => a.folio_id === f.id)
       for (const a of anexos) {
-        lines.push(`    -> Anexo: ${kv([a.referencia, a.fecha])}`)
+        const anexoMark = av.folioAnexoIds.has(a.id) ? ' ✓' : ''
+        lines.push(`    -> Anexo: ${kv([a.referencia, a.fecha])}${anexoMark}`)
       }
     }
     lines.push('')
@@ -542,11 +600,12 @@ function fmtNotificaciones(lines: string[], notificaciones: DbNotificacion[]) {
   lines.push('')
 }
 
-function fmtAnexosCausa(lines: string[], anexos: DbAnexoCausa[]) {
+function fmtAnexosCausa(lines: string[], anexos: DbAnexoCausa[], av: DocContentAvailability) {
   if (anexos.length === 0) return
   lines.push('ANEXOS DE LA CAUSA:')
   for (const a of anexos) {
-    lines.push(`- ${kv([a.referencia, a.fecha])}`)
+    const mark = av.anexoCausaIds.has(a.id) ? ' ✓' : ''
+    lines.push(`- ${kv([a.referencia, a.fecha])}${mark}`)
   }
   lines.push('')
 }
@@ -560,7 +619,7 @@ function fmtReceptorRetiros(lines: string[], retiros: DbReceptorRetiro[]) {
   lines.push('')
 }
 
-function fmtExhortos(lines: string[], exhortos: DbExhorto[], docs: DbExhortoDoc[], piezas: DbPiezaExhorto[]) {
+function fmtExhortos(lines: string[], exhortos: DbExhorto[], docs: DbExhortoDoc[], piezas: DbPiezaExhorto[], av: DocContentAvailability) {
   if (exhortos.length === 0) return
   lines.push('EXHORTOS:')
   for (const ex of exhortos) {
@@ -575,14 +634,17 @@ function fmtExhortos(lines: string[], exhortos: DbExhorto[], docs: DbExhortoDoc[
 
     const exDocs = docs.filter(d => d.exhorto_id === ex.id)
     for (const d of exDocs) {
-      lines.push(`  Doc: ${kv([d.tramite, d.referencia, d.fecha])}`)
+      const mark = av.exhortoDocIds.has(d.id) ? ' ✓' : ''
+      lines.push(`  Doc: ${kv([d.tramite, d.referencia, d.fecha])}${mark}`)
     }
   }
 
   if (piezas.length > 0) {
     lines.push('PIEZAS DE EXHORTO:')
     for (const p of piezas) {
-      lines.push(`  P${p.numero_folio}: ${kv([p.tramite, p.desc_tramite, p.fecha_tramite, p.foja != null && `foja ${p.foja}`, p.tiene_doc && 'con doc'])}`)
+      const hasContent = av.piezaExhortoIds.has(p.id)
+      const docMark = p.tiene_doc ? (hasContent ? '✓' : 'con doc') : ''
+      lines.push(`  P${p.numero_folio}: ${kv([p.tramite, p.desc_tramite, p.fecha_tramite, p.foja != null && `foja ${p.foja}`, docMark])}`)
     }
   }
   lines.push('')
@@ -596,6 +658,7 @@ function fmtRemisiones(
   litigs: DbRemisionLitigante[],
   exhortos: DbRemisionExhorto[],
   incomp: DbRemisionIncompetencia[],
+  av: DocContentAvailability,
 ) {
   if (remisiones.length === 0) return
   lines.push('RECURSOS EN CORTE (REMISIONES):')
@@ -628,10 +691,12 @@ function fmtRemisiones(
     if (rMovs.length > 0) {
       lines.push('  Movimientos:')
       for (const m of rMovs) {
-        lines.push(`  M${m.numero_folio}: ${kv([m.tramite, m.descripcion, m.fecha, m.estado, m.sala && `sala ${m.sala}`])}`)
+        const movMark = av.remisionMovIds.has(m.id) ? ' ✓' : ''
+        lines.push(`  M${m.numero_folio}: ${kv([m.tramite, m.descripcion, m.fecha, m.estado, m.sala && `sala ${m.sala}`])}${movMark}`)
         const mAnexos = movAnexos.filter(a => a.movimiento_id === m.id)
         for (const a of mAnexos) {
-          lines.push(`    -> Anexo: ${kv([a.tipo_documento, a.codigo, a.cantidad && `cant: ${a.cantidad}`, a.observacion])}`)
+          const anexoMark = av.remisionMovAnexoIds.has(a.id) ? ' ✓' : ''
+          lines.push(`    -> Anexo: ${kv([a.tipo_documento, a.codigo, a.cantidad && `cant: ${a.cantidad}`, a.observacion])}${anexoMark}`)
         }
       }
     }

@@ -17,7 +17,8 @@ import { createClient, createAdminClient, createClientWithToken } from '@/lib/su
 import { getCorsHeaders, handleCorsOptions } from '@/lib/cors'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rate-limit'
 import { checkPlanLimits, incrementPlanCounter, modeToActionType, planLimitErrorBody } from '@/lib/plan-guard'
-import { askCaseStream } from '@/lib/ai/rag/pipeline'
+// Pipeline básico ya no se usa — todo va por el enhanced pipeline unificado
+// import { askCaseStream } from '@/lib/ai/rag/pipeline'
 import { getEnhancedAnalysisStream } from '@/lib/ai/rag/enhanced-pipeline'
 import { aiStreamToResilientSSE } from '@/lib/ai/router'
 import { MODEL_IDS } from '@/lib/ai/config'
@@ -106,26 +107,14 @@ export async function POST(request: NextRequest) {
 
     autoTitleIfNeeded(conversationId, query)
 
-    let stream
-    if (mode === 'fast_chat') {
-      stream = askCaseStream({
-        caseId,
-        conversationId,
-        userId,
-        query,
-        mode,
-        enableWebSearch: enableWebSearch ?? false,
-      })
-    } else {
-      stream = getEnhancedAnalysisStream({
-        caseId,
-        conversationId,
-        userId,
-        query,
-        mode: mode as 'full_analysis' | 'deep_thinking',
-        enableWebSearch: enableWebSearch ?? false,
-      })
-    }
+    const stream = getEnhancedAnalysisStream({
+      caseId,
+      conversationId,
+      userId,
+      query,
+      mode,
+      enableWebSearch: enableWebSearch ?? false,
+    })
 
     const sseStream = aiStreamToResilientSSE(stream)
 

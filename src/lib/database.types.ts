@@ -39,30 +39,36 @@ export type {
 } from '@/types/database'
 
 /**
- * Plan Limits Constants — Tareas 6.04 + 6.01
+ * Plan Limits Constants — Zero Hallucination Architecture
  *
- * 4 planes con 3 capas de IA (fast_chat / full_analysis / deep_thinking).
- * Margen ~70% por plan para usuario típico (40% de límites).
- * Precios en CLP (Flow.cl) — equivalente USD como referencia.
+ * 4 planes con 3 capas de IA. Pipeline unificado (todos los modos
+ * reciben key docs completos + inventario), lo que incrementa el
+ * costo de fast_chat vs arquitectura anterior.
+ *
+ * Costos IA estimados por plan (margen mínimo 40%):
+ *   FREE:   ~$1.50 lifetime (loss leader)
+ *   BÁSICO: ~$11/mes → precio $24 → margen 54%
+ *   PRO:    ~$42/mes → precio $80 → margen 47%
+ *   ULTRA:  ~$95/mes → precio $170 → margen 44%
  *
  * FREE (Prueba Profesional — 7 días):
- *   1 causa | 20 fast_chat | 5 full_analysis | 3 deep_thinking (lifetime)
+ *   1 causa | 20 fast_chat | 5 full_analysis | 2 deep_thinking (lifetime)
  *
- * BÁSICO ($16.990 CLP/mes ≈ $20 USD):
+ * BÁSICO ($19.990 CLP/mes ≈ $24 USD):
  *   10 causas | 200 fast_chat | 15 full_analysis | 5 deep_thinking (mensual)
  *
- * PRO ($49.990 CLP/mes ≈ $60 USD):
- *   30 causas | 600 fast_chat (soft cap) | 60 full_analysis | 15 deep_thinking
+ * PRO ($69.990 CLP/mes ≈ $80 USD):
+ *   30 causas | 500 fast_chat (soft cap) | 50 full_analysis | 12 deep_thinking
  *
- * ULTRA ($89.990 CLP/mes ≈ $99 USD):
- *   100 causas | 1000 fast_chat (soft cap) | 150 full_analysis | 30 deep_thinking
+ * ULTRA ($149.990 CLP/mes ≈ $170 USD):
+ *   100 causas | 800 fast_chat (soft cap) | 100 full_analysis | 25 deep_thinking
  */
 export const PLAN_LIMITS = {
   free: {
     cases: 1,
     fast_chat: 20,
     full_analysis: 5,
-    deep_thinking: 3,
+    deep_thinking: 2,
     retention_days: 7,
     price_clp: 0,
     price_usd: 0,
@@ -73,32 +79,32 @@ export const PLAN_LIMITS = {
     full_analysis: 15,
     deep_thinking: 5,
     retention_days: Infinity,
-    price_clp: 16_990,
-    price_usd: 20,
+    price_clp: 19_990,
+    price_usd: 24,
   },
   pro: {
     cases: 30,
-    fast_chat: 600,
-    full_analysis: 60,
-    deep_thinking: 15,
+    fast_chat: 500,
+    full_analysis: 50,
+    deep_thinking: 12,
     retention_days: Infinity,
-    price_clp: 49_990,
-    price_usd: 60,
+    price_clp: 69_990,
+    price_usd: 80,
     fair_use: {
-      fast_chat_soft_cap_monthly: 600,
+      fast_chat_soft_cap_monthly: 500,
       throttle_ms: 30_000,
     },
   },
   ultra: {
     cases: 100,
-    fast_chat: 1_000,
-    full_analysis: 150,
-    deep_thinking: 30,
+    fast_chat: 800,
+    full_analysis: 100,
+    deep_thinking: 25,
     retention_days: Infinity,
-    price_clp: 89_990,
-    price_usd: 99,
+    price_clp: 149_990,
+    price_usd: 170,
     fair_use: {
-      fast_chat_soft_cap_monthly: 1_000,
+      fast_chat_soft_cap_monthly: 800,
       throttle_ms: 30_000,
     },
   },
